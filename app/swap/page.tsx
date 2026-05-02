@@ -140,7 +140,7 @@ export default function SwapPage() {
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Horse Swap</h1>
             <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Quick in-the-moment horse assignment</p>
           </div>
-          <div style={{ display: 'flex', align: 'center', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex',  gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {doubleAssignWarning && (
               <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600 }}>
                 ⚡ {doubleAssignWarning}
