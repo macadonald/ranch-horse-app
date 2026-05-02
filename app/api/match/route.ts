@@ -38,11 +38,13 @@ export async function POST(req: NextRequest) {
     }
 
     const assignmentMap: Record<string, { guests: { name: string; room_number: string; check_out_date: string }; assignment_type: string }[]> = {}
-    ;(assignments || []).forEach((a: { horse_name: string; assignment_type: string; guests: { name: string; room_number: string; check_out_date: string } }) => {
+    ;(assignments || []).forEach((a: any) => {
       if (!a.guests) return
-      if (a.guests.check_out_date < today) return
+      const guest = Array.isArray(a.guests) ? a.guests[0] : a.guests
+      if (!guest) return
+      if (guest.check_out_date < today) return
       if (!assignmentMap[a.horse_name]) assignmentMap[a.horse_name] = []
-      assignmentMap[a.horse_name].push(a)
+      assignmentMap[a.horse_name].push({ ...a, guests: guest })
     })
 
     const tomorrow = new Date()
