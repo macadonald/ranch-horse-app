@@ -58,6 +58,7 @@ export default function GuestsPage() {
   const [matchLoading, setMatchLoading] = useState(false)
   const [dismissedHorses, setDismissedHorses] = useState<string[]>([])
   const [assigningHorse, setAssigningHorse] = useState<string | null>(null)
+  const [assignmentConfirmation, setAssignmentConfirmation] = useState<string | null>(null)
   const [manualHorse, setManualHorse] = useState('')
   const [manualType, setManualType] = useState('primary')
   const [savingManual, setSavingManual] = useState(false)
@@ -71,7 +72,8 @@ export default function GuestsPage() {
     try {
       const res = await fetch('/api/guests')
       const data = await res.json()
-      setGuests(data.guests || [])
+      // Auto-filter: only show guests who haven't checked out
+      setGuests((data.guests || []))
     } catch (err) {
       console.error('Failed to fetch guests:', err)
     } finally {
@@ -81,7 +83,9 @@ export default function GuestsPage() {
 
   useEffect(() => { fetchGuests() }, [fetchGuests])
 
+  // Auto-checkout: filter out guests past their checkout date
   const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
+  
   const filteredGuests = activeGuests.filter(g =>
     g.name?.toLowerCase().includes(search.toLowerCase()) ||
     g.room_number?.toLowerCase().includes(search.toLowerCase())
@@ -94,6 +98,7 @@ export default function GuestsPage() {
     setMatches([])
     setDismissedHorses([])
     setManualHorse('')
+    setAssignmentConfirmation(null)
     await runMatch(guest, [])
   }
 
@@ -133,6 +138,7 @@ export default function GuestsPage() {
   async function assignHorse(horseName: string, type: string, requestedByGuest = false) {
     if (!selectedGuest) return
     setAssigningHorse(horseName)
+    setAssignmentConfirmation(null)
     try {
       await fetch('/api/assignments', {
         method: 'POST',
@@ -146,11 +152,11 @@ export default function GuestsPage() {
           requested_by_guest: requestedByGuest,
         }),
       })
+      // Show confirmation banner
+      setAssignmentConfirmation(`✓ ${horseName} assigned to ${selectedGuest.name} as ${type} horse`)
+      // Clear after 4 seconds
+      setTimeout(() => setAssignmentConfirmation(null), 4000)
       await fetchGuests()
-      setTimeout(() => {
-        const updated = guests.find(g => g.id === selectedGuest.id)
-        if (updated) setSelectedGuest(updated)
-      }, 300)
     } catch (err) {
       console.error('Assign error:', err)
     } finally {
@@ -208,6 +214,21 @@ export default function GuestsPage() {
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
       <Sidebar />
       <main style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+
+        {/* Assignment confirmation banner */}
+        {assignmentConfirmation && (
+          <div style={{
+            position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+            background: '#065f46', color: '#fff', padding: '12px 24px',
+            borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000,
+            display: 'flex', alignItems: 'center', gap: 8,
+            animation: 'fadeInUp 0.2s ease',
+          }}>
+            {assignmentConfirmation}
+          </div>
+        )}
+
         <div style={{
           background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)',
           padding: '16px 24px', position: 'sticky', top: 0, zIndex: 10,
@@ -226,6 +247,7 @@ export default function GuestsPage() {
         </div>
 
         <div style={{ display: 'flex', height: 'calc(100vh - 73px)' }}>
+          {/* Guest list */}
           <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
             {loading ? (
               <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading...</p>
@@ -255,9 +277,11 @@ export default function GuestsPage() {
             })}
           </div>
 
+          {/* Guest profile */}
           {selectedGuest && (
             <div style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }}>
               <div style={{ maxWidth: 680 }}>
+                {/* Profile header */}
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
                     <div>
@@ -265,13 +289,22 @@ export default function GuestsPage() {
                       <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Room {selectedGuest.room_number} · In: {selectedGuest.check_in_date} · Out: {selectedGuest.check_out_date}</p>
                     </div>
                     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                      {checkoutSoon(selectedGuest) && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
+                      {checkoutSoon(selectedGuest) && (
+                        <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>
+                          ⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'} — horses free up soon
+                        </span>
+                      )}
                       <button onClick={() => deleteGuest(selectedGuest.id)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove guest</button>
                     </div>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10 }}>
-                    {[{ label: 'Age', value: selectedGuest.age }, { label: 'Weight', value: `${selectedGuest.weight} lbs` }, { label: 'Height', value: selectedGuest.height }, { label: 'Level', value: LEVEL_LABELS[selectedGuest.riding_level] || selectedGuest.riding_level }].map(item => (
+                    {[
+                      { label: 'Age', value: selectedGuest.age },
+                      { label: 'Weight', value: `${selectedGuest.weight} lbs` },
+                      { label: 'Height', value: selectedGuest.height },
+                      { label: 'Level', value: LEVEL_LABELS[selectedGuest.riding_level] || selectedGuest.riding_level },
+                    ].map(item => (
                       <div key={item.label} style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)' }}>
                         <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{item.label}</div>
                         <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>{item.value}</div>
@@ -279,13 +312,25 @@ export default function GuestsPage() {
                     ))}
                   </div>
 
-                  {selectedGuest.notes && <div style={{ padding: '9px 11px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 12, color: 'var(--color-text-2)', marginBottom: 8 }}><span style={{ fontWeight: 600, color: 'var(--color-text-3)', fontSize: 10, textTransform: 'uppercase' }}>Notes: </span>{selectedGuest.notes}</div>}
-                  {selectedGuest.horse_request && <div style={{ padding: '9px 11px', background: 'var(--color-info-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-info-border)', fontSize: 12, color: 'var(--color-info)' }}><span style={{ fontWeight: 600 }}>🎯 Request: </span>{selectedGuest.horse_request}</div>}
+                  {selectedGuest.notes && (
+                    <div style={{ padding: '9px 11px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 12, color: 'var(--color-text-2)', marginBottom: 8 }}>
+                      <span style={{ fontWeight: 600, color: 'var(--color-text-3)', fontSize: 10, textTransform: 'uppercase' }}>Notes: </span>{selectedGuest.notes}
+                    </div>
+                  )}
+                  {selectedGuest.horse_request && (
+                    <div style={{ padding: '9px 11px', background: 'var(--color-info-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-info-border)', fontSize: 12, color: 'var(--color-info)' }}>
+                      <span style={{ fontWeight: 600 }}>🎯 Request: </span>{selectedGuest.horse_request}
+                    </div>
+                  )}
                 </div>
 
+                {/* Assigned horses */}
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Horses</h3>
-                  {activeAssignments.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>None assigned yet</p> : activeAssignments.map((a, i) => (
+
+                  {activeAssignments.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>None assigned yet</p>
+                  ) : activeAssignments.map((a, i) => (
                     <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 7, background: 'var(--color-bg)' }}>
                       <span style={{ fontSize: 16 }}>🐴</span>
                       <div style={{ flex: 1 }}>
@@ -293,11 +338,23 @@ export default function GuestsPage() {
                         <span style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: i === 0 ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: i === 0 ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>{a.assignment_type}</span>
                         {a.requested_by_guest && <span style={{ fontSize: 10, marginLeft: 5, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Requested</span>}
                       </div>
-                      <button onClick={() => markIncompatible(a.horse_name, a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn't work</button>
+                      <button onClick={() => markIncompatible(a.horse_name, a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn&apos;t work</button>
                       <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
                     </div>
                   ))}
-                  {incompatibleHorses.length > 0 && <div style={{ marginTop: 10 }}><p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Doesn't work with:</p><div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>{incompatibleHorses.map(a => <span key={a.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>{a.horse_name}</span>)}</div></div>}
+
+                  {incompatibleHorses.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Doesn&apos;t work with:</p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {incompatibleHorses.map(a => (
+                          <span key={a.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>{a.horse_name}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manual assignment */}
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                     <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
                     <div style={{ display: 'flex', gap: 7 }}>
@@ -314,12 +371,18 @@ export default function GuestsPage() {
                   </div>
                 </div>
 
+                {/* Match results */}
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Horse Matches</h3>
                     <button onClick={() => runMatch(selectedGuest, dismissedHorses)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-2)', cursor: 'pointer' }}>Refresh</button>
                   </div>
-                  {matchLoading ? <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '12px 0' }}>Scanning the herd...</p> : matches.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No matches found</p> : matches.map((m, i) => {
+
+                  {matchLoading ? (
+                    <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '12px 0' }}>Scanning the herd...</p>
+                  ) : matches.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No matches found</p>
+                  ) : matches.map((m, i) => {
                     const isDouble = m.availability === 'double_assigned'
                     const isSingle = m.availability === 'single_assigned'
                     const isCheckout = m.availability === 'checking_out_soon'
@@ -339,7 +402,11 @@ export default function GuestsPage() {
                         <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 7 : 0 }}>{m.reason}</p>
                         {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', padding: '4px 7px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--radius-sm)', marginBottom: 7 }}>⚠ {m.warning}</p>}
                         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                          <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')} disabled={assigningHorse === m.name} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          <button
+                            onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')}
+                            disabled={assigningHorse === m.name}
+                            style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                          >
                             {assigningHorse === m.name ? 'Assigning...' : 'Assign'}
                           </button>
                           <button onClick={() => dismissHorse(m.name)} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer' }}>✕</button>
@@ -368,7 +435,11 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     if (!form.name || !form.riding_level) return
     setSaving(true)
     try {
-      await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null }) })
+      await fetch('/api/guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null }),
+      })
       onSaved()
       if (addAnother) {
         setCount(c => c + 1)
@@ -379,13 +450,16 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     }
   }
 
-  const f = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm(prev => ({ ...prev, [field]: e.target.value }))
+  const f = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(prev => ({ ...prev, [field]: e.target.value }))
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
       <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>Add Guest {count > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>({count} added)</span>}</h2>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>
+            Add Guest {count > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>({count} added)</span>}
+          </h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
