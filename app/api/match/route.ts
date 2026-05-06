@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     eligible.forEach(h => {
       const assigned = assignmentMap[h.name] || []
       if (assigned.length === 0) availabilityMap[h.name] = 'available'
-      else if (assigned.length === 1) availabilityMap[h.name] = (assigned[0].checkOut === today || assigned[0].checkOut === tomorrowStr) ? 'checking_out_soon' : 'single_assigned'
+      else if (assigned.length === 1) availabilityMap[h.name] = 'single_assigned'
       else availabilityMap[h.name] = 'double_assigned'
     })
     const rosterLines = eligible.map(h => {

@@ -105,7 +105,7 @@ export default function GuestsPage() {
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
 
-  const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
+  const activeGuests = guests
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
