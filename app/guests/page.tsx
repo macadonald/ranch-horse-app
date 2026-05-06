@@ -319,7 +319,7 @@ export default function GuestsPage() {
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
             .guest-split { flex-direction: column !important; height: auto !important; }
-            .guest-split > div:first-child { width: 100% !important; max-height: 45vh; overflow-y: auto; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
+            .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
           }
         ` }} />
       </main>
