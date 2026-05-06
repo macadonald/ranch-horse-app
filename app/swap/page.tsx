@@ -208,7 +208,7 @@ function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDism
   return (
     <div style={{ background: selected ? 'var(--color-success-bg)' : disabled ? '#fafaf8' : isDouble ? 'var(--color-warning-bg)' : 'var(--color-surface)', border: selected ? '2px solid var(--color-success-border)' : isDouble ? '2px solid var(--color-warning-border)' : '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '14px', marginBottom: 10, opacity: disabled ? 0.45 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <span style={{ fontSize: 22 }}>horse</span>
+        <span style={{ fontSize: 22 }}>🐴</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: selected ? 'var(--color-success)' : isDouble ? '#92400e' : 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
             {match.name}
