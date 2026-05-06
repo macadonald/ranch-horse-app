@@ -105,7 +105,7 @@ export default function GuestsPage() {
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
 
-  const activeGuests = guests
+  const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
@@ -319,7 +319,7 @@ export default function GuestsPage() {
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
             .guest-split { flex-direction: column !important; height: auto !important; }
-            .guest-split > div:first-child { width: 100% !important; max-height: 45vh; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
+            .guest-split > div:first-child { width: 100% !important; max-height: 45vh; overflow-y: auto; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
           }
         ` }} />
       </main>

@@ -202,7 +202,7 @@ function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDism
   match: Match; rank: number; selected: boolean; disabled: boolean; adjacent?: boolean; onSelect: () => void; onDismiss: () => void
 }) {
   const isDouble = match.availability === 'double_assigned'
-  const isCheckout = match.availability === 'checking_out_soon'
+  const isCheckout = match.availability === 'checking_out_soon' || (match.warning || '').toLowerCase().includes('checking out soon')
   const isSingle = match.availability === 'single_assigned'
 
   return (
@@ -217,7 +217,7 @@ function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDism
         <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
           <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: 'var(--color-info-bg)', color: 'var(--color-info)', border: '1px solid var(--color-info-border)' }}>{'#' + rank}</span>
           {!selected && !disabled && (
-            <button onClick={e => { e.stopPropagation(); onDismiss() }} style={{ fontSize: 15, width: 30, height: 30, borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>x</button>
+            <button onClick={e => { e.stopPropagation(); onDismiss() }} style={{ fontSize: 15, width: 30, height: 30, borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           )}
         </div>
       </div>
