@@ -21,7 +21,7 @@ export default function Sidebar() {
         className="mobile-menu-btn"
         style={{ display: 'none', position: 'fixed', top: 12, left: 12, zIndex: 200, background: 'var(--color-sidebar)', border: 'none', borderRadius: 8, width: 40, height: 40, cursor: 'pointer', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: '#f5ede0' }}
       >
-        {mobileOpen ? 'x' : '='}
+        {mobileOpen ? '✕' : '☰'}
       </button>
 
       {mobileOpen && (

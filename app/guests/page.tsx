@@ -196,7 +196,7 @@ export default function GuestsPage() {
             <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>
           </div>
         </div>
-        <div style={{ display: 'flex', height: 'calc(100vh - 73px)' }}>
+        <div style={{ display: 'flex', height: 'calc(100vh - 73px)' }} className='guest-split'>
           <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
             {loading ? <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading...</p>
               : filteredGuests.length === 0 ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>◎</div><p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>No guests yet</p><p style={{ fontSize: 12, marginTop: 4 }}>Click + Add Guest to start</p></div>
@@ -314,6 +314,14 @@ export default function GuestsPage() {
             </div>
           )}
         </div>
+
+      <style>{\`
+        @media (max-width: 768px) {
+          .guest-split { flex-direction: column !important; height: auto !important; }
+          .guest-split > div:first-child { width: 100% !important; height: auto !important; max-height: 40vh; border-right: none !important; border-bottom: 1px solid var(--color-border); }
+          .guest-split > div:last-child { flex: 1; min-height: 60vh; }
+        }
+      \`}</style>
       </main>
       {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} />}
     </div>
