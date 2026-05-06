@@ -274,7 +274,7 @@ function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDism
           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: adjacent ? 'var(--color-warning-bg)' : 'var(--color-success-bg)', color: adjacent ? 'var(--color-warning)' : 'var(--color-success)', border: `1px solid ${adjacent ? 'var(--color-warning-border)' : 'var(--color-success-border)'}` }}>
             {adjacent ? 'Adjacent' : 'Exact'}
           </span>
-          {isDouble && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: '#fef3c7', color: '#92400e' }}>Double</span>}
+          {isDouble && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>⚠ Double assigned</span>}
           {isSingle && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: 'var(--color-info-bg)', color: 'var(--color-info)' }}>Assigned</span>}
           {isCheckout && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>Avail soon</span>}
           {!selected && !disabled && (
