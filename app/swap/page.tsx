@@ -24,6 +24,7 @@ export default function SwapPage() {
   const [height, setHeight] = useState('')
   const [notes, setNotes] = useState('')
   const [level, setLevel] = useState('')
+  const [gender, setGender] = useState('')
   const [loading, setLoading] = useState(false)
   const [matches, setMatches] = useState<Match[]>([])
   const [selectedHorse, setSelectedHorse] = useState<string | null>(null)
@@ -79,7 +80,7 @@ export default function SwapPage() {
       const res = await fetch('/api/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ age, weight, height, level, notes, dismissedHorses: [] }),
+        body: JSON.stringify({ age, weight, height, level, gender, notes, dismissedHorses: [] }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -101,7 +102,7 @@ export default function SwapPage() {
       const res = await fetch('/api/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ age, weight, height, level, notes, dismissedHorses: newDismissed }),
+        body: JSON.stringify({ age, weight, height, level, gender, notes, dismissedHorses: newDismissed }),
       })
       const data = await res.json()
       if (data.matches) {
@@ -194,6 +195,14 @@ export default function SwapPage() {
                 </div>
               </div>
 
+              <div style={{ marginBottom: 20 }}>
+                <label>Gender</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  {['Male', 'Female'].map(g => (
+                    <button key={g} onClick={() => setGender(g === gender ? '' : g)} style={{ flex: 1, padding: '9px 13px', borderRadius: 'var(--radius-sm)', border: gender === g ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border)', background: gender === g ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: gender === g ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: gender === g ? 600 : 400, cursor: 'pointer' }}>{g}</button>
+                  ))}
+                </div>
+              </div>
               {error && <p style={{ fontSize: 12, color: 'var(--color-danger)', marginBottom: 11, padding: '7px 11px', background: 'var(--color-danger-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)' }}>{error}</p>}
 
               <button onClick={handleSubmit} disabled={loading} style={{ width: '100%', padding: '11px 15px', borderRadius: 'var(--radius-md)', border: 'none', background: loading ? '#c4a47a' : 'var(--color-accent)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
