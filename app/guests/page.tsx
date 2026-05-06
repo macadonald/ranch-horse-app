@@ -315,6 +315,13 @@ export default function GuestsPage() {
           )}
         </div>
 
+
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media (max-width: 768px) {
+            .guest-split { flex-direction: column !important; height: auto !important; }
+            .guest-split > div:first-child { width: 100% !important; max-height: 45vh; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
+          }
+        ` }} />
       </main>
       {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} />}
     </div>
