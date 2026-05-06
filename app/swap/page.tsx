@@ -165,7 +165,7 @@ export default function SwapPage() {
 
             {!loading && matches.length === 0 && !showResults && (
               <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--color-text-3)' }} className="hide-mobile">
-                <div style={{ fontSize: 40, marginBottom: 12 }}>horse</div>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🐴</div>
                 <p style={{ fontSize: 15, fontFamily: 'var(--font-display)' }}>Enter rider details to find matches</p>
                 <p style={{ fontSize: 12, marginTop: 6, color: 'var(--color-text-muted)' }}>Results ranked best to worst with availability</p>
               </div>
