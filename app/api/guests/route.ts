@@ -6,9 +6,17 @@ export async function GET() {
     const { data, error } = await supabase
       .from('guests')
       .select(`*, horse_assignments (*)`)
-      .order('room_number', { ascending: true })
+
     if (error) throw error
-    return NextResponse.json({ guests: data })
+
+    // Sort by room number numerically
+    const sorted = (data || []).sort((a, b) => {
+      const aNum = parseInt(a.room_number) || 0
+      const bNum = parseInt(b.room_number) || 0
+      return aNum - bNum
+    })
+
+    return NextResponse.json({ guests: sorted })
   } catch (err) {
     return NextResponse.json({ error: 'Failed to fetch guests' }, { status: 500 })
   }
