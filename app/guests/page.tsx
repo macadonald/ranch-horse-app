@@ -315,13 +315,6 @@ export default function GuestsPage() {
           )}
         </div>
 
-      <style>{\`
-        @media (max-width: 768px) {
-          .guest-split { flex-direction: column !important; height: auto !important; }
-          .guest-split > div:first-child { width: 100% !important; height: auto !important; max-height: 40vh; border-right: none !important; border-bottom: 1px solid var(--color-border); }
-          .guest-split > div:last-child { flex: 1; min-height: 60vh; }
-        }
-      \`}</style>
       </main>
       {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} />}
     </div>
