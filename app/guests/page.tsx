@@ -220,7 +220,8 @@ export default function GuestsPage() {
               })}
           </div>
           {selectedGuest && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
+              <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
               <div style={{ maxWidth: 680 }}>
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
@@ -320,6 +321,8 @@ export default function GuestsPage() {
           @media (max-width: 768px) {
             .guest-split { flex-direction: column !important; height: auto !important; }
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
+          .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; }
+          .guest-back-btn { display: flex !important; }
           }
         ` }} />
       </main>
