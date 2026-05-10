@@ -1,9 +1,12 @@
-export type HealthIssueType = 'wound' | 'abscess' | 'eye' | 'skin' | 'hoof' | 'sore' | 'other'
+export type HealthIssueType = 'wound' | 'abscess' | 'eye' | 'skin' | 'hoof' | 'sore' | 'cut' | 'sunscreen' | 'meds' | 'other'
 
 export type HealthLocation =
   | 'left_front_hoof' | 'right_front_hoof' | 'left_rear_hoof' | 'right_rear_hoof'
+  | 'all_4_hooves' | 'front_hooves' | 'rear_hooves'
   | 'left_front_leg' | 'right_front_leg' | 'left_rear_leg' | 'right_rear_leg'
-  | 'back' | 'cinch' | 'wither' | 'neck' | 'chest' | 'flank' | 'face' | 'left_eye' | 'right_eye'
+  | 'front_legs' | 'rear_legs'
+  | 'back' | 'cinch' | 'wither' | 'neck' | 'chest' | 'flank' | 'face' | 'na'
+  | 'left_eye' | 'right_eye'
 
 export type HealthSeverity = 'monitoring' | 'needs_treatment' | 'vet_required'
 export type HealthFrequency = 'once_daily' | 'twice_daily' | 'pre_saddle' | 'as_needed'
@@ -27,13 +30,16 @@ export interface HorseHealthIssue {
 }
 
 export const ISSUE_TYPES: { key: HealthIssueType; label: string }[] = [
-  { key: 'wound',   label: 'Wound' },
-  { key: 'abscess', label: 'Abscess' },
-  { key: 'eye',     label: 'Eye' },
-  { key: 'skin',    label: 'Skin' },
-  { key: 'hoof',    label: 'Hoof' },
-  { key: 'sore',    label: 'Sore' },
-  { key: 'other',   label: 'Other' },
+  { key: 'wound',     label: 'Wound' },
+  { key: 'abscess',   label: 'Abscess' },
+  { key: 'cut',       label: 'Cut' },
+  { key: 'eye',       label: 'Eye' },
+  { key: 'skin',      label: 'Skin' },
+  { key: 'hoof',      label: 'Hoof' },
+  { key: 'sore',      label: 'Sore' },
+  { key: 'sunscreen', label: 'Sunscreen' },
+  { key: 'meds',      label: 'Meds' },
+  { key: 'other',     label: 'Other' },
 ]
 
 export const LOCATION_GROUPS: { group: string; items: { key: HealthLocation; label: string }[] }[] = [
@@ -44,6 +50,9 @@ export const LOCATION_GROUPS: { group: string; items: { key: HealthLocation; lab
       { key: 'right_front_hoof', label: 'Right front hoof' },
       { key: 'left_rear_hoof',   label: 'Left rear hoof' },
       { key: 'right_rear_hoof',  label: 'Right rear hoof' },
+      { key: 'all_4_hooves',     label: 'All 4 hooves' },
+      { key: 'front_hooves',     label: 'Front hooves (both)' },
+      { key: 'rear_hooves',      label: 'Rear hooves (both)' },
     ],
   },
   {
@@ -53,6 +62,8 @@ export const LOCATION_GROUPS: { group: string; items: { key: HealthLocation; lab
       { key: 'right_front_leg', label: 'Right front leg' },
       { key: 'left_rear_leg',   label: 'Left rear leg' },
       { key: 'right_rear_leg',  label: 'Right rear leg' },
+      { key: 'front_legs',      label: 'Front legs (both)' },
+      { key: 'rear_legs',       label: 'Rear legs (both)' },
     ],
   },
   {
@@ -64,7 +75,13 @@ export const LOCATION_GROUPS: { group: string; items: { key: HealthLocation; lab
       { key: 'neck',   label: 'Neck' },
       { key: 'chest',  label: 'Chest' },
       { key: 'flank',  label: 'Flank' },
-      { key: 'face',      label: 'Face' },
+      { key: 'face',   label: 'Face' },
+      { key: 'na',     label: 'N/A' },
+    ],
+  },
+  {
+    group: 'Eyes',
+    items: [
       { key: 'left_eye',  label: 'Left eye' },
       { key: 'right_eye', label: 'Right eye' },
     ],
@@ -89,29 +106,38 @@ export const LOCATION_LABELS: Record<HealthLocation, string> = {
   right_front_hoof: 'RF Hoof',
   left_rear_hoof:   'LR Hoof',
   right_rear_hoof:  'RR Hoof',
+  all_4_hooves:     'All 4 hooves',
+  front_hooves:     'Front hooves',
+  rear_hooves:      'Rear hooves',
   left_front_leg:   'LF Leg',
   right_front_leg:  'RF Leg',
   left_rear_leg:    'LR Leg',
   right_rear_leg:   'RR Leg',
-  back:   'Back',
-  cinch:  'Cinch',
-  wither: 'Wither',
-  neck:   'Neck',
-  chest:  'Chest',
-  flank:  'Flank',
+  front_legs:       'Front legs',
+  rear_legs:        'Rear legs',
+  back:      'Back',
+  cinch:     'Cinch',
+  wither:    'Wither',
+  neck:      'Neck',
+  chest:     'Chest',
+  flank:     'Flank',
   face:      'Face',
+  na:        'N/A',
   left_eye:  'Left eye',
   right_eye: 'Right eye',
 }
 
 export const TYPE_LABELS: Record<HealthIssueType, string> = {
-  wound:   'Wound',
-  abscess: 'Abscess',
-  eye:     'Eye',
-  skin:    'Skin',
-  hoof:    'Hoof',
-  sore:    'Sore',
-  other:   'Other',
+  wound:     'Wound',
+  abscess:   'Abscess',
+  cut:       'Cut',
+  eye:       'Eye',
+  skin:      'Skin',
+  hoof:      'Hoof',
+  sore:      'Sore',
+  sunscreen: 'Sunscreen',
+  meds:      'Meds',
+  other:     'Other',
 }
 
 export const SEVERITY_LABELS: Record<HealthSeverity, string> = {
@@ -141,7 +167,6 @@ export function severityBadgeStyle(severity: HealthSeverity): { bg: string; colo
 
 export function showDoneWarning(issue: HorseHealthIssue): boolean {
   if (issue.severity === 'monitoring') return false
-  // Sore issues with passive frequencies need no daily warning
   if (issue.type === 'sore' && (issue.frequency === 'as_needed' || issue.frequency === 'pre_saddle')) return false
   return true
 }
