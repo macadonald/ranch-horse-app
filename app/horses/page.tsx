@@ -145,14 +145,14 @@ function OtherAnimalModal({
       <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 440 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>
-            {isEdit ? `Edit — ${animal.name}` : 'Add animal'}
+            {isEdit ? `Edit — ${animal.name}` : 'Add horse'}
           </h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
         </div>
 
         <div style={{ marginBottom: 14 }}>
           <label>Name</label>
-          <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Animal name..." autoFocus />
+          <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Horse name..." autoFocus />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
@@ -180,7 +180,7 @@ function OtherAnimalModal({
           <textarea
             value={form.notes}
             onChange={e => set('notes', e.target.value)}
-            placeholder="Any notes about this animal..."
+            placeholder="Any notes about this horse..."
             rows={3}
             style={{ resize: 'vertical' }}
           />
@@ -198,7 +198,7 @@ function OtherAnimalModal({
             disabled={!form.name.trim() || saving}
             style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: !form.name.trim() || saving ? 'not-allowed' : 'pointer', opacity: !form.name.trim() || saving ? 0.5 : 1 }}
           >
-            {saving ? 'Saving...' : isEdit ? 'Save changes' : 'Add animal'}
+            {saving ? 'Saving...' : isEdit ? 'Save changes' : 'Add horse'}
           </button>
           <button
             onClick={onClose}
@@ -355,7 +355,7 @@ export default function HorsesPage() {
               <p style={{ fontSize: 13, color: 'var(--color-text-3)', marginTop: 2 }}>
                 {view === 'guest'
                   ? `${active.length} active horses · ${unavailable.length} unavailable`
-                  : loading ? 'Loading...' : `${animals.length} animal${animals.length !== 1 ? 's' : ''}`}
+                  : loading ? 'Loading...' : `${animals.length} horse${animals.length !== 1 ? 's' : ''}`}
               </p>
             </div>
 
@@ -408,7 +408,7 @@ export default function HorsesPage() {
                 onClick={() => setShowModal(true)}
                 style={{ padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
               >
-                + Add animal
+                + Add horse
               </button>
             </div>
 
@@ -417,7 +417,7 @@ export default function HorsesPage() {
             ) : animals.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>◈</div>
-                <p style={{ fontSize: 13 }}>No animals added yet</p>
+                <p style={{ fontSize: 13 }}>No horses added yet</p>
                 <button
                   onClick={() => setShowModal(true)}
                   style={{ marginTop: 12, padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}
