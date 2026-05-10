@@ -578,7 +578,8 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   )
 }
 
-// Autocomplete that uses position:fixed for its dropdown so it escapes overflow:hidden containers
+// Autocomplete uses position:fixed for its dropdown (escapes overflow:hidden scroll containers).
+// Never conditionally unmount this component — that loses input focus.
 function DraftHorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
@@ -587,20 +588,15 @@ function DraftHorseAutocomplete({ value, onChange }: { value: string; onChange: 
 
   function handleInput(v: string) {
     onChange(v)
-    if (v.length >= 1) {
-      const hits = ACTIVE_HORSES
-        .filter(h => h.name.toLowerCase().includes(v.toLowerCase()))
-        .map(h => h.name)
-        .slice(0, 8)
-      setSuggestions(hits)
-      setShow(hits.length > 0)
-      if (inputRef.current) {
-        const r = inputRef.current.getBoundingClientRect()
-        setDropPos({ top: r.bottom + 2, left: r.left, width: r.width })
-      }
-    } else {
-      setShow(false)
+    const hits = v.length >= 1
+      ? ACTIVE_HORSES.filter(h => h.name.toLowerCase().includes(v.toLowerCase())).map(h => h.name).slice(0, 8)
+      : []
+    if (hits.length > 0 && inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect()
+      setDropPos({ top: r.bottom + 2, left: r.left, width: r.width })
     }
+    setSuggestions(hits)
+    setShow(hits.length > 0)
   }
 
   return (
@@ -633,6 +629,8 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
 }) {
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
+  const today = getTucsonToday()
+  const tomorrow = getTucsonTomorrow()
 
   function updateHorse(guestId: string, horseName: string) {
     setRows(prev => prev.map(r =>
@@ -656,10 +654,6 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
 
   const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
   const toSkip = rows.filter(r => !r.suggestedHorse || r.flagged)
-
-  const LEVEL_LABELS_SHORT: Record<string, string> = {
-    'B': 'Beginner', 'AB': 'Adv Beg', 'I': 'Intermediate', 'AI': 'Adv Int', 'A': 'Advanced',
-  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
@@ -690,31 +684,28 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
         </div>
       </div>
 
-      {/* Legend */}
-      <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '8px 24px', display: 'flex', gap: 14, flexShrink: 0 }}>
-        {[
-          { color: 'var(--color-success)', bg: 'var(--color-success-bg)', label: 'Good match' },
-          { color: '#92400e', bg: '#fef3c7', label: 'Double-up' },
-          { color: 'var(--color-danger)', bg: 'var(--color-danger-bg)', label: 'Needs review' },
-          { color: 'var(--color-text-3)', bg: 'var(--color-border)', label: '🚩 Flagged = skip on save' },
-        ].map(l => (
-          <span key={l.label} style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: l.bg, border: `1px solid ${l.color}` }} />
-            <span style={{ color: 'var(--color-text-3)' }}>{l.label}</span>
-          </span>
-        ))}
-      </div>
-
       {/* Row list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }} className="draft-list">
         {rows.map(row => {
           const { guest, suggestedHorse, isDouble, needsReview, flagged } = row
+
+          const horse = suggestedHorse ? ACTIVE_HORSES.find(h => h.name === suggestedHorse) : null
+          const guestLevelIdx = LEVEL_ORDER.indexOf(guest.riding_level)
+          const horseLevelIdx = horse ? LEVEL_ORDER.indexOf(horse.level) : -1
+          const levelDiff = horse && guestLevelIdx >= 0 && horseLevelIdx >= 0
+            ? Math.abs(guestLevelIdx - horseLevelIdx) : null
+          const matchQuality = levelDiff === null ? null : levelDiff === 0 ? 'exact' : levelDiff === 1 ? 'adjacent' : 'mismatch'
+          const nearWeight = !!(horse && horse.weight !== null && guest.weight && (horse.weight - guest.weight) <= 20)
+          const checkingOutToday = guest.check_out_date === today
+          const checkingOutTomorrow = !checkingOutToday && guest.check_out_date === tomorrow
+
           const bg = flagged ? 'var(--color-bg)' : needsReview ? 'var(--color-danger-bg)' : isDouble ? '#fef3c7' : 'var(--color-surface)'
           const border = flagged ? 'var(--color-border)' : needsReview ? 'var(--color-danger-border)' : isDouble ? '#fcd34d' : 'var(--color-border)'
+
           return (
             <div
               key={guest.id}
-              style={{ display: 'grid', gridTemplateColumns: '1fr 24px 1fr 36px', gap: 10, alignItems: 'center', padding: '10px 14px', marginBottom: 7, background: bg, border: `1px solid ${border}`, borderRadius: 'var(--radius-md)', opacity: flagged ? 0.5 : 1 }}
+              style={{ display: 'grid', gridTemplateColumns: '1fr 24px 1fr 36px', gap: 10, alignItems: 'start', padding: '10px 14px', marginBottom: 7, background: bg, border: `1px solid ${border}`, borderRadius: 'var(--radius-md)', opacity: flagged ? 0.5 : 1 }}
               className="draft-row"
             >
               {/* Guest info */}
@@ -722,33 +713,49 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{guest.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>
                   Rm {guest.room_number}
-                  {guest.riding_level ? ` · ${LEVEL_LABELS_SHORT[guest.riding_level] || guest.riding_level}` : ''}
+                  {guest.riding_level ? ` · ${guest.riding_level}` : ''}
                   {guest.weight ? ` · ${guest.weight} lbs` : ''}
+                  {guest.height ? ` · ${guest.height}` : ''}
+                  {guest.age ? ` · Age ${guest.age}` : ''}
                 </div>
+                {(checkingOutToday || checkingOutTomorrow) && (
+                  <div style={{ marginTop: 3 }}>
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      Checkout {checkingOutToday ? 'today' : 'tomorrow'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Arrow */}
-              <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 14 }}>→</div>
+              <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 14, paddingTop: 3 }}>→</div>
 
-              {/* Horse input or needs-review state */}
+              {/* Horse autocomplete — always in the same DOM position, never conditionally mounted */}
               <div>
-                {needsReview && !suggestedHorse ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Needs review</span>
-                    <div style={{ flex: 1 }}>
-                      <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} />
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ flex: 1 }}>
-                      <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} />
-                    </div>
-                    {isDouble && !flagged && (
-                      <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>×2</span>
-                    )}
-                  </div>
-                )}
+                <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} />
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+                  {matchQuality === 'exact' && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🟢 Good match</span>
+                  )}
+                  {matchQuality === 'adjacent' && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>🟡 Adjacent</span>
+                  )}
+                  {matchQuality === 'mismatch' && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🔴 Mismatch</span>
+                  )}
+                  {isDouble && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>×2 Double</span>
+                  )}
+                  {needsReview && !suggestedHorse && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Needs review</span>
+                  )}
+                  {nearWeight && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>
+                  )}
+                  {flagged && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🚩 Flagged — skip on save</span>
+                  )}
+                </div>
               </div>
 
               {/* Flag button */}
