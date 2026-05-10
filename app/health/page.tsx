@@ -14,7 +14,9 @@ import {
   severityBorderColor, severityBadgeStyle,
 } from '@/lib/health'
 
-// ─── Horse autocomplete ──────────────────────────────────────────────────────
+// ─── Horse autocomplete (alphabetical) ───────────────────────────────────────
+
+const HORSES_ALPHA = [...HORSES].sort((a, b) => a.name.localeCompare(b.name))
 
 function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
@@ -23,10 +25,11 @@ function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: s
   function handleInput(v: string) {
     onChange(v)
     if (v.length >= 1) {
-      const matches = HORSES
-        .filter(h => h.name.toLowerCase().includes(v.toLowerCase()))
+      const q = v.toLowerCase()
+      const matches = HORSES_ALPHA
+        .filter(h => h.name.toLowerCase().includes(q))
         .map(h => h.name)
-        .slice(0, 7)
+        .slice(0, 8)
       setSuggestions(matches)
       setShow(matches.length > 0)
     } else {
@@ -251,8 +254,39 @@ function IssueFormModal({
   )
 }
 
+// ─── Shared icon button ───────────────────────────────────────────────────────
+
+function IconBtn({
+  onClick, title, disabled, children, danger, success,
+}: {
+  onClick: () => void
+  title: string
+  disabled?: boolean
+  children: React.ReactNode
+  danger?: boolean
+  success?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        width: 26, height: 26, borderRadius: 'var(--radius-sm)', border: '1px solid',
+        borderColor: danger ? 'var(--color-danger-border)' : success ? 'var(--color-success-border)' : 'var(--color-border)',
+        background: danger ? 'var(--color-danger-bg)' : success ? 'var(--color-success-bg)' : 'transparent',
+        color: danger ? 'var(--color-danger)' : success ? 'var(--color-success)' : 'var(--color-text-3)',
+        fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0, opacity: disabled ? 0.5 : 1, padding: 0,
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 // ─── Doctoring card (vet_required / needs_treatment) ─────────────────────────
-// Full treatment instructions, prominent, done-today tracking.
 
 function DoctorCard({
   issue,
@@ -260,223 +294,232 @@ function DoctorCard({
   onEdit,
   onResolve,
   onMarkDone,
-  onUpdateField,
+  onDelete,
 }: {
   issue: HorseHealthIssue
   tucsonToday: string
   onEdit: () => void
   onResolve: () => void
   onMarkDone: () => void
-  onUpdateField: (id: string, field: string, value: string | null) => void
+  onDelete: () => void
 }) {
-  const [treatmentNotes, setTreatmentNotes] = useState(issue.treatment_notes ?? '')
-  const [notes, setNotes] = useState(issue.notes ?? '')
-  const [resolving, setResolving] = useState(false)
-  const [markingDone, setMarkingDone] = useState(false)
+  const [expanded, setExpanded]           = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [resolving, setResolving]         = useState(false)
+  const [markingDone, setMarkingDone]     = useState(false)
+  const [deleting, setDeleting]           = useState(false)
 
-  useEffect(() => { setTreatmentNotes(issue.treatment_notes ?? '') }, [issue.treatment_notes])
-  useEffect(() => { setNotes(issue.notes ?? '') }, [issue.notes])
-
-  const isDoneToday = issue.done_today_date === tucsonToday
-  const badge = severityBadgeStyle(issue.severity)
-  const borderColor = severityBorderColor(issue.severity)
-  const openedDate = new Date(issue.opened_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const isDoneToday  = issue.done_today_date === tucsonToday
+  const badge        = severityBadgeStyle(issue.severity)
+  const borderColor  = severityBorderColor(issue.severity)
+  const openedDate   = new Date(issue.opened_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const lastDate     = issue.last_treated_at
+    ? new Date(issue.last_treated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
+  const hasLongNotes = (issue.treatment_notes?.length ?? 0) > 90 || (issue.treatment_notes ?? '').includes('\n')
 
   async function handleResolve() {
-    setResolving(true)
-    await onResolve()
-    setResolving(false)
+    setResolving(true); await onResolve(); setResolving(false)
   }
-
   async function handleMarkDone() {
-    setMarkingDone(true)
-    await onMarkDone()
-    setMarkingDone(false)
+    setMarkingDone(true); await onMarkDone(); setMarkingDone(false)
+  }
+  async function handleDelete() {
+    setDeleting(true); await onDelete(); setDeleting(false)
   }
 
   return (
-    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${borderColor}`, background: 'var(--color-surface)', padding: '14px 16px', marginBottom: 10 }}>
+    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${borderColor}`, background: 'var(--color-surface)', padding: '10px 12px', marginBottom: 7 }}>
 
-      {/* Top row */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>🐴 {issue.horse_name}</span>
-        <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, fontWeight: 600, background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+      {/* Row 1: name + badges + action icons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7, flexWrap: 'nowrap', minWidth: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>🐴 {issue.horse_name}</span>
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', background: badge.bg, color: badge.color, border: `1px solid ${badge.border}`, flexShrink: 0 }}>
           {SEVERITY_LABELS[issue.severity]}
         </span>
-        <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, fontWeight: 500, background: 'var(--color-bg)', color: 'var(--color-text-2)', border: '1px solid var(--color-border)' }}>
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 500, whiteSpace: 'nowrap', background: 'var(--color-bg)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {LOCATION_LABELS[issue.location]} · {TYPE_LABELS[issue.type]}
         </span>
-        {/* Done today status shown prominently in the header */}
-        {isDoneToday ? (
-          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--color-success)', background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', padding: '2px 8px', borderRadius: 999 }}>✓ Done today</span>
+
+        <div style={{ flex: 1 }} />
+
+        {confirmDelete ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Delete?</span>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}
+            >
+              {deleting ? '...' : 'Yes'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}
+            >
+              No
+            </button>
+          </div>
         ) : (
-          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#dc2626', background: '#fee2e2', border: '1px solid #fca5a5', padding: '2px 8px', borderRadius: 999 }}>Not done today</span>
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            <IconBtn onClick={onEdit} title="Edit">✎</IconBtn>
+            <IconBtn onClick={handleResolve} disabled={resolving} title="Resolve" success>✓</IconBtn>
+            <IconBtn onClick={() => setConfirmDelete(true)} title="Delete" danger>✕</IconBtn>
+          </div>
         )}
       </div>
 
-      {/* Treatment notes — prominent, inline editable */}
-      <div style={{ marginBottom: 10 }}>
-        <label style={{ marginBottom: 4, color: 'var(--color-text-2)' }}>Treatment instructions</label>
-        <textarea
-          value={treatmentNotes}
-          onChange={e => setTreatmentNotes(e.target.value)}
-          onBlur={() => {
-            if (treatmentNotes !== (issue.treatment_notes ?? ''))
-              onUpdateField(issue.id, 'treatment_notes', treatmentNotes || null)
-          }}
-          placeholder="Describe the treatment so anyone can do it..."
-          rows={3}
-          style={{ resize: 'vertical', fontSize: 13, fontWeight: 400, lineHeight: 1.5 }}
-        />
-      </div>
+      {/* Row 2: treatment notes (clamped) */}
+      {issue.treatment_notes ? (
+        <div style={{ marginBottom: 7 }}>
+          <p style={{
+            fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.45, margin: 0,
+            ...(expanded ? {} : {
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical' as const,
+              overflow: 'hidden',
+            }),
+          }}>
+            {issue.treatment_notes}
+          </p>
+          {hasLongNotes && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', padding: '2px 0 0', cursor: 'pointer', fontWeight: 500 }}
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic', marginBottom: 7 }}>No treatment notes</p>
+      )}
 
-      {/* General notes — inline editable */}
-      <div style={{ marginBottom: 12 }}>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          onBlur={() => {
-            if (notes !== (issue.notes ?? ''))
-              onUpdateField(issue.id, 'notes', notes || null)
-          }}
-          placeholder="Additional notes..."
-          rows={1}
-          style={{ resize: 'vertical', fontSize: 12, color: 'var(--color-text-3)' }}
-        />
-      </div>
-
-      {/* Meta row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 500 }}>
-          {FREQUENCY_LABELS[issue.frequency]}
+      {/* Row 3: meta left, done-today right */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+          {FREQUENCY_LABELS[issue.frequency]} · {openedDate}{lastDate ? ` · Last ${lastDate}` : ''}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Opened {openedDate}</span>
-        {issue.last_treated_at && (
-          <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
-            Last treated {new Date(issue.last_treated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-        <button
-          onClick={onEdit}
-          style={{ padding: '5px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', fontWeight: 500 }}
-        >
-          Edit
-        </button>
-        <button
-          onClick={handleResolve}
-          disabled={resolving}
-          style={{ padding: '5px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', fontSize: 12, cursor: resolving ? 'not-allowed' : 'pointer', color: 'var(--color-success)', fontWeight: 500, opacity: resolving ? 0.6 : 1 }}
-        >
-          {resolving ? 'Resolving...' : 'Resolve'}
-        </button>
-        {!isDoneToday && (
-          <button
-            onClick={handleMarkDone}
-            disabled={markingDone}
-            style={{ padding: '5px 11px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: issue.severity === 'vet_required' ? '#fee2e2' : '#fef3c7', fontSize: 12, cursor: markingDone ? 'not-allowed' : 'pointer', color: borderColor, fontWeight: 700, opacity: markingDone ? 0.6 : 1 }}
-          >
-            {markingDone ? '...' : '✓ Mark done today'}
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {isDoneToday ? (
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-success)' }}>✓ Done today</span>
+          ) : (
+            <>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#dc2626' }}>Not done</span>
+              <button
+                onClick={handleMarkDone}
+                disabled={markingDone}
+                style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: issue.severity === 'vet_required' ? '#fee2e2' : '#fef3c7', color: borderColor, fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}
+              >
+                {markingDone ? '...' : '✓ Mark done'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
 // ─── Watching card (monitoring) ───────────────────────────────────────────────
-// Awareness-only. Visually lighter. No done-today tracking.
 
 function WatchCard({
   issue,
   onEdit,
   onResolve,
-  onUpdateField,
+  onDelete,
 }: {
   issue: HorseHealthIssue
   onEdit: () => void
   onResolve: () => void
-  onUpdateField: (id: string, field: string, value: string | null) => void
+  onDelete: () => void
 }) {
-  const [treatmentNotes, setTreatmentNotes] = useState(issue.treatment_notes ?? '')
-  const [notes, setNotes] = useState(issue.notes ?? '')
-  const [resolving, setResolving] = useState(false)
+  const [expanded, setExpanded]           = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [resolving, setResolving]         = useState(false)
+  const [deleting, setDeleting]           = useState(false)
 
-  useEffect(() => { setTreatmentNotes(issue.treatment_notes ?? '') }, [issue.treatment_notes])
-  useEffect(() => { setNotes(issue.notes ?? '') }, [issue.notes])
-
-  const openedDate = new Date(issue.opened_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const openedDate   = new Date(issue.opened_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const hasLongNotes = (issue.treatment_notes?.length ?? 0) > 90 || (issue.treatment_notes ?? '').includes('\n')
 
   async function handleResolve() {
-    setResolving(true)
-    await onResolve()
-    setResolving(false)
+    setResolving(true); await onResolve(); setResolving(false)
+  }
+  async function handleDelete() {
+    setDeleting(true); await onDelete(); setDeleting(false)
   }
 
   return (
-    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: '3px solid #d1d5db', background: 'var(--color-bg)', padding: '12px 14px', marginBottom: 8 }}>
+    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: '3px solid #d1d5db', background: 'var(--color-bg)', padding: '9px 11px', marginBottom: 6 }}>
 
-      {/* Top row — compact */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)' }}>🐴 {issue.horse_name}</span>
-        <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, fontWeight: 500, background: 'var(--color-surface)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)' }}>
+      {/* Row 1: name + badges + icons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: issue.treatment_notes ? 6 : 0, flexWrap: 'nowrap', minWidth: 0 }}>
+        <span style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>🐴 {issue.horse_name}</span>
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 500, whiteSpace: 'nowrap', background: 'var(--color-surface)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)', flexShrink: 0 }}>
           {LOCATION_LABELS[issue.location]} · {TYPE_LABELS[issue.type]}
         </span>
-        <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-surface)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)' }}>
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap', background: 'var(--color-surface)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)', flexShrink: 0 }}>
           {FREQUENCY_LABELS[issue.frequency]}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>Opened {openedDate}</span>
+
+        <div style={{ flex: 1 }} />
+
+        {confirmDelete ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Delete?</span>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}
+            >
+              {deleting ? '...' : 'Yes'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}
+            >
+              No
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            <IconBtn onClick={onEdit} title="Edit">✎</IconBtn>
+            <IconBtn onClick={handleResolve} disabled={resolving} title="Resolve" success>✓</IconBtn>
+            <IconBtn onClick={() => setConfirmDelete(true)} title="Delete" danger>✕</IconBtn>
+          </div>
+        )}
       </div>
 
-      {/* Notes — inline editable, less prominent */}
-      <div style={{ marginBottom: 8 }}>
-        <textarea
-          value={treatmentNotes}
-          onChange={e => setTreatmentNotes(e.target.value)}
-          onBlur={() => {
-            if (treatmentNotes !== (issue.treatment_notes ?? ''))
-              onUpdateField(issue.id, 'treatment_notes', treatmentNotes || null)
-          }}
-          placeholder="Instructions / what to watch for..."
-          rows={2}
-          style={{ resize: 'vertical', fontSize: 12, color: 'var(--color-text-2)', background: 'var(--color-surface)' }}
-        />
-      </div>
-
-      {(notes || issue.notes !== null) && (
-        <div style={{ marginBottom: 8 }}>
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            onBlur={() => {
-              if (notes !== (issue.notes ?? ''))
-                onUpdateField(issue.id, 'notes', notes || null)
-            }}
-            placeholder="Notes..."
-            rows={1}
-            style={{ resize: 'vertical', fontSize: 12, color: 'var(--color-text-3)', background: 'var(--color-surface)' }}
-          />
+      {/* Row 2: notes (clamped) */}
+      {issue.treatment_notes && (
+        <div style={{ marginBottom: 5 }}>
+          <p style={{
+            fontSize: 12, color: 'var(--color-text-3)', lineHeight: 1.4, margin: 0,
+            ...(expanded ? {} : {
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical' as const,
+              overflow: 'hidden',
+            }),
+          }}>
+            {issue.treatment_notes}
+          </p>
+          {hasLongNotes && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', padding: '2px 0 0', cursor: 'pointer', fontWeight: 500 }}
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
         </div>
       )}
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 7 }}>
-        <button
-          onClick={onEdit}
-          style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', fontWeight: 500 }}
-        >
-          Edit
-        </button>
-        <button
-          onClick={handleResolve}
-          disabled={resolving}
-          style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', fontSize: 12, cursor: resolving ? 'not-allowed' : 'pointer', color: 'var(--color-success)', fontWeight: 500, opacity: resolving ? 0.6 : 1 }}
-        >
-          {resolving ? 'Resolving...' : 'Resolve'}
-        </button>
+      {/* Row 3: footer meta */}
+      <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+        Opened {openedDate}
+        {issue.notes && <span style={{ color: 'var(--color-text-3)' }}> · {issue.notes}</span>}
       </div>
     </div>
   )
@@ -504,8 +547,8 @@ function applyFilter(issues: HorseHealthIssue[], filter: ActiveFilter): HorseHea
 }
 
 export default function HealthPage() {
-  const [issues, setIssues] = useState<HorseHealthIssue[]>([])
-  const [loading, setLoading] = useState(true)
+  const [issues, setIssues]           = useState<HorseHealthIssue[]>([])
+  const [loading, setLoading]         = useState(true)
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all')
   const [historySearch, setHistorySearch] = useState('')
   const [showLogModal, setShowLogModal] = useState(false)
@@ -527,10 +570,10 @@ export default function HealthPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Classify active issues into the two sections by severity
   const doctorIssues = useMemo(
-    () => issues.filter(i => i.status === 'active' && (i.severity === 'vet_required' || i.severity === 'needs_treatment'))
-               .sort((a, b) => (a.severity === 'vet_required' ? -1 : 1) - (b.severity === 'vet_required' ? -1 : 1)),
+    () => issues
+      .filter(i => i.status === 'active' && (i.severity === 'vet_required' || i.severity === 'needs_treatment'))
+      .sort((a, b) => (a.severity === 'vet_required' ? 0 : 1) - (b.severity === 'vet_required' ? 0 : 1)),
     [issues]
   )
   const watchIssues = useMemo(
@@ -541,26 +584,16 @@ export default function HealthPage() {
     () => issues.filter(i => i.status === 'resolved'),
     [issues]
   )
-
   const activeIssues = useMemo(() => [...doctorIssues, ...watchIssues], [doctorIssues, watchIssues])
 
   const filteredDoctor = useMemo(() => applyFilter(doctorIssues, activeFilter), [doctorIssues, activeFilter])
-  const filteredWatch  = useMemo(() => applyFilter(watchIssues, activeFilter), [watchIssues, activeFilter])
+  const filteredWatch  = useMemo(() => applyFilter(watchIssues, activeFilter),  [watchIssues, activeFilter])
 
   const filteredHistory = useMemo(() => {
     if (!historySearch.trim()) return resolvedIssues
     const q = historySearch.toLowerCase()
     return resolvedIssues.filter(i => i.horse_name.toLowerCase().includes(q))
   }, [resolvedIssues, historySearch])
-
-  async function handleUpdateField(id: string, field: string, value: string | null) {
-    setIssues(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
-    await fetch('/api/health', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, [field]: value }),
-    })
-  }
 
   async function handleResolve(issue: HorseHealthIssue) {
     const resolved_at = new Date().toISOString()
@@ -570,7 +603,6 @@ export default function HealthPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: issue.id, status: 'resolved', resolved_at }),
     })
-    // Re-fetch so vet_flagged_horses recalculates on the board
     await fetchData()
   }
 
@@ -585,6 +617,14 @@ export default function HealthPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: issue.id, done_today: true, done_today_date, last_treated_at }),
     })
+  }
+
+  async function handleDelete(issue: HorseHealthIssue) {
+    // Optimistically remove; no history trace
+    setIssues(prev => prev.filter(i => i.id !== issue.id))
+    await fetch(`/api/health?id=${encodeURIComponent(issue.id)}`, { method: 'DELETE' })
+    // Recalculate board vet flags if this was a vet_required issue
+    if (issue.severity === 'vet_required') await fetchData()
   }
 
   async function handleSaved() {
@@ -644,22 +684,21 @@ export default function HealthPage() {
 
           {loading ? (
             <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '24px 0' }}>Loading...</p>
-          ) : nothingActive && activeFilter !== 'all' ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--color-text-3)' }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>✓</div>
-              <p style={{ fontSize: 13 }}>No {FILTER_CHIPS.find(c => c.key === activeFilter)?.label.toLowerCase()} issues</p>
-            </div>
           ) : nothingActive ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--color-text-3)' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>✓</div>
-              <p style={{ fontSize: 13 }}>No active health issues</p>
+              <p style={{ fontSize: 13 }}>
+                {activeFilter === 'all'
+                  ? 'No active health issues'
+                  : `No ${FILTER_CHIPS.find(c => c.key === activeFilter)?.label.toLowerCase()} issues`}
+              </p>
             </div>
           ) : (
             <>
-              {/* ── Section 1: Doctoring ── */}
+              {/* ── Doctoring ── */}
               {filteredDoctor.length > 0 && (
-                <div style={{ marginBottom: 32 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                       Doctoring · {filteredDoctor.length}
                     </div>
@@ -673,16 +712,16 @@ export default function HealthPage() {
                       onEdit={() => setEditingIssue(issue)}
                       onResolve={() => handleResolve(issue)}
                       onMarkDone={() => handleMarkDone(issue)}
-                      onUpdateField={handleUpdateField}
+                      onDelete={() => handleDelete(issue)}
                     />
                   ))}
                 </div>
               )}
 
-              {/* ── Section 2: Watching ── */}
+              {/* ── Watching ── */}
               {filteredWatch.length > 0 && (
-                <div style={{ marginBottom: 32 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                       Watching · {filteredWatch.length}
                     </div>
@@ -694,7 +733,7 @@ export default function HealthPage() {
                       issue={issue}
                       onEdit={() => setEditingIssue(issue)}
                       onResolve={() => handleResolve(issue)}
-                      onUpdateField={handleUpdateField}
+                      onDelete={() => handleDelete(issue)}
                     />
                   ))}
                 </div>
