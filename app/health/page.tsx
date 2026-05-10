@@ -17,6 +17,7 @@ import {
 // ─── Horse autocomplete (alphabetical) ───────────────────────────────────────
 
 const HORSES_ALPHA = [...HORSES].sort((a, b) => a.name.localeCompare(b.name))
+console.log('[Health] HORSES_ALPHA at module load:', HORSES_ALPHA.map(h => h.name))
 
 function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
@@ -26,12 +27,15 @@ function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: s
     onChange(v)
     if (v.length >= 1) {
       const q = v.toLowerCase()
-      const matches = HORSES_ALPHA
+      // Filter from the full list, then sort the filtered results explicitly,
+      // then slice — so A-Z order is guaranteed regardless of source order.
+      const filtered = HORSES
         .filter(h => h.name.toLowerCase().includes(q))
         .map(h => h.name)
-        .slice(0, 8)
-      setSuggestions(matches)
-      setShow(matches.length > 0)
+        .sort((a, b) => a.localeCompare(b))
+      console.log(`[Health] autocomplete "${v}" →`, filtered)
+      setSuggestions(filtered.slice(0, 8))
+      setShow(filtered.length > 0)
     } else {
       setShow(false)
     }
