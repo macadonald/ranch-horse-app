@@ -1,8 +1,8 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
-import { HORSES } from '@/lib/horses'
+import { HORSES, ACTIVE_HORSES, LEVEL_ORDER, Horse } from '@/lib/horses'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -30,6 +30,14 @@ type Guest = {
 }
 
 type Match = { name: string; fit: string; reason: string; warning: string; availability: string }
+
+type DraftRow = {
+  guest: Guest
+  suggestedHorse: string | null
+  isDouble: boolean
+  needsReview: boolean
+  flagged: boolean
+}
 
 function HorseAutocomplete({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
@@ -93,6 +101,10 @@ export default function GuestsPage() {
   const [manualHorse, setManualHorse] = useState('')
   const [manualType, setManualType] = useState('primary')
   const [savingManual, setSavingManual] = useState(false)
+  const [assignAllPhase, setAssignAllPhase] = useState<'idle' | 'running' | 'draft'>('idle')
+  const [assignAllProgress, setAssignAllProgress] = useState('')
+  const [assignAllPct, setAssignAllPct] = useState(0)
+  const [draftRows, setDraftRows] = useState<DraftRow[]>([])
 
   const today = getTucsonToday()
   const tomorrowStr = getTucsonTomorrow()
@@ -219,6 +231,132 @@ export default function GuestsPage() {
     setSavingManual(true); await assignHorse(manualHorse.trim(), manualType); setManualHorse(''); setSavingManual(false)
   }
 
+  async function runAssignAll() {
+    const now = getTucsonToday()
+    setAssignAllPhase('running')
+    setAssignAllProgress('Fetching current assignments...')
+    setAssignAllPct(10)
+
+    const assignRes = await fetch('/api/assignments').then(r => r.json())
+
+    // Map: horse name → [{checkOut}] for horses already in DB
+    const dbAssignedMap: Record<string, { checkOut: string }[]> = {}
+    for (const a of assignRes.assignments || []) {
+      const g = Array.isArray(a.guests) ? a.guests[0] : a.guests
+      if (!g) continue
+      if (!dbAssignedMap[a.horse_name]) dbAssignedMap[a.horse_name] = []
+      dbAssignedMap[a.horse_name].push({ checkOut: g.check_out_date })
+    }
+
+    // Unassigned active guests from current state
+    const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= now)
+    const unassigned = activeGuests.filter(g =>
+      !g.horse_assignments?.some(a => a.status === 'active' && !a.incompatible)
+    )
+
+    if (unassigned.length === 0) { setAssignAllPhase('idle'); return }
+
+    // Most constrained (highest level) guests first so they get first pick
+    const sorted = [...unassigned].sort((a, b) => {
+      const ai = LEVEL_ORDER.indexOf(a.riding_level)
+      const bi = LEVEL_ORDER.indexOf(b.riding_level)
+      return (bi < 0 ? -1 : bi) - (ai < 0 ? -1 : ai)
+    })
+
+    const draft: DraftRow[] = []
+    const usedInPass1 = new Set<string>()
+    const pass2Queue: Guest[] = []
+
+    // Pass 1 — unassigned horses only
+    setAssignAllProgress('Pass 1: Finding best matches...')
+    setAssignAllPct(35)
+    await new Promise(r => setTimeout(r, 350))
+
+    for (const guest of sorted) {
+      const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
+      if (gIdx === -1) { pass2Queue.push(guest); continue }
+
+      const candidates = ACTIVE_HORSES
+        .filter(h => !dbAssignedMap[h.name] && !usedInPass1.has(h.name))
+        .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
+        .map(h => ({ horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), margin: (h.weight ?? 999) - (guest.weight ?? 0) }))
+        .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
+        .sort((a, b) => a.diff - b.diff || b.margin - a.margin)
+
+      if (candidates.length > 0) {
+        usedInPass1.add(candidates[0].horse.name)
+        draft.push({ guest, suggestedHorse: candidates[0].horse.name, isDouble: false, needsReview: false, flagged: false })
+      } else {
+        pass2Queue.push(guest)
+      }
+    }
+
+    // Pass 2 — double up on existing or pass-1 horses
+    setAssignAllProgress('Pass 2: Filling gaps with shared horses...')
+    setAssignAllPct(65)
+    await new Promise(r => setTimeout(r, 350))
+
+    const runtimeDoubleMap: Record<string, { checkOut: string }[]> = { ...dbAssignedMap }
+    const pass3Queue: Guest[] = []
+
+    for (const guest of pass2Queue) {
+      const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
+      if (gIdx === -1) { pass3Queue.push(guest); continue }
+
+      const candidates = ACTIVE_HORSES
+        .filter(h => runtimeDoubleMap[h.name] || usedInPass1.has(h.name))
+        .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
+        .map(h => {
+          const riders = runtimeDoubleMap[h.name] || []
+          const soonest = riders.length > 0
+            ? riders.reduce((min, r) => r.checkOut < min ? r.checkOut : min, riders[0].checkOut)
+            : '9999-99-99'
+          return { horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), soonest }
+        })
+        .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
+        .sort((a, b) => a.diff - b.diff || a.soonest.localeCompare(b.soonest))
+
+      if (candidates.length > 0) {
+        const best = candidates[0]
+        if (!runtimeDoubleMap[best.horse.name]) runtimeDoubleMap[best.horse.name] = []
+        runtimeDoubleMap[best.horse.name].push({ checkOut: guest.check_out_date || '' })
+        draft.push({ guest, suggestedHorse: best.horse.name, isDouble: true, needsReview: false, flagged: false })
+      } else {
+        pass3Queue.push(guest)
+      }
+    }
+
+    // Pass 3 — flag remainders
+    setAssignAllProgress('Pass 3: Flagging guests needing manual review...')
+    setAssignAllPct(90)
+    await new Promise(r => setTimeout(r, 350))
+
+    for (const guest of pass3Queue) {
+      draft.push({ guest, suggestedHorse: null, isDouble: false, needsReview: true, flagged: false })
+    }
+
+    setDraftRows(draft)
+    setAssignAllPct(100)
+    await new Promise(r => setTimeout(r, 200))
+    setAssignAllPhase('draft')
+  }
+
+  async function confirmAssignAll(rows: DraftRow[]) {
+    const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
+    await Promise.all(
+      toSave.map(r =>
+        fetch('/api/assignments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false }),
+        })
+      )
+    )
+    await fetchGuests()
+    setAssignAllPhase('idle')
+    setDraftRows([])
+  }
+
   const activeAssignments = selectedGuest?.horse_assignments?.filter(a => a.status === 'active' && !a.incompatible) || []
   const incompatibleHorses = selectedGuest?.horse_assignments?.filter(a => a.incompatible) || []
 
@@ -234,6 +372,7 @@ export default function GuestsPage() {
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input placeholder="Search name or room..." value={search} onChange={e => setSearch(e.target.value)} style={{ fontSize: 13, width: 200 }} />
+            <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>
             <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>
           </div>
         </div>
@@ -368,6 +507,24 @@ export default function GuestsPage() {
         ` }} />
       </main>
       {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} />}
+      {assignAllPhase === 'running' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: '32px 40px', minWidth: 320, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Building Assignments</div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 20, minHeight: 20 }}>{assignAllProgress}</div>
+            <div style={{ height: 6, background: 'var(--color-border)', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: 'var(--color-accent)', borderRadius: 999, width: `${assignAllPct}%`, transition: 'width 0.4s ease' }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {assignAllPhase === 'draft' && (
+        <AssignAllDraft
+          initialRows={draftRows}
+          onConfirm={confirmAssignAll}
+          onCancel={() => { setAssignAllPhase('idle'); setDraftRows([]) }}
+        />
+      )}
     </div>
   )
 }
@@ -417,6 +574,202 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <button onClick={() => save(true)} disabled={saving || !form.name || !form.riding_level} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--color-text-2)' }}>Save + Add Another</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Autocomplete that uses position:fixed for its dropdown so it escapes overflow:hidden containers
+function DraftHorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [show, setShow] = useState(false)
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 })
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function handleInput(v: string) {
+    onChange(v)
+    if (v.length >= 1) {
+      const hits = ACTIVE_HORSES
+        .filter(h => h.name.toLowerCase().includes(v.toLowerCase()))
+        .map(h => h.name)
+        .slice(0, 8)
+      setSuggestions(hits)
+      setShow(hits.length > 0)
+      if (inputRef.current) {
+        const r = inputRef.current.getBoundingClientRect()
+        setDropPos({ top: r.bottom + 2, left: r.left, width: r.width })
+      }
+    } else {
+      setShow(false)
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => handleInput(e.target.value)}
+        onBlur={() => setTimeout(() => setShow(false), 150)}
+        placeholder="Type horse name..."
+        style={{ width: '100%', fontSize: 13 }}
+      />
+      {show && (
+        <div style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 400, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', maxHeight: 220, overflowY: 'auto' }}>
+          {suggestions.map(name => (
+            <div key={name} onMouseDown={() => { onChange(name); setShow(false) }} style={{ padding: '7px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>
+              🐴 {name}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
+  initialRows: DraftRow[]
+  onConfirm: (rows: DraftRow[]) => Promise<void>
+  onCancel: () => void
+}) {
+  const [rows, setRows] = useState<DraftRow[]>(initialRows)
+  const [saving, setSaving] = useState(false)
+
+  function updateHorse(guestId: string, horseName: string) {
+    setRows(prev => prev.map(r =>
+      r.guest.id === guestId
+        ? { ...r, suggestedHorse: horseName || null, needsReview: !horseName, isDouble: false }
+        : r
+    ))
+  }
+
+  function toggleFlag(guestId: string) {
+    setRows(prev => prev.map(r =>
+      r.guest.id === guestId ? { ...r, flagged: !r.flagged } : r
+    ))
+  }
+
+  async function handleConfirm() {
+    setSaving(true)
+    await onConfirm(rows)
+    setSaving(false)
+  }
+
+  const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
+  const toSkip = rows.filter(r => !r.suggestedHorse || r.flagged)
+
+  const LEVEL_LABELS_SHORT: Record<string, string> = {
+    'B': 'Beginner', 'AB': 'Adv Beg', 'I': 'Intermediate', 'AI': 'Adv Int', 'A': 'Advanced',
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Draft Assignments</h1>
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+            {toSave.length} will be assigned
+            {toSkip.length > 0 ? ` · ${toSkip.length} skipped (flagged or needs review)` : ''}
+            {' · '}Review each row, then confirm
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+          <button
+            onClick={onCancel}
+            style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={saving || toSave.length === 0}
+            style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: toSave.length === 0 ? '#c4a47a' : 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving || toSave.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+          >
+            {saving ? 'Saving...' : `Confirm ${toSave.length} Assignment${toSave.length !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '8px 24px', display: 'flex', gap: 14, flexShrink: 0 }}>
+        {[
+          { color: 'var(--color-success)', bg: 'var(--color-success-bg)', label: 'Good match' },
+          { color: '#92400e', bg: '#fef3c7', label: 'Double-up' },
+          { color: 'var(--color-danger)', bg: 'var(--color-danger-bg)', label: 'Needs review' },
+          { color: 'var(--color-text-3)', bg: 'var(--color-border)', label: '🚩 Flagged = skip on save' },
+        ].map(l => (
+          <span key={l.label} style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: l.bg, border: `1px solid ${l.color}` }} />
+            <span style={{ color: 'var(--color-text-3)' }}>{l.label}</span>
+          </span>
+        ))}
+      </div>
+
+      {/* Row list */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }} className="draft-list">
+        {rows.map(row => {
+          const { guest, suggestedHorse, isDouble, needsReview, flagged } = row
+          const bg = flagged ? 'var(--color-bg)' : needsReview ? 'var(--color-danger-bg)' : isDouble ? '#fef3c7' : 'var(--color-surface)'
+          const border = flagged ? 'var(--color-border)' : needsReview ? 'var(--color-danger-border)' : isDouble ? '#fcd34d' : 'var(--color-border)'
+          return (
+            <div
+              key={guest.id}
+              style={{ display: 'grid', gridTemplateColumns: '1fr 24px 1fr 36px', gap: 10, alignItems: 'center', padding: '10px 14px', marginBottom: 7, background: bg, border: `1px solid ${border}`, borderRadius: 'var(--radius-md)', opacity: flagged ? 0.5 : 1 }}
+              className="draft-row"
+            >
+              {/* Guest info */}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{guest.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>
+                  Rm {guest.room_number}
+                  {guest.riding_level ? ` · ${LEVEL_LABELS_SHORT[guest.riding_level] || guest.riding_level}` : ''}
+                  {guest.weight ? ` · ${guest.weight} lbs` : ''}
+                </div>
+              </div>
+
+              {/* Arrow */}
+              <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 14 }}>→</div>
+
+              {/* Horse input or needs-review state */}
+              <div>
+                {needsReview && !suggestedHorse ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Needs review</span>
+                    <div style={{ flex: 1 }}>
+                      <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} />
+                    </div>
+                    {isDouble && !flagged && (
+                      <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>×2</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Flag button */}
+              <button
+                onClick={() => toggleFlag(guest.id)}
+                title={flagged ? 'Unflag — include in save' : 'Flag — skip on save'}
+                style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)', border: `1px solid ${flagged ? 'var(--color-warning-border)' : 'var(--color-border)'}`, background: flagged ? 'var(--color-warning-bg)' : 'var(--color-surface)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                🚩
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media (max-width: 640px) {
+          .draft-list { padding: 8px 12px !important; }
+          .draft-row { grid-template-columns: 1fr 20px 1fr 32px !important; gap: 6px !important; }
+        }
+      ` }} />
     </div>
   )
 }
