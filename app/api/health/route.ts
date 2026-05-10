@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-export async function GET() {
-  const { data, error } = await supabase
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const statusFilter = searchParams.get('status')
+
+  let query = supabase
     .from('horse_health_issues')
     .select('*')
     .order('opened_at', { ascending: false })
+  if (statusFilter) query = query.eq('status', statusFilter)
+
+  const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const issues = data || []

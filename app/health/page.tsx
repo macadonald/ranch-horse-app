@@ -107,17 +107,6 @@ const BLANK_FORM: IssueFormState = {
   severity: 'monitoring', frequency: 'once_daily', treatment_notes: '', notes: '',
 }
 
-type SupFormState = {
-  horse_name: string
-  supplement_name: string
-  frequency: SupplementFrequency
-  notes: string
-}
-
-const BLANK_SUP_FORM: SupFormState = {
-  horse_name: '', supplement_name: '', frequency: 'once_daily', notes: '',
-}
-
 function IssueFormModal({
   issue,
   onClose,
@@ -130,25 +119,18 @@ function IssueFormModal({
   extraNames?: string[]
 }) {
   const isEdit = issue !== null
-  const [formTab, setFormTab] = useState<'issue' | 'supplement'>('issue')
   const [form, setForm] = useState<IssueFormState>(
     isEdit
       ? { horse_name: issue.horse_name, type: issue.type, location: issue.location, severity: issue.severity, frequency: issue.frequency, treatment_notes: issue.treatment_notes ?? '', notes: issue.notes ?? '' }
       : BLANK_FORM
   )
-  const [supForm, setSupForm] = useState<SupFormState>(BLANK_SUP_FORM)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  // Fix: only close if mousedown also started on the backdrop, preventing
-  // text selection drag from accidentally closing the modal
   const mouseDownOnBackdrop = useRef(false)
 
   function set(field: keyof IssueFormState, value: string) {
     setForm(f => ({ ...f, [field]: value }))
-  }
-  function setSup(field: keyof SupFormState, value: string) {
-    setSupForm(f => ({ ...f, [field]: value }))
   }
 
   function applyButtePreset() {
@@ -174,26 +156,7 @@ function IssueFormModal({
     finally { setSaving(false) }
   }
 
-  async function handleSupSave() {
-    if (!supForm.horse_name || !supForm.supplement_name) return
-    setSaving(true); setSaveError(null)
-    try {
-      const res = await fetch('/api/supplements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ horse_name: supForm.horse_name, supplement_name: supForm.supplement_name, frequency: supForm.frequency, notes: supForm.notes || null }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        setSaveError(d.error || `Save failed (${res.status})`); return
-      }
-      onSaved()
-    } catch { setSaveError('Network error — please try again') }
-    finally { setSaving(false) }
-  }
-
   const canSaveIssue = !!form.horse_name && !saving
-  const canSaveSup   = !!supForm.horse_name && !!supForm.supplement_name && !saving
 
   return (
     <div
@@ -202,56 +165,31 @@ function IssueFormModal({
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}
     >
       <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: !isEdit ? 14 : 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>
-            {isEdit ? `Edit — ${issue.horse_name}` : formTab === 'issue' ? 'Log issue' : 'Log supplement'}
+            {isEdit ? `Edit — ${issue.horse_name}` : 'Log issue'}
           </h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', lineHeight: 1 }}>✕</button>
         </div>
 
-        {/* Tab toggle — only for new entries */}
         {!isEdit && (
-          <div style={{ display: 'flex', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 999, padding: 3, gap: 2, marginBottom: 18, alignSelf: 'flex-start', width: 'fit-content' }}>
-            {(['issue', 'supplement'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => { setFormTab(tab); setSaveError(null) }}
-                style={{
-                  padding: '4px 14px', borderRadius: 999, border: 'none',
-                  background: formTab === tab ? 'var(--color-surface)' : 'transparent',
-                  color: formTab === tab ? 'var(--color-text)' : 'var(--color-text-3)',
-                  fontSize: 12, fontWeight: formTab === tab ? 600 : 400, cursor: 'pointer',
-                  boxShadow: formTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                }}
-              >
-                {tab === 'issue' ? 'Health issue' : 'Grain & supplement'}
-              </button>
-            ))}
+          <div style={{ marginBottom: 14 }}>
+            <label>Horse name</label>
+            <HorseAutocomplete value={form.horse_name} onChange={v => set('horse_name', v)} extraNames={extraNames} />
           </div>
         )}
 
-        {/* ── Health issue form ── */}
-        {(isEdit || formTab === 'issue') && (
-          <>
-            {!isEdit && (
-              <div style={{ marginBottom: 14 }}>
-                <label>Horse name</label>
-                <HorseAutocomplete value={form.horse_name} onChange={v => set('horse_name', v)} extraNames={extraNames} />
-              </div>
-            )}
-
-            {/* Butte quick preset */}
-            {!isEdit && (
-              <div style={{ marginBottom: 14 }}>
-                <button
-                  onClick={applyButtePreset}
-                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, border: '1px solid #a78bfa', background: '#ede9fe', color: '#6d28d9', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  ★ Butte preset
-                </button>
-                <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 8 }}>Sets type → Meds, location → N/A, pre-fills notes</span>
-              </div>
-            )}
+        {!isEdit && (
+          <div style={{ marginBottom: 14 }}>
+            <button
+              onClick={applyButtePreset}
+              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, border: '1px solid #a78bfa', background: '#ede9fe', color: '#6d28d9', fontWeight: 600, cursor: 'pointer' }}
+            >
+              ★ Butte preset
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 8 }}>Sets type → Meds, location → N/A, pre-fills notes</span>
+          </div>
+        )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }} className="health-form-grid">
               <div>
@@ -316,50 +254,6 @@ function IssueFormModal({
                 Cancel
               </button>
             </div>
-          </>
-        )}
-
-        {/* ── Grain & supplement form ── */}
-        {!isEdit && formTab === 'supplement' && (
-          <>
-            <div style={{ marginBottom: 14 }}>
-              <label>Horse name</label>
-              <HorseAutocomplete value={supForm.horse_name} onChange={v => setSup('horse_name', v)} extraNames={extraNames} />
-            </div>
-
-            <div style={{ marginBottom: 14 }}>
-              <label>Supplement / what is added to grain</label>
-              <input value={supForm.supplement_name} onChange={e => setSup('supplement_name', e.target.value)} placeholder="e.g. Platinum, SmartPak, vitamin E..." autoFocus={false} />
-            </div>
-
-            <div style={{ marginBottom: 14 }}>
-              <label>Frequency</label>
-              <select value={supForm.frequency} onChange={e => setSup('frequency', e.target.value)}>
-                {SUPPLEMENT_FREQUENCIES.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-              </select>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label>Notes</label>
-              <textarea value={supForm.notes} onChange={e => setSup('notes', e.target.value)} placeholder="Dose, mixing instructions, etc..." rows={3} style={{ resize: 'vertical' }} />
-            </div>
-
-            {saveError && (
-              <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--color-danger)', fontWeight: 500 }}>
-                {saveError}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 9 }}>
-              <button onClick={handleSupSave} disabled={!canSaveSup} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: canSaveSup ? 'pointer' : 'not-allowed', opacity: canSaveSup ? 1 : 0.5 }}>
-                {saving ? 'Saving...' : 'Add supplement'}
-              </button>
-              <button onClick={onClose} style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>
-                Cancel
-              </button>
-            </div>
-          </>
-        )}
       </div>
     </div>
   )
@@ -554,7 +448,7 @@ function IconBtn({ onClick, title, disabled, children, danger, success }: {
   onClick: () => void; title: string; disabled?: boolean; children: React.ReactNode; danger?: boolean; success?: boolean
 }) {
   return (
-    <button onClick={onClick} disabled={disabled} title={title} style={{
+    <button onClick={e => { e.stopPropagation(); onClick() }} disabled={disabled} title={title} style={{
       width: 26, height: 26, borderRadius: 'var(--radius-sm)', border: '1px solid',
       borderColor: danger ? 'var(--color-danger-border)' : success ? 'var(--color-success-border)' : 'var(--color-border)',
       background: danger ? 'var(--color-danger-bg)' : success ? 'var(--color-success-bg)' : 'transparent',
@@ -595,15 +489,14 @@ function DoctorCard({
   async function handleDelete()   { setDeleting(true);    await onDelete();   setDeleting(false)   }
 
   return (
-    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${borderColor}`, background: 'var(--color-surface)', padding: '10px 12px', marginBottom: hideHorseName ? 0 : 7, borderTop: hideHorseName ? '1px dashed var(--color-border)' : undefined }}>
+    <div
+      onClick={() => onViewProfile?.(issue.horse_name)}
+      style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${borderColor}`, background: 'var(--color-surface)', padding: '10px 12px', marginBottom: hideHorseName ? 0 : 7, borderTop: hideHorseName ? '1px dashed var(--color-border)' : undefined, cursor: 'pointer' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7, flexWrap: 'nowrap', minWidth: 0 }}>
         {!hideHorseName && (
-          <button
-            onClick={() => onViewProfile?.(issue.horse_name)}
-            style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', background: 'none', border: 'none', padding: 0, cursor: onViewProfile ? 'pointer' : 'default', color: 'inherit', textDecoration: onViewProfile ? 'underline dotted' : 'none', textUnderlineOffset: 2 }}
-          >
+          <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>
             🐴 {issue.horse_name}
-          </button>
+          </span>
         )}
         <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', background: badge.bg, color: badge.color, border: `1px solid ${badge.border}`, flexShrink: 0 }}>
           {SEVERITY_LABELS[issue.severity]}
@@ -615,8 +508,8 @@ function DoctorCard({
         {confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Delete?</span>
-            <button onClick={handleDelete} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
-            <button onClick={() => setConfirmDelete(false)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
+            <button onClick={e => { e.stopPropagation(); handleDelete() }} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
+            <button onClick={e => { e.stopPropagation(); setConfirmDelete(false) }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -633,7 +526,7 @@ function DoctorCard({
             {issue.treatment_notes}
           </p>
           {hasLongNotes && (
-            <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', padding: '2px 0 0', cursor: 'pointer', fontWeight: 500 }}>
+            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', padding: '2px 0 0', cursor: 'pointer', fontWeight: 500 }}>
               {expanded ? 'Show less' : 'Show more'}
             </button>
           )}
@@ -658,7 +551,7 @@ function DoctorCard({
           ) : (
             <>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#dc2626' }}>Not done</span>
-              <button onClick={handleMarkDone} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: issue.severity === 'vet_required' ? '#fee2e2' : '#fef3c7', color: borderColor, fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+              <button onClick={e => { e.stopPropagation(); handleMarkDone() }} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: issue.severity === 'vet_required' ? '#fee2e2' : '#fef3c7', color: borderColor, fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
                 {markingDone ? '...' : '✓ Mark done'}
               </button>
             </>
@@ -695,15 +588,14 @@ function DoctorGroup({
     : severityBorderColor('needs_treatment')
 
   return (
-    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${worstColor}`, background: 'var(--color-surface)', marginBottom: 7, overflow: 'hidden' }}>
+    <div
+      onClick={() => onViewProfile(horse_name)}
+      style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${worstColor}`, background: 'var(--color-surface)', marginBottom: 7, overflow: 'hidden', cursor: 'pointer' }}>
       {/* Group header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--color-border)', background: 'rgba(0,0,0,0.02)' }}>
-        <button
-          onClick={() => onViewProfile(horse_name)}
-          style={{ fontWeight: 700, fontSize: 13, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}
-        >
+        <span style={{ fontWeight: 700, fontSize: 13 }}>
           🐴 {horse_name}
-        </button>
+        </span>
         <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 999, background: 'var(--color-bg)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)', fontWeight: 600 }}>
           {issues.length} issues
         </span>
@@ -741,15 +633,14 @@ function WatchCard({
   async function handleDelete()  { setDeleting(true);  await onDelete();  setDeleting(false)  }
 
   return (
-    <div style={{ borderRadius: hideHorseName ? 0 : 'var(--radius-md)', border: hideHorseName ? 'none' : '1px solid var(--color-border)', borderTop: hideHorseName ? '1px dashed var(--color-border)' : undefined, borderLeft: hideHorseName ? 'none' : '3px solid #d1d5db', background: 'var(--color-bg)', padding: '9px 11px', marginBottom: hideHorseName ? 0 : 6 }}>
+    <div
+      onClick={() => onViewProfile?.(issue.horse_name)}
+      style={{ borderRadius: hideHorseName ? 0 : 'var(--radius-md)', border: hideHorseName ? 'none' : '1px solid var(--color-border)', borderTop: hideHorseName ? '1px dashed var(--color-border)' : undefined, borderLeft: hideHorseName ? 'none' : '3px solid #d1d5db', background: 'var(--color-bg)', padding: '9px 11px', marginBottom: hideHorseName ? 0 : 6, cursor: 'pointer' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: issue.treatment_notes ? 6 : 0, flexWrap: 'nowrap', minWidth: 0 }}>
         {!hideHorseName && (
-          <button
-            onClick={() => onViewProfile?.(issue.horse_name)}
-            style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', background: 'none', border: 'none', padding: 0, cursor: onViewProfile ? 'pointer' : 'default', color: 'inherit', textDecoration: onViewProfile ? 'underline dotted' : 'none', textUnderlineOffset: 2 }}
-          >
+          <span style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
             🐴 {issue.horse_name}
-          </button>
+          </span>
         )}
         <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 500, whiteSpace: 'nowrap', background: 'var(--color-surface)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)', flexShrink: 0 }}>
           {LOCATION_LABELS[issue.location]} · {TYPE_LABELS[issue.type]}
@@ -761,8 +652,8 @@ function WatchCard({
         {confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Delete?</span>
-            <button onClick={handleDelete} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
-            <button onClick={() => setConfirmDelete(false)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
+            <button onClick={e => { e.stopPropagation(); handleDelete() }} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
+            <button onClick={e => { e.stopPropagation(); setConfirmDelete(false) }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -779,16 +670,18 @@ function WatchCard({
             {issue.treatment_notes}
           </p>
           {hasLongNotes && (
-            <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', padding: '2px 0 0', cursor: 'pointer', fontWeight: 500 }}>
+            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', padding: '2px 0 0', cursor: 'pointer', fontWeight: 500 }}>
               {expanded ? 'Show less' : 'Show more'}
             </button>
           )}
         </div>
       )}
 
+      {issue.notes && (
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', margin: '0 0 4px', lineHeight: 1.4 }}>{issue.notes}</p>
+      )}
       <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
         Opened {openedDate}
-        {issue.notes && <span style={{ color: 'var(--color-text-3)' }}> · {issue.notes}</span>}
       </div>
     </div>
   )
@@ -813,15 +706,14 @@ function SupplementCard({
   async function handleMarkDone() { setMarkingDone(true); await onMarkDone(); setMarkingDone(false) }
 
   return (
-    <div style={{ borderRadius: hideHorseName ? 0 : 'var(--radius-md)', border: hideHorseName ? 'none' : '1px solid var(--color-border)', borderTop: hideHorseName ? '1px dashed var(--color-border)' : undefined, borderLeft: hideHorseName ? 'none' : '3px solid #0891b2', background: hideHorseName ? '#f0fdfa' : 'var(--color-bg)', padding: '9px 11px', marginBottom: hideHorseName ? 0 : 6 }}>
+    <div
+      onClick={() => onViewProfile?.(supplement.horse_name)}
+      style={{ borderRadius: hideHorseName ? 0 : 'var(--radius-md)', border: hideHorseName ? 'none' : '1px solid var(--color-border)', borderTop: hideHorseName ? '1px dashed var(--color-border)' : undefined, borderLeft: hideHorseName ? 'none' : '3px solid #0891b2', background: hideHorseName ? '#f0fdfa' : 'var(--color-bg)', padding: '9px 11px', marginBottom: hideHorseName ? 0 : 6, cursor: 'pointer' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0, marginBottom: supplement.notes ? 5 : 0 }}>
         {!hideHorseName && (
-          <button
-            onClick={() => onViewProfile?.(supplement.horse_name)}
-            style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', background: 'none', border: 'none', padding: 0, cursor: onViewProfile ? 'pointer' : 'default', color: 'inherit', textDecoration: onViewProfile ? 'underline dotted' : 'none', textUnderlineOffset: 2 }}
-          >
+          <span style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
             🐴 {supplement.horse_name}
-          </button>
+          </span>
         )}
         <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', background: '#cffafe', color: '#0e7490', border: '1px solid #a5f3fc', flexShrink: 0 }}>Grain</span>
         <span style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{supplement.supplement_name}</span>
@@ -832,8 +724,8 @@ function SupplementCard({
         {confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Remove?</span>
-            <button onClick={handleDelete} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
-            <button onClick={() => setConfirmDelete(false)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
+            <button onClick={e => { e.stopPropagation(); handleDelete() }} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
+            <button onClick={e => { e.stopPropagation(); setConfirmDelete(false) }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -853,7 +745,7 @@ function SupplementCard({
         ) : (
           <>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-3)' }}>Not done</span>
-            <button onClick={handleMarkDone} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid #0891b2', background: '#cffafe', color: '#0e7490', fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+            <button onClick={e => { e.stopPropagation(); handleMarkDone() }} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid #0891b2', background: '#cffafe', color: '#0e7490', fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
               {markingDone ? '...' : '✓ Mark done'}
             </button>
           </>
@@ -885,14 +777,13 @@ function WatchGroup({
   }
 
   return (
-    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: '3px solid #d1d5db', background: 'var(--color-bg)', marginBottom: 6, overflow: 'hidden' }}>
+    <div
+      onClick={() => onViewProfile(horse_name)}
+      style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: '3px solid #d1d5db', background: 'var(--color-bg)', marginBottom: 6, overflow: 'hidden', cursor: 'pointer' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 11px', borderBottom: '1px solid var(--color-border)', background: 'rgba(0,0,0,0.02)' }}>
-        <button
-          onClick={() => onViewProfile(horse_name)}
-          style={{ fontWeight: 600, fontSize: 13, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}
-        >
+        <span style={{ fontWeight: 600, fontSize: 13 }}>
           🐴 {horse_name}
-        </button>
+        </span>
         <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 999, background: 'var(--color-surface)', color: 'var(--color-text-3)', border: '1px solid var(--color-border)', fontWeight: 600 }}>
           {totalItems} items
         </span>
@@ -1119,13 +1010,14 @@ export default function HealthPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [healthRes, lameRes, otherRes, suppRes] = await Promise.all([
-        fetch('/api/health').then(r => r.json()),
+      const [activeRes, resolvedRes, lameRes, otherRes, suppRes] = await Promise.all([
+        fetch('/api/health?status=active').then(r => r.json()),
+        fetch('/api/health?status=resolved').then(r => r.json()),
         fetch('/api/lame').then(r => r.json()),
         fetch('/api/other-animals').then(r => r.json()),
         fetch('/api/supplements').then(r => r.json()),
       ])
-      setIssues(healthRes.issues || [])
+      setIssues([...(activeRes.issues || []), ...(resolvedRes.issues || [])])
       setLameFlags(lameRes.flags || [])
       setOtherAnimalNames((otherRes.animals || []).map((a: any) => a.name as string))
       setSupplements(suppRes.supplements || [])
@@ -1223,6 +1115,7 @@ export default function HealthPage() {
     const done_today_date = tucsonToday
     setIssues(prev => prev.map(i => i.id === issue.id ? { ...i, done_today: true, done_today_date, last_treated_at } : i))
     await fetch('/api/health', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: issue.id, done_today: true, done_today_date, last_treated_at }) })
+    await fetchData()
   }
 
   async function handleDelete(issue: HorseHealthIssue) {
@@ -1253,6 +1146,7 @@ export default function HealthPage() {
     const done_today_date = tucsonToday
     setSupplements(prev => prev.map(s => s.id === supplement.id ? { ...s, done_today: true, done_today_date } : s))
     await fetch('/api/supplements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: supplement.id, done_today: true, done_today_date }) })
+    await fetchData()
   }
 
   async function handleDeleteSupplement(supplement: HorseSupplement) {
