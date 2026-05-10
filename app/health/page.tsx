@@ -30,10 +30,12 @@ function HorseAutocomplete({
   value,
   onChange,
   autoFocus: af = true,
+  extraNames = [],
 }: {
   value: string
   onChange: (v: string) => void
   autoFocus?: boolean
+  extraNames?: string[]
 }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
@@ -42,9 +44,9 @@ function HorseAutocomplete({
     onChange(v)
     if (v.length >= 1) {
       const q = v.toLowerCase()
-      const matches = HORSES
-        .filter(h => h.name.toLowerCase().includes(q))
-        .map(h => h.name)
+      const allNames = Array.from(new Set([...HORSES.map(h => h.name), ...extraNames]))
+      const matches = allNames
+        .filter(n => n.toLowerCase().includes(q))
         .sort((a, b) => {
           const aStarts = a.toLowerCase().startsWith(q)
           const bStarts = b.toLowerCase().startsWith(q)
@@ -110,10 +112,12 @@ function IssueFormModal({
   issue,
   onClose,
   onSaved,
+  extraNames = [],
 }: {
   issue: HorseHealthIssue | null
   onClose: () => void
   onSaved: () => void
+  extraNames?: string[]
 }) {
   const isEdit = issue !== null
   const [form, setForm] = useState<IssueFormState>(
@@ -182,7 +186,7 @@ function IssueFormModal({
         {!isEdit && (
           <div style={{ marginBottom: 14 }}>
             <label>Horse name</label>
-            <HorseAutocomplete value={form.horse_name} onChange={v => set('horse_name', v)} />
+            <HorseAutocomplete value={form.horse_name} onChange={v => set('horse_name', v)} extraNames={extraNames} />
           </div>
         )}
 
@@ -611,8 +615,10 @@ function LameFlagCard({
 
 function QuickFlagForm({
   onSave,
+  extraNames = [],
 }: {
   onSave: (horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) => Promise<void>
+  extraNames?: string[]
 }) {
   const [horseName, setHorseName] = useState('')
   const [flagType, setFlagType]   = useState<'lame' | 'stiff_sore'>('lame')
@@ -644,7 +650,7 @@ function QuickFlagForm({
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 160px', minWidth: 140 }}>
           <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Horse</label>
-          <HorseAutocomplete value={horseName} onChange={setHorseName} autoFocus={false} />
+          <HorseAutocomplete value={horseName} onChange={setHorseName} autoFocus={false} extraNames={extraNames} />
         </div>
         <div style={{ flex: '0 0 auto' }}>
           <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Type</label>
@@ -702,19 +708,21 @@ function LameFlagView({
   onMarkFit,
   onLameFlag,
   onViewVetRequired,
+  extraNames = [],
 }: {
   activeFlags: LameFlag[]
   vetIssues: HorseHealthIssue[]
   onMarkFit: (flag: LameFlag) => Promise<void>
   onLameFlag: (horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) => Promise<void>
   onViewVetRequired: () => void
+  extraNames?: string[]
 }) {
   const lameFlags  = activeFlags.filter(f => f.flag_type === 'lame')
   const stiffFlags = activeFlags.filter(f => f.flag_type === 'stiff_sore')
 
   return (
     <div>
-      <QuickFlagForm onSave={onLameFlag} />
+      <QuickFlagForm onSave={onLameFlag} extraNames={extraNames} />
 
       {/* Group 1: Lame */}
       <div style={{ marginBottom: 24 }}>
@@ -815,6 +823,7 @@ function applyFilter(issues: HorseHealthIssue[], filter: ActiveFilter): HorseHea
 export default function HealthPage() {
   const [issues, setIssues]               = useState<HorseHealthIssue[]>([])
   const [lameFlags, setLameFlags]         = useState<LameFlag[]>([])
+  const [otherAnimalNames, setOtherAnimalNames] = useState<string[]>([])
   const [loading, setLoading]             = useState(true)
   const [activeFilter, setActiveFilter]   = useState<ActiveFilter>('all')
   const [historySearch, setHistorySearch] = useState('')
@@ -825,12 +834,14 @@ export default function HealthPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [healthRes, lameRes] = await Promise.all([
+      const [healthRes, lameRes, otherRes] = await Promise.all([
         fetch('/api/health').then(r => r.json()),
         fetch('/api/lame').then(r => r.json()),
+        fetch('/api/other-animals').then(r => r.json()),
       ])
       setIssues(healthRes.issues || [])
       setLameFlags(lameRes.flags || [])
+      setOtherAnimalNames((otherRes.animals || []).map((a: any) => a.name as string))
     } catch (err) {
       console.error(err)
     } finally {
@@ -993,6 +1004,7 @@ export default function HealthPage() {
               onMarkFit={handleMarkFit}
               onLameFlag={handleLameFlag}
               onViewVetRequired={() => setActiveFilter('doctoring')}
+              extraNames={otherAnimalNames}
             />
           ) : nothingActive ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--color-text-3)' }}>
@@ -1106,10 +1118,10 @@ export default function HealthPage() {
       </main>
 
       {showLogModal && (
-        <IssueFormModal issue={null} onClose={() => setShowLogModal(false)} onSaved={handleSaved} />
+        <IssueFormModal issue={null} onClose={() => setShowLogModal(false)} onSaved={handleSaved} extraNames={otherAnimalNames} />
       )}
       {editingIssue && (
-        <IssueFormModal issue={editingIssue} onClose={() => setEditingIssue(null)} onSaved={handleSaved} />
+        <IssueFormModal issue={editingIssue} onClose={() => setEditingIssue(null)} onSaved={handleSaved} extraNames={otherAnimalNames} />
       )}
     </div>
   )
