@@ -720,14 +720,18 @@ function LogVisitModal({ onClose, onSaved, needs }: {
 
         {/* Current horse entry form */}
         <div style={{ borderTop: horses.length > 0 ? '1px solid var(--color-border)' : 'none', paddingTop: horses.length > 0 ? 16 : 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
             {horses.length > 0 ? 'Add another horse' : 'Horse done'}
           </div>
-          <div style={{ display: 'flex', gap: 9, marginBottom: 9 }}>
+          <div style={{ marginBottom: 10 }}>
+            <label>Horse name</label>
             <HorseAutocomplete
               value={currentHorse.horse_name}
               onChange={v => setCurrentHorse(h => ({ ...h, horse_name: v }))}
             />
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label>What was done</label>
             <select
               value={currentHorse.work_done}
               onChange={e => setCurrentHorse(h => ({ ...h, work_done: e.target.value }))}
@@ -737,11 +741,12 @@ function LogVisitModal({ onClose, onSaved, needs }: {
             </select>
           </div>
           <div style={{ marginBottom: 18 }}>
+            <label>Notes</label>
             <input
               value={currentHorse.notes}
               onChange={e => setCurrentHorse(h => ({ ...h, notes: e.target.value }))}
-              placeholder="Notes for this horse (optional)..."
-              style={{ width: '100%', fontSize: 13, boxSizing: 'border-box' }}
+              placeholder="Optional..."
+              style={{ fontSize: 13 }}
             />
           </div>
         </div>
