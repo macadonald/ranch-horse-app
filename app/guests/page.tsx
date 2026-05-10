@@ -129,20 +129,61 @@ export default function GuestsPage() {
   async function runMatch(guest: Guest, dismissed: string[]) {
     if (!guest.age || !guest.weight || !guest.height || !guest.riding_level) return
     setMatchLoading(true)
+    setMatches([])
     try {
       const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: `${guest.notes || ''}${guest.horse_request ? ' Horse request: ' + guest.horse_request : ''}`, guestId: guest.id, dismissedHorses: dismissed }) })
-      const data = await res.json(); if (data.matches) setMatches(data.matches)
+      if (!res.body) { const data = await res.json(); if (data.matches) setMatches(data.matches); return }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'match') setMatches(prev => [...prev, parsed.match])
+          } catch {}
+        }
+      }
     } catch (err) { console.error(err) } finally { setMatchLoading(false) }
   }
 
   async function dismissHorse(name: string) {
     const newDismissed = [...dismissedHorses, name]
-    setDismissedHorses(newDismissed); setMatches(prev => prev.filter(m => m.name !== name))
+    setDismissedHorses(newDismissed)
+    setMatches(prev => prev.filter(m => m.name !== name))
     if (!selectedGuest) return
     try {
       const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: selectedGuest.age, weight: selectedGuest.weight, height: selectedGuest.height, level: selectedGuest.riding_level, gender: selectedGuest.gender, notes: selectedGuest.notes, guestId: selectedGuest.id, dismissedHorses: newDismissed }) })
-      const data = await res.json()
-      if (data.matches) { setMatches(prev => { const n = prev.map(m => m.name); const nm = data.matches.find((m: Match) => !n.includes(m.name) && !newDismissed.includes(m.name)); if (nm) return [...prev, nm]; return prev }) }
+      if (!res.body) return
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const newMatches: Match[] = []
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'match') newMatches.push(parsed.match)
+          } catch {}
+        }
+      }
+      setMatches(prev => {
+        const existing = new Set(prev.map(m => m.name))
+        const novel = newMatches.find(m => !existing.has(m.name) && !newDismissed.includes(m.name))
+        return novel ? [...prev, novel] : prev
+      })
     } catch (err) { console.error(err) }
   }
 
@@ -284,7 +325,7 @@ export default function GuestsPage() {
                   </div>
                   {matchLoading && matches.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '12px 0' }}>Scanning the herd...</p>
                     : matches.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No matches found</p>
-                    : matches.map((m, i) => {
+                    : <>{matches.map((m, i) => {
                       const isDouble = m.availability === 'double_assigned'
                       const isSingle = m.availability === 'single_assigned'
                       const isCheckout = m.availability === 'checking_out_soon'
@@ -309,7 +350,7 @@ export default function GuestsPage() {
                           </div>
                         </div>
                       )
-                    })}
+                    })}{matchLoading && <p style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: '6px 0', fontStyle: 'italic' }}>Finding more matches...</p>}</>}
                 </div>
               </div>
             </div>

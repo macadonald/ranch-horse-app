@@ -34,6 +34,7 @@ export default function SwapPage() {
   const [riderCountInput, setRiderCountInput] = useState('')
   const [savingCount, setSavingCount] = useState(false)
   const [showResults, setShowResults] = useState(false)
+  const [matchStreaming, setMatchStreaming] = useState(false)
 
   useEffect(() => {
     fetch('/api/rider-count')
@@ -59,33 +60,76 @@ export default function SwapPage() {
     if (!age || !weight || !height || !level) { setError('Please fill in all fields and select a riding level.'); return }
     setError('')
     setLoading(true)
+    setMatchStreaming(true)
     setMatches([])
     setSelectedHorse(null)
     setDismissedHorses([])
     setShowResults(true)
     try {
       const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age, weight, height, level, gender, notes, dismissedHorses: [] }) })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setMatches(data.matches)
-      if (data.riderCount) setRiderCount(data.riderCount)
+      if (!res.body) {
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        setMatches(data.matches)
+        if (data.riderCount) setRiderCount(data.riderCount)
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'match') setMatches(prev => [...prev, parsed.match])
+            else if (parsed.type === 'done' && parsed.riderCount) setRiderCount(parsed.riderCount)
+            else if (parsed.type === 'error') throw new Error(parsed.error)
+          } catch {}
+        }
+      }
     } catch (err) {
       setError('Something went wrong. Please try again.')
       setShowResults(false)
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+      setMatchStreaming(false)
+    }
   }
 
   async function dismissAndRefresh(horseName: string) {
     const newDismissed = [...dismissedHorses, horseName]
+    const currentNames = new Set(matches.filter(m => m.name !== horseName).map(m => m.name))
     setDismissedHorses(newDismissed)
     setMatches(prev => prev.filter(m => m.name !== horseName))
     try {
       const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age, weight, height, level, gender, notes, dismissedHorses: newDismissed }) })
-      const data = await res.json()
-      if (data.matches) {
-        const newMatch = data.matches.find((m: Match) => !newDismissed.includes(m.name) && !matches.find(e => e.name === m.name))
-        if (newMatch) setMatches(prev => [...prev.filter(m => m.name !== horseName), newMatch])
+      if (!res.body) return
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const newMatches: Match[] = []
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'match') newMatches.push(parsed.match)
+          } catch {}
+        }
       }
+      const novel = newMatches.find(m => !currentNames.has(m.name) && !newDismissed.includes(m.name))
+      if (novel) setMatches(prev => [...prev, novel])
     } catch (err) { console.error(err) }
   }
 
@@ -149,7 +193,7 @@ export default function SwapPage() {
               </div>
               {error && <p style={{ fontSize: 13, color: 'var(--color-danger)', marginBottom: 10, padding: '8px 10px', background: 'var(--color-danger-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)' }}>{error}</p>}
               <button onClick={handleSubmit} disabled={loading} style={{ width: '100%', padding: '13px', borderRadius: 'var(--radius-md)', border: 'none', background: loading ? '#c4a47a' : 'var(--color-accent)', color: '#fff', fontSize: 15, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
-                {loading ? 'Scanning the herd...' : 'Find Matching Horses'}
+                {loading ? (matches.length > 0 ? 'Finding more...' : 'Scanning the herd...') : 'Find Matching Horses'}
               </button>
             </div>
           </div>
@@ -161,7 +205,7 @@ export default function SwapPage() {
               </button>
             )}
 
-            {loading && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{[1,2,3,4,5].map(i => <div key={i} style={{ height: 90, borderRadius: 'var(--radius-lg)' }} className="skeleton" />)}</div>}
+            {loading && matches.length === 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{[1,2,3,4,5].map(i => <div key={i} style={{ height: 90, borderRadius: 'var(--radius-lg)' }} className="skeleton" />)}</div>}
 
             {!loading && matches.length === 0 && !showResults && (
               <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--color-text-3)' }} className="hide-mobile">
@@ -171,7 +215,7 @@ export default function SwapPage() {
               </div>
             )}
 
-            {!loading && matches.length > 0 && (
+            {matches.length > 0 && (
               <div>
                 {exactMatches.length > 0 && <>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Exact level matches</div>
@@ -181,6 +225,7 @@ export default function SwapPage() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, marginTop: exactMatches.length > 0 ? 20 : 0 }}>Adjacent level alternatives</div>
                   {adjacentMatches.map((m, i) => <MatchCard key={m.name} match={m} rank={exactMatches.length + i + 1} selected={selectedHorse === m.name} disabled={selectedHorse !== null && selectedHorse !== m.name} onSelect={() => setSelectedHorse(m.name)} onDismiss={() => dismissAndRefresh(m.name)} adjacent />)}
                 </>}
+                {matchStreaming && <p style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: '8px 0', fontStyle: 'italic' }}>Finding more matches...</p>}
               </div>
             )}
           </div>
