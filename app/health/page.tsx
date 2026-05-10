@@ -14,10 +14,7 @@ import {
   severityBorderColor, severityBadgeStyle,
 } from '@/lib/health'
 
-// ─── Horse autocomplete (alphabetical) ───────────────────────────────────────
-
-const HORSES_ALPHA = [...HORSES].sort((a, b) => a.name.localeCompare(b.name))
-console.log('[Health] HORSES_ALPHA at module load:', HORSES_ALPHA.map(h => h.name))
+// ─── Horse autocomplete ───────────────────────────────────────────────────────
 
 function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
@@ -27,15 +24,19 @@ function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: s
     onChange(v)
     if (v.length >= 1) {
       const q = v.toLowerCase()
-      // Filter from the full list, then sort the filtered results explicitly,
-      // then slice — so A-Z order is guaranteed regardless of source order.
-      const filtered = HORSES
+      const matches = HORSES
         .filter(h => h.name.toLowerCase().includes(q))
         .map(h => h.name)
-        .sort((a, b) => a.localeCompare(b))
-      console.log(`[Health] autocomplete "${v}" →`, filtered)
-      setSuggestions(filtered.slice(0, 8))
-      setShow(filtered.length > 0)
+        .sort((a, b) => {
+          // Names starting with the query rank above names that merely contain it
+          const aStarts = a.toLowerCase().startsWith(q)
+          const bStarts = b.toLowerCase().startsWith(q)
+          if (aStarts !== bStarts) return aStarts ? -1 : 1
+          // Within each group, shorter names first (tighter match)
+          return a.length - b.length
+        })
+      setSuggestions(matches.slice(0, 8))
+      setShow(matches.length > 0)
     } else {
       setShow(false)
     }
