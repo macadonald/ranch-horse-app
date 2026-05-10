@@ -3,7 +3,7 @@ export type HealthIssueType = 'wound' | 'abscess' | 'eye' | 'skin' | 'hoof' | 's
 export type HealthLocation =
   | 'left_front_hoof' | 'right_front_hoof' | 'left_rear_hoof' | 'right_rear_hoof'
   | 'left_front_leg' | 'right_front_leg' | 'left_rear_leg' | 'right_rear_leg'
-  | 'back' | 'cinch' | 'wither' | 'neck' | 'chest' | 'flank' | 'face' | 'eyes'
+  | 'back' | 'cinch' | 'wither' | 'neck' | 'chest' | 'flank' | 'face' | 'left_eye' | 'right_eye'
 
 export type HealthSeverity = 'monitoring' | 'needs_treatment' | 'vet_required'
 export type HealthFrequency = 'once_daily' | 'twice_daily' | 'pre_saddle' | 'as_needed'
@@ -64,8 +64,9 @@ export const LOCATION_GROUPS: { group: string; items: { key: HealthLocation; lab
       { key: 'neck',   label: 'Neck' },
       { key: 'chest',  label: 'Chest' },
       { key: 'flank',  label: 'Flank' },
-      { key: 'face',   label: 'Face' },
-      { key: 'eyes',   label: 'Eyes' },
+      { key: 'face',      label: 'Face' },
+      { key: 'left_eye',  label: 'Left eye' },
+      { key: 'right_eye', label: 'Right eye' },
     ],
   },
 ]
@@ -98,8 +99,9 @@ export const LOCATION_LABELS: Record<HealthLocation, string> = {
   neck:   'Neck',
   chest:  'Chest',
   flank:  'Flank',
-  face:   'Face',
-  eyes:   'Eyes',
+  face:      'Face',
+  left_eye:  'Left eye',
+  right_eye: 'Right eye',
 }
 
 export const TYPE_LABELS: Record<HealthIssueType, string> = {
