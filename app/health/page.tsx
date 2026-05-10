@@ -794,23 +794,21 @@ function LameFlagView({
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-type ActiveFilter = 'all' | 'vet_required' | 'needs_treatment' | 'monitoring' | 'sore' | 'lame'
+type ActiveFilter = 'all' | 'doctoring' | 'monitoring' | 'sores' | 'lame'
 
 const FILTER_CHIPS: { key: ActiveFilter; label: string }[] = [
-  { key: 'all',             label: 'All' },
-  { key: 'lame',            label: 'Lame' },
-  { key: 'vet_required',    label: 'Vet required' },
-  { key: 'needs_treatment', label: 'Needs treatment' },
-  { key: 'monitoring',      label: 'Monitoring' },
-  { key: 'sore',            label: 'Sore' },
+  { key: 'all',        label: 'All' },
+  { key: 'doctoring',  label: 'Doctoring' },
+  { key: 'monitoring', label: 'Monitoring' },
+  { key: 'sores',      label: 'Sores' },
+  { key: 'lame',       label: 'Lame' },
 ]
 
 function applyFilter(issues: HorseHealthIssue[], filter: ActiveFilter): HorseHealthIssue[] {
-  if (filter === 'all')             return issues
-  if (filter === 'vet_required')    return issues.filter(i => i.severity === 'vet_required')
-  if (filter === 'needs_treatment') return issues.filter(i => i.severity === 'needs_treatment')
-  if (filter === 'monitoring')      return issues.filter(i => i.severity === 'monitoring')
-  if (filter === 'sore')            return issues.filter(i => i.type === 'sore')
+  if (filter === 'all')        return issues
+  if (filter === 'doctoring')  return issues.filter(i => i.severity === 'vet_required' || i.severity === 'needs_treatment')
+  if (filter === 'monitoring') return issues.filter(i => i.severity === 'monitoring')
+  if (filter === 'sores')      return issues.filter(i => i.type === 'sore')
   return issues
 }
 
@@ -994,7 +992,7 @@ export default function HealthPage() {
               vetIssues={vetIssuesForLameView}
               onMarkFit={handleMarkFit}
               onLameFlag={handleLameFlag}
-              onViewVetRequired={() => setActiveFilter('vet_required')}
+              onViewVetRequired={() => setActiveFilter('doctoring')}
             />
           ) : nothingActive ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--color-text-3)' }}>
@@ -1002,7 +1000,7 @@ export default function HealthPage() {
               <p style={{ fontSize: 13 }}>
                 {activeFilter === 'all'
                   ? 'No active health issues'
-                  : `No ${FILTER_CHIPS.find(c => c.key === activeFilter)?.label.toLowerCase()} issues`}
+                  : `No ${FILTER_CHIPS.find(c => c.key === activeFilter)?.label.toLowerCase()} issues found`}
               </p>
             </div>
           ) : (
