@@ -118,89 +118,96 @@ function NeedRow({
     }
   }
 
-  const badgeColor = need.what_needed === 'fronts'
-    ? { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5' }
-    : { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' }
+  const isRed = need.what_needed === 'fronts'
+  const created = new Date(need.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   return (
-    <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', marginBottom: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 120 }}>
-          <span style={{ fontSize: 14 }}>🐴</span>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>{need.horse_name}</span>
-          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, background: badgeColor.bg, color: badgeColor.color, border: `1px solid ${badgeColor.border}` }}>
-            {need.what_needed === 'fronts' ? '🔴' : '🟠'} {WORK_LABELS[need.what_needed]}
-          </span>
-        </div>
+    <div style={{ padding: '7px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', marginBottom: 5 }}>
+
+      {/* Line 1: horse · type select · actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          🐴 {need.horse_name}
+        </span>
         <select
           value={need.what_needed}
           onChange={e => onUpdate(need.id, 'what_needed', e.target.value)}
-          style={{ fontSize: 12 }}
+          style={{
+            fontSize: 11, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
+            cursor: 'pointer', flexShrink: 0,
+            border: `1px solid ${isRed ? '#fca5a5' : '#fcd34d'}`,
+            background: isRed ? '#fee2e2' : '#fef3c7',
+            color: isRed ? '#dc2626' : '#92400e',
+          }}
         >
           {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
+        <div style={{ flex: 1 }} />
         <button
           onClick={toggleExpand}
-          style={{ padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: `1px solid ${isExpanded ? 'var(--color-border)' : 'var(--color-success-border)'}`, background: isExpanded ? 'var(--color-bg)' : 'var(--color-success-bg)', color: isExpanded ? 'var(--color-text-3)' : 'var(--color-success)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+          style={{
+            padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 600,
+            cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+            border: `1px solid ${isExpanded ? 'var(--color-border)' : 'var(--color-success-border)'}`,
+            background: isExpanded ? 'var(--color-bg)' : 'var(--color-success-bg)',
+            color: isExpanded ? 'var(--color-text-3)' : 'var(--color-success)',
+          }}
         >
-          {isExpanded ? 'Cancel' : '✓ Mark done'}
+          {isExpanded ? 'Cancel' : '✓ Done'}
         </button>
         <button
           onClick={() => onRemove(need.id)}
-          style={{ padding: '5px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontSize: 12, cursor: 'pointer' }}
+          style={{
+            width: 22, height: 22, padding: 0, borderRadius: 'var(--radius-sm)', flexShrink: 0,
+            border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)',
+            color: 'var(--color-danger)', fontSize: 11, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
         >
           ✕
         </button>
       </div>
 
-      <input
-        value={notes}
-        onChange={e => setNotes(e.target.value)}
-        onBlur={() => { if (notes !== (need.notes || '')) onUpdate(need.id, 'notes', notes) }}
-        placeholder="Notes (optional)..."
-        style={{ marginTop: 8, width: '100%', fontSize: 12, boxSizing: 'border-box' }}
-      />
+      {/* Line 2: date · inline notes */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 3 }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>Added {created} ·</span>
+        <input
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          onBlur={() => { if (notes !== (need.notes || '')) onUpdate(need.id, 'notes', notes) }}
+          placeholder="add a note..."
+          style={{
+            flex: 1, minWidth: 0, fontSize: 11, color: 'var(--color-text-3)',
+            background: 'transparent', border: 'none', outline: 'none',
+            padding: '0 2px', fontFamily: 'inherit',
+          }}
+        />
+      </div>
 
+      {/* Expanded: record visit */}
       {isExpanded && (
-        <div style={{ marginTop: 12, padding: 14, background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+        <div style={{ marginTop: 10, padding: 12, background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Record this visit</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }} className="done-form-grid">
             <div>
               <label>Visit Date</label>
-              <input
-                type="date"
-                value={doneForm.visit_date}
-                onChange={e => setDoneForm({ ...doneForm, visit_date: e.target.value })}
-              />
+              <input type="date" value={doneForm.visit_date} onChange={e => setDoneForm({ ...doneForm, visit_date: e.target.value })} />
             </div>
             <div>
               <label>Farrier Name</label>
-              <input
-                value={doneForm.farrier_name}
-                onChange={e => setDoneForm({ ...doneForm, farrier_name: e.target.value })}
-                placeholder="e.g. John Smith"
-              />
+              <input value={doneForm.farrier_name} onChange={e => setDoneForm({ ...doneForm, farrier_name: e.target.value })} placeholder="e.g. John Smith" />
             </div>
           </div>
           <div style={{ marginBottom: 12 }}>
             <label>Notes for this visit</label>
-            <input
-              value={doneForm.notes}
-              onChange={e => setDoneForm({ ...doneForm, notes: e.target.value })}
-              placeholder="Optional..."
-            />
+            <input value={doneForm.notes} onChange={e => setDoneForm({ ...doneForm, notes: e.target.value })} placeholder="Optional..." />
           </div>
           <button
             onClick={() => onMarkDone(need)}
             disabled={saving || !doneForm.visit_date || !doneForm.farrier_name}
             style={{
-              padding: '8px 16px',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              background: 'var(--color-accent)',
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 600,
+              padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: 'none',
+              background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600,
               cursor: saving || !doneForm.visit_date || !doneForm.farrier_name ? 'not-allowed' : 'pointer',
               opacity: saving || !doneForm.visit_date || !doneForm.farrier_name ? 0.5 : 1,
             }}
