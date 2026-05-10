@@ -184,6 +184,8 @@ export default function BoardPage() {
   const [assignmentMap, setAssignmentMap] = useState<Record<string, GuestInfo[]>>({})
   const [shoeMap, setShoeMap] = useState<Record<string, ShoeWarning>>({})
   const [vetFlaggedNames, setVetFlaggedNames] = useState<Set<string>>(new Set())
+  const [lameFlaggedNames, setLameFlaggedNames] = useState<Set<string>>(new Set())
+  const [stiffSoreNames, setStiffSoreNames] = useState<Set<string>>(new Set())
   const [guests, setGuests] = useState<Guest[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -196,11 +198,12 @@ export default function BoardPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [assignRes, shoeRes, guestRes, healthRes] = await Promise.all([
+      const [assignRes, shoeRes, guestRes, healthRes, lameRes] = await Promise.all([
         fetch('/api/assignments').then(r => r.json()),
         fetch('/api/shoe-needs').then(r => r.json()),
         fetch('/api/guests').then(r => r.json()),
         fetch('/api/health').then(r => r.json()),
+        fetch('/api/lame').then(r => r.json()),
       ])
 
       const newAssignmentMap: Record<string, GuestInfo[]> = {}
@@ -230,6 +233,8 @@ export default function BoardPage() {
       setShoeMap(newShoeMap)
       setGuests(guestRes.guests || [])
       setVetFlaggedNames(new Set(healthRes.vet_flagged_horses || []))
+      setLameFlaggedNames(new Set(lameRes.lame_horses || []))
+      setStiffSoreNames(new Set(lameRes.stiff_sore_horses || []))
     } catch (err) {
       console.error(err)
     } finally {
@@ -240,9 +245,10 @@ export default function BoardPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const unavailableHorses = HORSES.filter(h => UNAVAILABLE_STATUSES.has(h.status))
-  // Horses with an active vet_required health issue are pulled from the pool entirely
+  // Horses with an active vet_required health issue or lame flag are pulled from the pool
   const healthUnavailable = ACTIVE_HORSES.filter(h => vetFlaggedNames.has(h.name))
-  const poolHorses = ACTIVE_HORSES.filter(h => !vetFlaggedNames.has(h.name))
+  const lameUnavailable = ACTIVE_HORSES.filter(h => lameFlaggedNames.has(h.name))
+  const poolHorses = ACTIVE_HORSES.filter(h => !vetFlaggedNames.has(h.name) && !lameFlaggedNames.has(h.name))
   const assignedHorses = poolHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) > 0)
   const freeHorses = poolHorses.filter(h => !(assignmentMap[h.name]?.length ?? 0))
 
@@ -433,6 +439,7 @@ export default function BoardPage() {
                     const assignments = assignmentMap[horse.name] || []
                     const shoe = shoeMap[horse.name]
                     const isDouble = assignments.length >= 2
+                    const isStiff = stiffSoreNames.has(horse.name)
                     return (
                       <div
                         key={horse.name}
@@ -447,6 +454,11 @@ export default function BoardPage() {
                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 6 }}>
                           <span style={{ fontWeight: 700, fontSize: 14 }}>🐴 {horse.name}</span>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                            {isStiff && (
+                              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+                                Stiff
+                              </span>
+                            )}
                             {shoe && (
                               <span style={{
                                 fontSize: 10, padding: '2px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap',
@@ -500,14 +512,16 @@ export default function BoardPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }} className="board-grid-sm">
                   {filteredFree.map(horse => {
                     const shoe = shoeMap[horse.name]
+                    const isStiff = stiffSoreNames.has(horse.name)
                     return (
                       <div
                         key={horse.name}
                         onClick={() => setAssigningHorse(horse)}
                         className="free-card"
                         style={{
-                          background: 'var(--color-surface)',
-                          border: '1px solid var(--color-border)',
+                          background: isStiff ? '#fffbeb' : 'var(--color-surface)',
+                          border: `1px solid ${isStiff ? '#fcd34d' : 'var(--color-border)'}`,
+                          borderLeft: isStiff ? '3px solid #d97706' : '1px solid var(--color-border)',
                           borderRadius: 'var(--radius-md)',
                           padding: '10px 12px',
                           opacity: horse.status === 'backup' ? 0.65 : 1,
@@ -516,16 +530,23 @@ export default function BoardPage() {
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
-                          {shoe && (
-                            <span style={{
-                              fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, flexShrink: 0,
-                              background: shoe.level === 'red' ? '#fee2e2' : '#fef3c7',
-                              color: shoe.level === 'red' ? '#dc2626' : '#92400e',
-                              border: `1px solid ${shoe.level === 'red' ? '#fca5a5' : '#fcd34d'}`,
-                            }}>
-                              {shoe.level === 'red' ? '🔴' : '🟠'}
-                            </span>
-                          )}
+                          <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                            {isStiff && (
+                              <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+                                Stiff
+                              </span>
+                            )}
+                            {shoe && (
+                              <span style={{
+                                fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, flexShrink: 0,
+                                background: shoe.level === 'red' ? '#fee2e2' : '#fef3c7',
+                                color: shoe.level === 'red' ? '#dc2626' : '#92400e',
+                                border: `1px solid ${shoe.level === 'red' ? '#fca5a5' : '#fcd34d'}`,
+                              }}>
+                                {shoe.level === 'red' ? '🔴' : '🟠'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>
                           {horse.level}{horse.status === 'backup' ? ' · backup' : ''}
@@ -534,6 +555,28 @@ export default function BoardPage() {
                       </div>
                     )
                   })}
+                </div>
+              </div>
+            )}
+
+            {lameUnavailable.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+                  Lame — {lameUnavailable.length} horse{lameUnavailable.length !== 1 ? 's' : ''} out of pool
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }} className="board-grid-sm">
+                  {lameUnavailable.map(horse => (
+                    <div
+                      key={horse.name}
+                      style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderLeft: '3px solid #d97706', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
+                        <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d' }}>Lame</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#92400e', marginTop: 1 }}>{horse.level} · out of pool</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -579,7 +622,7 @@ export default function BoardPage() {
               </div>
             )}
 
-            {filteredAssigned.length === 0 && filteredFree.length === 0 && filteredUnavailable.length === 0 && healthUnavailable.length === 0 && (
+            {filteredAssigned.length === 0 && filteredFree.length === 0 && filteredUnavailable.length === 0 && healthUnavailable.length === 0 && lameUnavailable.length === 0 && (
               <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 36, marginBottom: 10 }}>▦</div>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>

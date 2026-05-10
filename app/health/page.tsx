@@ -14,9 +14,27 @@ import {
   severityBorderColor, severityBadgeStyle,
 } from '@/lib/health'
 
+type LameFlag = {
+  id: string
+  horse_name: string
+  flag_type: 'lame' | 'stiff_sore'
+  notes: string | null
+  flagged_at: string
+  resolved_at: string | null
+  status: 'active' | 'resolved'
+}
+
 // ─── Horse autocomplete ───────────────────────────────────────────────────────
 
-function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function HorseAutocomplete({
+  value,
+  onChange,
+  autoFocus: af = true,
+}: {
+  value: string
+  onChange: (v: string) => void
+  autoFocus?: boolean
+}) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
 
@@ -28,11 +46,9 @@ function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: s
         .filter(h => h.name.toLowerCase().includes(q))
         .map(h => h.name)
         .sort((a, b) => {
-          // Names starting with the query rank above names that merely contain it
           const aStarts = a.toLowerCase().startsWith(q)
           const bStarts = b.toLowerCase().startsWith(q)
           if (aStarts !== bStarts) return aStarts ? -1 : 1
-          // Within each group, shorter names first (tighter match)
           return a.length - b.length
         })
       setSuggestions(matches.slice(0, 8))
@@ -49,7 +65,7 @@ function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: s
         onChange={e => handleInput(e.target.value)}
         onBlur={() => setTimeout(() => setShow(false), 150)}
         placeholder="Horse name..."
-        autoFocus
+        autoFocus={af}
       />
       {show && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 300, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', marginTop: 2 }}>
@@ -530,12 +546,259 @@ function WatchCard({
   )
 }
 
+// ─── Lame flag card ───────────────────────────────────────────────────────────
+
+function LameFlagCard({
+  flag,
+  onMarkFit,
+}: {
+  flag: LameFlag
+  onMarkFit: () => Promise<void>
+}) {
+  const [markingFit, setMarkingFit] = useState(false)
+  const isLame     = flag.flag_type === 'lame'
+  const borderColor = isLame ? '#dc2626' : '#d97706'
+  const flagDate   = new Date(flag.flagged_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+  async function handleMarkFit() {
+    setMarkingFit(true)
+    await onMarkFit()
+    setMarkingFit(false)
+  }
+
+  return (
+    <div style={{
+      borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
+      borderLeft: `4px solid ${borderColor}`,
+      background: isLame ? '#fef2f2' : '#fffbeb',
+      padding: '10px 12px', marginBottom: 7,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>🐴 {flag.horse_name}</span>
+        <span style={{
+          fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
+          background: isLame ? '#fee2e2' : '#fef3c7',
+          color: isLame ? '#dc2626' : '#92400e',
+          border: `1px solid ${isLame ? '#fca5a5' : '#fcd34d'}`,
+        }}>
+          {isLame ? 'Lame' : 'Stiff/Sore'}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>Flagged {flagDate}</span>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={handleMarkFit}
+          disabled={markingFit}
+          style={{
+            fontSize: 11, padding: '3px 10px', borderRadius: 'var(--radius-sm)',
+            border: `1px solid ${borderColor}`,
+            background: isLame ? '#fee2e2' : '#fef3c7',
+            color: isLame ? '#dc2626' : '#92400e',
+            fontWeight: 700, cursor: markingFit ? 'not-allowed' : 'pointer',
+            opacity: markingFit ? 0.6 : 1, whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          {markingFit ? '...' : '✓ Mark fit'}
+        </button>
+      </div>
+      {flag.notes && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-2)', marginTop: 6, lineHeight: 1.4, margin: '6px 0 0' }}>{flag.notes}</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Quick flag form ──────────────────────────────────────────────────────────
+
+function QuickFlagForm({
+  onSave,
+}: {
+  onSave: (horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) => Promise<void>
+}) {
+  const [horseName, setHorseName] = useState('')
+  const [flagType, setFlagType]   = useState<'lame' | 'stiff_sore'>('lame')
+  const [notes, setNotes]         = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+
+  async function handleSave() {
+    if (!horseName) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(horseName, flagType, notes)
+      setHorseName('')
+      setNotes('')
+      setFlagType('lame')
+    } catch {
+      setError('Failed to save — please try again')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '14px', marginBottom: 22 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+        Quick flag
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ flex: '1 1 160px', minWidth: 140 }}>
+          <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Horse</label>
+          <HorseAutocomplete value={horseName} onChange={setHorseName} autoFocus={false} />
+        </div>
+        <div style={{ flex: '0 0 auto' }}>
+          <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Type</label>
+          <div style={{ display: 'flex', gap: 5 }}>
+            {(['lame', 'stiff_sore'] as const).map(type => (
+              <button
+                key={type}
+                onClick={() => setFlagType(type)}
+                style={{
+                  padding: '5px 11px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: `1px solid ${flagType === type ? (type === 'lame' ? '#dc2626' : '#d97706') : 'var(--color-border)'}`,
+                  background: flagType === type ? (type === 'lame' ? '#fee2e2' : '#fef3c7') : 'var(--color-surface)',
+                  color: flagType === type ? (type === 'lame' ? '#dc2626' : '#92400e') : 'var(--color-text-2)',
+                }}
+              >
+                {type === 'lame' ? 'Lame' : 'Stiff/Sore'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ flex: '1 1 140px', minWidth: 120 }}>
+          <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Notes (optional)</label>
+          <input
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. favoring left front..."
+            style={{ fontSize: 13, width: '100%' }}
+          />
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={!horseName || saving}
+          style={{
+            padding: '7px 16px', borderRadius: 'var(--radius-sm)', border: 'none',
+            background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600,
+            cursor: !horseName || saving ? 'not-allowed' : 'pointer',
+            opacity: !horseName || saving ? 0.5 : 1, whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          {saving ? 'Saving...' : 'Flag horse'}
+        </button>
+      </div>
+      {error && (
+        <p style={{ fontSize: 12, color: 'var(--color-danger)', marginTop: 8 }}>{error}</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Lame flag view ───────────────────────────────────────────────────────────
+
+function LameFlagView({
+  activeFlags,
+  vetIssues,
+  onMarkFit,
+  onLameFlag,
+  onViewVetRequired,
+}: {
+  activeFlags: LameFlag[]
+  vetIssues: HorseHealthIssue[]
+  onMarkFit: (flag: LameFlag) => Promise<void>
+  onLameFlag: (horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) => Promise<void>
+  onViewVetRequired: () => void
+}) {
+  const lameFlags  = activeFlags.filter(f => f.flag_type === 'lame')
+  const stiffFlags = activeFlags.filter(f => f.flag_type === 'stiff_sore')
+
+  return (
+    <div>
+      <QuickFlagForm onSave={onLameFlag} />
+
+      {/* Group 1: Lame */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Lame · {lameFlags.length}
+          </div>
+          <div style={{ flex: 1, height: 1, background: '#fca5a5' }} />
+          {lameFlags.length > 0 && (
+            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 500 }}>Out of pool</span>
+          )}
+        </div>
+        {lameFlags.length === 0 ? (
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as lame</p>
+        ) : lameFlags.map(flag => (
+          <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />
+        ))}
+      </div>
+
+      {/* Group 2: Stiff/Sore */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Stiff / Sore · {stiffFlags.length}
+          </div>
+          <div style={{ flex: 1, height: 1, background: '#fcd34d' }} />
+          {stiffFlags.length > 0 && (
+            <span style={{ fontSize: 11, color: '#d97706', fontWeight: 500 }}>Stays in pool · flagged on board</span>
+          )}
+        </div>
+        {stiffFlags.length === 0 ? (
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as stiff/sore</p>
+        ) : stiffFlags.map(flag => (
+          <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />
+        ))}
+      </div>
+
+      {/* Group 3: Vet Required (muted reference) */}
+      {vetIssues.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Vet Required · {vetIssues.length}
+            </div>
+            <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+            <button
+              onClick={onViewVetRequired}
+              style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, padding: 0, whiteSpace: 'nowrap' }}
+            >
+              View all →
+            </button>
+          </div>
+          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+            {vetIssues.map((issue, i) => {
+              const openedDate = new Date(issue.opened_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              return (
+                <div
+                  key={issue.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '9px 12px',
+                    borderBottom: i < vetIssues.length - 1 ? '1px solid var(--color-border)' : 'none',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {issue.horse_name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{LOCATION_LABELS[issue.location]} · {TYPE_LABELS[issue.type]}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-text-muted)' }}>Since {openedDate}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-type ActiveFilter = 'all' | 'vet_required' | 'needs_treatment' | 'monitoring' | 'sore'
+type ActiveFilter = 'all' | 'vet_required' | 'needs_treatment' | 'monitoring' | 'sore' | 'lame'
 
 const FILTER_CHIPS: { key: ActiveFilter; label: string }[] = [
   { key: 'all',             label: 'All' },
+  { key: 'lame',            label: 'Lame' },
   { key: 'vet_required',    label: 'Vet required' },
   { key: 'needs_treatment', label: 'Needs treatment' },
   { key: 'monitoring',      label: 'Monitoring' },
@@ -552,20 +815,24 @@ function applyFilter(issues: HorseHealthIssue[], filter: ActiveFilter): HorseHea
 }
 
 export default function HealthPage() {
-  const [issues, setIssues]           = useState<HorseHealthIssue[]>([])
-  const [loading, setLoading]         = useState(true)
-  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all')
+  const [issues, setIssues]               = useState<HorseHealthIssue[]>([])
+  const [lameFlags, setLameFlags]         = useState<LameFlag[]>([])
+  const [loading, setLoading]             = useState(true)
+  const [activeFilter, setActiveFilter]   = useState<ActiveFilter>('all')
   const [historySearch, setHistorySearch] = useState('')
-  const [showLogModal, setShowLogModal] = useState(false)
-  const [editingIssue, setEditingIssue] = useState<HorseHealthIssue | null>(null)
+  const [showLogModal, setShowLogModal]   = useState(false)
+  const [editingIssue, setEditingIssue]   = useState<HorseHealthIssue | null>(null)
 
   const tucsonToday = getTucsonToday()
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/health')
-      const data = await res.json()
-      setIssues(data.issues || [])
+      const [healthRes, lameRes] = await Promise.all([
+        fetch('/api/health').then(r => r.json()),
+        fetch('/api/lame').then(r => r.json()),
+      ])
+      setIssues(healthRes.issues || [])
+      setLameFlags(lameRes.flags || [])
     } catch (err) {
       console.error(err)
     } finally {
@@ -589,7 +856,12 @@ export default function HealthPage() {
     () => issues.filter(i => i.status === 'resolved'),
     [issues]
   )
-  const activeIssues = useMemo(() => [...doctorIssues, ...watchIssues], [doctorIssues, watchIssues])
+  const activeIssues    = useMemo(() => [...doctorIssues, ...watchIssues], [doctorIssues, watchIssues])
+  const activeLameFlags = useMemo(() => lameFlags.filter(f => f.status === 'active'), [lameFlags])
+  const vetIssuesForLameView = useMemo(
+    () => doctorIssues.filter(i => i.severity === 'vet_required'),
+    [doctorIssues]
+  )
 
   const filteredDoctor = useMemo(() => applyFilter(doctorIssues, activeFilter), [doctorIssues, activeFilter])
   const filteredWatch  = useMemo(() => applyFilter(watchIssues, activeFilter),  [watchIssues, activeFilter])
@@ -625,11 +897,33 @@ export default function HealthPage() {
   }
 
   async function handleDelete(issue: HorseHealthIssue) {
-    // Optimistically remove; no history trace
     setIssues(prev => prev.filter(i => i.id !== issue.id))
     await fetch(`/api/health?id=${encodeURIComponent(issue.id)}`, { method: 'DELETE' })
-    // Recalculate board vet flags if this was a vet_required issue
     if (issue.severity === 'vet_required') await fetchData()
+  }
+
+  async function handleMarkFit(flag: LameFlag) {
+    const resolved_at = new Date().toISOString()
+    setLameFlags(prev => prev.map(f => f.id === flag.id ? { ...f, status: 'resolved', resolved_at } : f))
+    await fetch('/api/lame', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: flag.id, status: 'resolved', resolved_at }),
+    })
+    await fetchData()
+  }
+
+  async function handleLameFlag(horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) {
+    const res = await fetch('/api/lame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ horse_name: horseName, flag_type: flagType, notes: notes || null }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'Failed to flag')
+    }
+    await fetchData()
   }
 
   async function handleSaved() {
@@ -638,7 +932,7 @@ export default function HealthPage() {
     await fetchData()
   }
 
-  const nothingActive = filteredDoctor.length === 0 && filteredWatch.length === 0
+  const nothingActive = activeFilter !== 'lame' && filteredDoctor.length === 0 && filteredWatch.length === 0
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
@@ -652,7 +946,11 @@ export default function HealthPage() {
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Horse health</h1>
               <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
-                {loading ? 'Loading...' : `${activeIssues.length} active issue${activeIssues.length !== 1 ? 's' : ''}`}
+                {loading
+                  ? 'Loading...'
+                  : activeFilter === 'lame'
+                    ? `${activeLameFlags.length} active flag${activeLameFlags.length !== 1 ? 's' : ''}`
+                    : `${activeIssues.length} active issue${activeIssues.length !== 1 ? 's' : ''}`}
               </p>
             </div>
             <button
@@ -666,14 +964,15 @@ export default function HealthPage() {
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
             {FILTER_CHIPS.map(chip => {
               const isActive = activeFilter === chip.key
+              const isLameChip = chip.key === 'lame'
               return (
                 <button
                   key={chip.key}
                   onClick={() => setActiveFilter(chip.key)}
                   style={{
                     padding: '3px 11px', borderRadius: 999, flexShrink: 0,
-                    border: `1px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    background: isActive ? 'var(--color-accent)' : 'var(--color-surface)',
+                    border: `1px solid ${isActive ? (isLameChip ? '#d97706' : 'var(--color-accent)') : 'var(--color-border)'}`,
+                    background: isActive ? (isLameChip ? '#d97706' : 'var(--color-accent)') : 'var(--color-surface)',
                     color: isActive ? '#fff' : 'var(--color-text-2)',
                     fontSize: 12, cursor: 'pointer', fontWeight: isActive ? 600 : 400,
                   }}
@@ -689,6 +988,14 @@ export default function HealthPage() {
 
           {loading ? (
             <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '24px 0' }}>Loading...</p>
+          ) : activeFilter === 'lame' ? (
+            <LameFlagView
+              activeFlags={activeLameFlags}
+              vetIssues={vetIssuesForLameView}
+              onMarkFit={handleMarkFit}
+              onLameFlag={handleLameFlag}
+              onViewVetRequired={() => setActiveFilter('vet_required')}
+            />
           ) : nothingActive ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--color-text-3)' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>✓</div>
