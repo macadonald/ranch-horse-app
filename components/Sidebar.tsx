@@ -9,6 +9,7 @@ const NAV = [
   { href: '/board',  label: 'Assignment Board',  icon: '\u25a6' },
   { href: '/horses', label: 'Horse Roster',      icon: '\u25c8' },
   { href: '/shoes',  label: 'Shoes',             icon: '\u2229' },
+  { href: '/health', label: 'Horse Health',      icon: '\u2665' },
 ]
 
 export default function Sidebar() {

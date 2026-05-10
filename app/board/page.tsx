@@ -183,6 +183,7 @@ function AssignRiderModal({ horse, guests, onAssign, onClose, today, tomorrow }:
 export default function BoardPage() {
   const [assignmentMap, setAssignmentMap] = useState<Record<string, GuestInfo[]>>({})
   const [shoeMap, setShoeMap] = useState<Record<string, ShoeWarning>>({})
+  const [vetFlaggedNames, setVetFlaggedNames] = useState<Set<string>>(new Set())
   const [guests, setGuests] = useState<Guest[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -195,10 +196,11 @@ export default function BoardPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [assignRes, shoeRes, guestRes] = await Promise.all([
+      const [assignRes, shoeRes, guestRes, healthRes] = await Promise.all([
         fetch('/api/assignments').then(r => r.json()),
         fetch('/api/shoe-needs').then(r => r.json()),
         fetch('/api/guests').then(r => r.json()),
+        fetch('/api/health').then(r => r.json()),
       ])
 
       const newAssignmentMap: Record<string, GuestInfo[]> = {}
@@ -227,6 +229,7 @@ export default function BoardPage() {
       })
       setShoeMap(newShoeMap)
       setGuests(guestRes.guests || [])
+      setVetFlaggedNames(new Set(healthRes.vet_flagged_horses || []))
     } catch (err) {
       console.error(err)
     } finally {
@@ -237,8 +240,11 @@ export default function BoardPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const unavailableHorses = HORSES.filter(h => UNAVAILABLE_STATUSES.has(h.status))
-  const assignedHorses = ACTIVE_HORSES.filter(h => (assignmentMap[h.name]?.length ?? 0) > 0)
-  const freeHorses = ACTIVE_HORSES.filter(h => !(assignmentMap[h.name]?.length ?? 0))
+  // Horses with an active vet_required health issue are pulled from the pool entirely
+  const healthUnavailable = ACTIVE_HORSES.filter(h => vetFlaggedNames.has(h.name))
+  const poolHorses = ACTIVE_HORSES.filter(h => !vetFlaggedNames.has(h.name))
+  const assignedHorses = poolHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) > 0)
+  const freeHorses = poolHorses.filter(h => !(assignmentMap[h.name]?.length ?? 0))
 
   const statFree = freeHorses.length
   const statAssigned = assignedHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) === 1).length
@@ -532,6 +538,28 @@ export default function BoardPage() {
               </div>
             )}
 
+            {healthUnavailable.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+                  🏥 Vet required — {healthUnavailable.length} horse{healthUnavailable.length !== 1 ? 's' : ''} out of pool
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }} className="board-grid-sm">
+                  {healthUnavailable.map(horse => (
+                    <div
+                      key={horse.name}
+                      style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
+                        <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600, border: '1px solid #fca5a5' }}>Vet</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#dc2626', marginTop: 1 }}>{horse.level} · health issue</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {filteredUnavailable.length > 0 && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
@@ -551,7 +579,7 @@ export default function BoardPage() {
               </div>
             )}
 
-            {filteredAssigned.length === 0 && filteredFree.length === 0 && filteredUnavailable.length === 0 && (
+            {filteredAssigned.length === 0 && filteredFree.length === 0 && filteredUnavailable.length === 0 && healthUnavailable.length === 0 && (
               <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 36, marginBottom: 10 }}>▦</div>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>
