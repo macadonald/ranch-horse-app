@@ -8,6 +8,7 @@ const NAV = [
   { href: '/guests', label: 'Guests',            icon: '\u25ce' },
   { href: '/board',  label: 'Assignment Board',  icon: '\u25a6' },
   { href: '/horses', label: 'Horse Roster',      icon: '\u25c8' },
+  { href: '/shoes',  label: 'Shoes',             icon: '\u2229' },
 ]
 
 export default function Sidebar() {

@@ -15,6 +15,11 @@ export async function POST(req: NextRequest) {
     const { data: riderCountData } = await supabase.from('daily_rider_counts').select('rider_count').eq('date', today).single()
     const riderCount = riderCountData?.rider_count || 0
     const { data: assignments } = await supabase.from('horse_assignments').select('horse_name, assignment_type, guests(name, room_number, check_out_date)').eq('status', 'active').eq('incompatible', false)
+    const { data: shoeNeedsData } = await supabase.from('shoe_needs').select('horse_name, what_needed')
+    const shoeNeedsMap: Record<string, string> = {}
+    ;(shoeNeedsData || []).forEach((n: { horse_name: string; what_needed: string }) => {
+      shoeNeedsMap[n.horse_name] = n.what_needed
+    })
     let incompatibleHorses: string[] = []
     if (guestId) {
       const { data: incompatible } = await supabase.from('horse_incompatibilities').select('horse_name').eq('guest_id', guestId)
@@ -89,7 +94,9 @@ Respond ONLY with valid JSON array, no markdown:
       if (dbAvailability === 'double_assigned') warning = `Double assigned: ${assigned.map(a => a.name + ' (Room ' + a.room + ')').join(' & ')}`
       else if (dbAvailability === 'single_assigned' && !warning) warning = `Already assigned to ${assigned[0]?.name} (Room ${assigned[0]?.room})`
       else if (assigned.length > 2) warning = 'Triple assigned — not recommended'
-      return { ...m, availability: dbAvailability, warning }
+      const shoeNeed = shoeNeedsMap[m.name]
+      const shoeWarning: 'red' | 'amber' | null = shoeNeed === 'fronts' ? 'red' : shoeNeed ? 'amber' : null
+      return { ...m, availability: dbAvailability, warning, shoeWarning }
     })
     return NextResponse.json({ matches, riderCount })
   } catch (err) {
