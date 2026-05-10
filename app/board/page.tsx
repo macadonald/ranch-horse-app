@@ -145,7 +145,7 @@ function AssignRiderModal({ horse, guests, onAssign, onClose, today, tomorrow }:
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
-                    {guest.riding_level || '—'}{guest.weight ? ` · ${guest.weight} lbs` : ''}{compat.reason ? ` · ${compat.reason}` : ''}
+                    {guest.riding_level || '—'}{guest.weight ? ` · ${guest.weight} lbs` : ''}{guest.height ? ` · ${guest.height}` : ''}{compat.reason ? ` · ${compat.reason}` : ''}
                   </div>
                   {activeAssignment && (
                     <div style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 2 }}>
