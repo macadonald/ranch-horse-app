@@ -46,7 +46,7 @@ function weeksSince(dateStr: string): number {
   return Math.floor((Date.now() - date.getTime()) / (7 * 24 * 60 * 60 * 1000))
 }
 
-function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function HorseAutocomplete({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
 
@@ -70,11 +70,11 @@ function HorseAutocomplete({ value, onChange }: { value: string; onChange: (v: s
         value={value}
         onChange={e => handleInput(e.target.value)}
         onBlur={() => setTimeout(() => setShow(false), 150)}
-        placeholder="Horse name..."
+        placeholder={placeholder || 'Horse name...'}
         style={{ width: '100%', fontSize: 13 }}
       />
       {show && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', marginTop: 2 }}>
           {suggestions.map(name => (
             <div
               key={name}
@@ -250,6 +250,8 @@ export default function ShoesPage() {
   const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', notes: '' })
   const [savingDone, setSavingDone] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
+  const [showLogVisit, setShowLogVisit] = useState(false)
+  const [confirmation, setConfirmation] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -366,11 +368,25 @@ export default function ShoesPage() {
     await fetchData()
   }
 
+  async function handleVisitSaved(msg: string) {
+    setShowLogVisit(false)
+    setConfirmation(msg)
+    setTimeout(() => setConfirmation(null), 4000)
+    await fetchData()
+  }
+
   const hasSuggestions = overdue.length > 0 || gettingClose.length > 0 || dueSoon.length > 0
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
       <Sidebar />
+
+      {confirmation && (
+        <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000, whiteSpace: 'nowrap' }}>
+          {confirmation}
+        </div>
+      )}
+
       <main style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
         <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 10 }}>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Shoes</h1>
@@ -495,12 +511,20 @@ export default function ShoesPage() {
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Shoe History</h2>
-              <input
-                placeholder="Search horse or farrier..."
-                value={historySearch}
-                onChange={e => setHistorySearch(e.target.value)}
-                style={{ fontSize: 13, width: 220 }}
-              />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  placeholder="Search horse or farrier..."
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  style={{ fontSize: 13, width: 200 }}
+                />
+                <button
+                  onClick={() => setShowLogVisit(true)}
+                  style={{ padding: '6px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  + Log a visit
+                </button>
+              </div>
             </div>
 
             {loading ? (
@@ -508,7 +532,7 @@ export default function ShoesPage() {
             ) : filteredVisits.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--color-text-3)' }}>
                 <p style={{ fontSize: 13 }}>
-                  {historySearch ? 'No results matching your search' : 'No shoe history yet — mark horses done to start building a record'}
+                  {historySearch ? 'No results matching your search' : 'No shoe history yet — mark horses done or log a visit to start building a record'}
                 </p>
               </div>
             ) : filteredVisits.map(visit => (
@@ -544,9 +568,225 @@ export default function ShoesPage() {
           @media (max-width: 768px) {
             .shoes-content { padding: 12px !important; }
             .done-form-grid { grid-template-columns: 1fr !important; }
+            .log-visit-grid { grid-template-columns: 1fr !important; }
           }
         ` }} />
       </main>
+
+      {showLogVisit && (
+        <LogVisitModal
+          onClose={() => setShowLogVisit(false)}
+          onSaved={handleVisitSaved}
+          needs={needs}
+        />
+      )}
+    </div>
+  )
+}
+
+function LogVisitModal({ onClose, onSaved, needs }: {
+  onClose: () => void
+  onSaved: (msg: string) => void
+  needs: ShoeNeed[]
+}) {
+  const today = new Date().toISOString().split('T')[0]
+  const [visitDate, setVisitDate] = useState(today)
+  const [farrierName, setFarrierName] = useState('')
+  const [horses, setHorses] = useState<{ horse_name: string; work_done: string; notes: string }[]>([])
+  const [currentHorse, setCurrentHorse] = useState({ horse_name: '', work_done: 'all_4s', notes: '' })
+  const [lastAdded, setLastAdded] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  function addAnother() {
+    if (!currentHorse.horse_name) return
+    setHorses(prev => [...prev, { ...currentHorse }])
+    setLastAdded(currentHorse.horse_name)
+    setCurrentHorse({ horse_name: '', work_done: 'all_4s', notes: '' })
+    setTimeout(() => setLastAdded(null), 2000)
+  }
+
+  function removeHorse(index: number) {
+    setHorses(prev => prev.filter((_, i) => i !== index))
+  }
+
+  async function saveVisit() {
+    const allHorses = [
+      ...horses,
+      ...(currentHorse.horse_name ? [currentHorse] : []),
+    ]
+    if (!visitDate || !farrierName || allHorses.length === 0) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/farrier-visits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_date: visitDate,
+          farrier_name: farrierName,
+          horses: allHorses.map(h => ({
+            horse_name: h.horse_name,
+            work_done: h.work_done,
+            notes: h.notes || null,
+          })),
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save visit')
+
+      // Auto-remove horses from shoe_needs if they're on it
+      const savedNames = new Set(allHorses.map(h => h.horse_name))
+      const toRemove = needs.filter(n => savedNames.has(n.horse_name))
+      await Promise.all(toRemove.map(n => fetch(`/api/shoe-needs?id=${n.id}`, { method: 'DELETE' })))
+
+      const horseCount = allHorses.length
+      const removedCount = toRemove.length
+      let msg = `✓ Visit saved — ${horseCount} horse${horseCount !== 1 ? 's' : ''} logged`
+      if (removedCount > 0) msg += `, ${removedCount} removed from needs list`
+      onSaved(msg)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const totalHorses = horses.length + (currentHorse.horse_name ? 1 : 0)
+  const canSave = !!visitDate && !!farrierName && totalHorses > 0
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+      <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>
+            Log a Farrier Visit
+            {horses.length > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--color-text-3)', marginLeft: 8, fontWeight: 400 }}>
+                ({horses.length} horse{horses.length !== 1 ? 's' : ''} added)
+              </span>
+            )}
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
+        </div>
+
+        {/* Visit date + farrier name */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, marginBottom: 20 }} className="log-visit-grid">
+          <div>
+            <label>Visit Date</label>
+            <input type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)} />
+          </div>
+          <div>
+            <label>Farrier Name</label>
+            <input
+              value={farrierName}
+              onChange={e => setFarrierName(e.target.value)}
+              placeholder="e.g. John Smith"
+              autoFocus
+            />
+          </div>
+        </div>
+
+        {/* Accumulated horses */}
+        {horses.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+              Horses in this visit
+            </div>
+            {horses.map((h, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 5 }}>
+                <span style={{ fontSize: 14 }}>🐴</span>
+                <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{h.horse_name}</span>
+                <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>
+                  {WORK_LABELS[h.work_done]}
+                </span>
+                {h.notes && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{h.notes}</span>}
+                <button
+                  onClick={() => removeHorse(i)}
+                  style={{ fontSize: 12, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* "Horse added" flash */}
+        {lastAdded && (
+          <div style={{ background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: 'var(--color-success)', fontWeight: 500 }}>
+            ✓ {lastAdded} added — enter next horse
+          </div>
+        )}
+
+        {/* Current horse entry form */}
+        <div style={{ borderTop: horses.length > 0 ? '1px solid var(--color-border)' : 'none', paddingTop: horses.length > 0 ? 16 : 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            {horses.length > 0 ? 'Add another horse' : 'Horse done'}
+          </div>
+          <div style={{ display: 'flex', gap: 9, marginBottom: 9 }}>
+            <HorseAutocomplete
+              value={currentHorse.horse_name}
+              onChange={v => setCurrentHorse(h => ({ ...h, horse_name: v }))}
+            />
+            <select
+              value={currentHorse.work_done}
+              onChange={e => setCurrentHorse(h => ({ ...h, work_done: e.target.value }))}
+              style={{ fontSize: 13 }}
+            >
+              {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <input
+              value={currentHorse.notes}
+              onChange={e => setCurrentHorse(h => ({ ...h, notes: e.target.value }))}
+              placeholder="Notes for this horse (optional)..."
+              style={{ width: '100%', fontSize: 13, boxSizing: 'border-box' }}
+            />
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 9 }}>
+          <button
+            onClick={saveVisit}
+            disabled={saving || !canSave}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: 'var(--color-accent)',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: saving || !canSave ? 'not-allowed' : 'pointer',
+              opacity: !canSave ? 0.5 : 1,
+            }}
+          >
+            {saving ? 'Saving...' : 'Save Visit'}
+          </button>
+          <button
+            onClick={addAnother}
+            disabled={!currentHorse.horse_name}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-bg)',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: !currentHorse.horse_name ? 'not-allowed' : 'pointer',
+              color: 'var(--color-text-2)',
+              opacity: !currentHorse.horse_name ? 0.5 : 1,
+            }}
+          >
+            Save + Add Another horse
+          </button>
+        </div>
+
+      </div>
     </div>
   )
 }
