@@ -24,10 +24,20 @@ export async function POST(req: NextRequest) {
     .single()
   if (visitError) return NextResponse.json({ error: visitError.message }, { status: 500 })
 
-  const horseRecords = horses.map((h: { horse_name: string; work_done: string; notes?: string }) => ({
+  const horseRecords = horses.map((h: {
+    horse_name: string
+    work_done: string
+    shoe_type?: string
+    shoe_size?: string
+    placement?: string
+    notes?: string
+  }) => ({
     visit_id: visit.id,
     horse_name: h.horse_name,
     work_done: h.work_done,
+    shoe_type: h.shoe_type || null,
+    shoe_size: h.shoe_size || null,
+    placement: h.placement || null,
     notes: h.notes || null,
   }))
 

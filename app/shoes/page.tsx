@@ -3,6 +3,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { HORSES } from '@/lib/horses'
 
+// TODO: track size history per horse, surface last known size,
+// run analytics on shoe types and sizes across the herd
+
 const WORK_OPTIONS = [
   { key: 'fronts',   label: 'Fronts' },
   { key: 'rears',    label: 'Rears' },
@@ -15,10 +18,39 @@ const WORK_LABELS: Record<string, string> = {
   fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', reset: 'Reset', full_set: 'Full set',
 }
 
+const SHOE_TYPES = [
+  { key: 'regular',  label: 'Regular' },
+  { key: 'nb',       label: 'NB' },
+  { key: 'nb_pad',   label: 'NB+Pad' },
+  { key: 'plastics', label: 'Plastics' },
+]
+
+const SHOE_SIZES = ['', '000', '00', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+
+const PLACEMENT_OPTIONS = [
+  { key: '',        label: '— placement —' },
+  { key: 'x4',      label: 'x4' },
+  { key: 'fronts',  label: 'Fronts' },
+  { key: 'rears',   label: 'Rears' },
+  { key: '1_front', label: '1 Front' },
+  { key: '1_rear',  label: '1 Rear' },
+  { key: 'other',   label: 'Other' },
+]
+
+const TYPE_FILTER_CHIPS = [
+  { key: 'all',      label: 'All' },
+  { key: 'regular',  label: 'Regular' },
+  { key: 'nb',       label: 'NB' },
+  { key: 'nb_pad',   label: 'NB+Pad' },
+  { key: 'plastics', label: 'Plastics' },
+]
+
 type ShoeNeed = {
   id: string
   horse_name: string
   what_needed: string
+  shoe_type: string
+  is_drugger: boolean
   notes: string | null
   created_at: string
 }
@@ -28,6 +60,9 @@ type FarrierVisitHorse = {
   visit_id: string
   horse_name: string
   work_done: string
+  shoe_type: string | null
+  shoe_size: string | null
+  placement: string | null
   notes: string | null
 }
 
@@ -39,11 +74,48 @@ type FarrierVisit = {
   farrier_visit_horses: FarrierVisitHorse[]
 }
 
-type DoneForm = { visit_date: string; farrier_name: string; notes: string }
+type DoneForm = { visit_date: string; farrier_name: string; shoe_type: string; notes: string }
+
+type LogHorse = {
+  horse_name: string
+  work_done: string
+  shoe_type: string
+  shoe_size: string
+  placement: string | null
+  notes: string
+}
 
 function weeksSince(dateStr: string): number {
   const date = new Date(dateStr + 'T12:00:00')
   return Math.floor((Date.now() - date.getTime()) / (7 * 24 * 60 * 60 * 1000))
+}
+
+function lastKnownShoeType(horseName: string, visits: FarrierVisit[]): string {
+  for (const v of visits) {
+    const h = v.farrier_visit_horses.find(fh => fh.horse_name === horseName && fh.shoe_type)
+    if (h?.shoe_type) return h.shoe_type
+  }
+  return 'regular'
+}
+
+function ShoeTypeBadge({ shoeType }: { shoeType: string }) {
+  if (shoeType === 'regular') {
+    return (
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', flexShrink: 0 }}>Reg</span>
+    )
+  }
+  const label = SHOE_TYPES.find(t => t.key === shoeType)?.label ?? shoeType
+  const isPlastics = shoeType === 'plastics'
+  return (
+    <span style={{
+      fontSize: 11, padding: '1px 6px', borderRadius: 999, fontWeight: 700, flexShrink: 0,
+      background: isPlastics ? '#ede9fe' : '#fef3c7',
+      color: isPlastics ? '#7c3aed' : '#92400e',
+      border: `1px solid ${isPlastics ? '#c4b5fd' : '#fcd34d'}`,
+    }}>
+      {label}
+    </span>
+  )
 }
 
 function HorseAutocomplete({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -91,11 +163,12 @@ function HorseAutocomplete({ value, onChange, placeholder }: { value: string; on
 }
 
 function NeedRow({
-  need, onUpdate, onRemove, markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving,
+  need, onUpdate, onRemove, onToggleDrugger, markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving,
 }: {
   need: ShoeNeed
   onUpdate: (id: string, field: string, value: string) => void
   onRemove: (id: string) => void
+  onToggleDrugger: (id: string, currentValue: boolean) => void
   markingDone: string | null
   setMarkingDone: (id: string | null) => void
   doneForm: DoneForm
@@ -111,38 +184,57 @@ function NeedRow({
   function toggleExpand() {
     if (isExpanded) {
       setMarkingDone(null)
-      setDoneForm({ visit_date: '', farrier_name: '', notes: '' })
+      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
     } else {
       setMarkingDone(need.id)
-      setDoneForm({ visit_date: '', farrier_name: '', notes: '' })
+      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: need.shoe_type || 'regular', notes: '' })
     }
   }
 
-  const isRed = need.what_needed === 'fronts'
+  const isRedWork = need.what_needed === 'fronts'
   const created = new Date(need.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   return (
     <div style={{ padding: '7px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', marginBottom: 5 }}>
 
-      {/* Line 1: horse · type select · actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
-        <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {/* Line 1: horse name · shoe type · work select · drugger · Done · Remove */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1, minWidth: 0 }}>
           🐴 {need.horse_name}
         </span>
+
+        <ShoeTypeBadge shoeType={need.shoe_type || 'regular'} />
+
         <select
           value={need.what_needed}
           onChange={e => onUpdate(need.id, 'what_needed', e.target.value)}
           style={{
             fontSize: 11, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
-            cursor: 'pointer', flexShrink: 0,
-            border: `1px solid ${isRed ? '#fca5a5' : '#fcd34d'}`,
-            background: isRed ? '#fee2e2' : '#fef3c7',
-            color: isRed ? '#dc2626' : '#92400e',
+            cursor: 'pointer', flexShrink: 0, appearance: 'none', WebkitAppearance: 'none',
+            border: `1px solid ${isRedWork ? '#fca5a5' : '#fcd34d'}`,
+            background: isRedWork ? '#fee2e2' : '#fef3c7',
+            color: isRedWork ? '#dc2626' : '#92400e',
           }}
         >
           {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
+
+        <button
+          onClick={() => onToggleDrugger(need.id, need.is_drugger)}
+          title={need.is_drugger ? 'Remove drugger flag' : 'Mark as drugger'}
+          style={{
+            fontSize: 11, padding: '1px 5px', borderRadius: 999, cursor: 'pointer', flexShrink: 0,
+            lineHeight: 1.5, border: need.is_drugger ? '1px solid #fca5a5' : '1px solid var(--color-border)',
+            background: need.is_drugger ? '#fee2e2' : 'transparent',
+            color: need.is_drugger ? '#dc2626' : 'var(--color-text-muted)',
+            fontWeight: need.is_drugger ? 700 : 400,
+          }}
+        >
+          💊
+        </button>
+
         <div style={{ flex: 1 }} />
+
         <button
           onClick={toggleExpand}
           style={{
@@ -198,6 +290,12 @@ function NeedRow({
               <input value={doneForm.farrier_name} onChange={e => setDoneForm({ ...doneForm, farrier_name: e.target.value })} placeholder="e.g. John Smith" />
             </div>
           </div>
+          <div style={{ marginBottom: 8 }}>
+            <label>Shoe Type</label>
+            <select value={doneForm.shoe_type} onChange={e => setDoneForm({ ...doneForm, shoe_type: e.target.value })} style={{ fontSize: 13 }}>
+              {SHOE_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
           <div style={{ marginBottom: 12 }}>
             <label>Notes for this visit</label>
             <input value={doneForm.notes} onChange={e => setDoneForm({ ...doneForm, notes: e.target.value })} placeholder="Optional..." />
@@ -251,14 +349,15 @@ export default function ShoesPage() {
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [loading, setLoading] = useState(true)
-  const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; notes: string } | null>(null)
+  const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string } | null>(null)
   const [addingSaving, setAddingSaving] = useState(false)
   const [markingDone, setMarkingDone] = useState<string | null>(null)
-  const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', notes: '' })
+  const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
   const [savingDone, setSavingDone] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
   const [showLogVisit, setShowLogVisit] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = useState('all')
 
   const fetchData = useCallback(async () => {
     try {
@@ -280,6 +379,11 @@ export default function ShoesPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const needsHorseNames = useMemo(() => new Set(needs.map(n => n.horse_name)), [needs])
+
+  const filteredNeeds = useMemo(() => {
+    if (typeFilter === 'all') return needs
+    return needs.filter(n => (n.shoe_type || 'regular') === typeFilter)
+  }, [needs, typeFilter])
 
   const suggestions = useMemo(() => {
     const lastShodMap: Record<string, { date: string; weeks: number }> = {}
@@ -317,7 +421,12 @@ export default function ShoesPage() {
       await fetch('/api/shoe-needs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ horse_name: addForm.horse_name, what_needed: addForm.what_needed, notes: addForm.notes || null }),
+        body: JSON.stringify({
+          horse_name: addForm.horse_name,
+          what_needed: addForm.what_needed,
+          shoe_type: addForm.shoe_type || 'regular',
+          notes: addForm.notes || null,
+        }),
       })
       setAddForm(null)
       await fetchData()
@@ -341,6 +450,16 @@ export default function ShoesPage() {
     await fetch(`/api/shoe-needs?id=${id}`, { method: 'DELETE' })
   }
 
+  async function toggleDrugger(id: string, currentValue: boolean) {
+    const is_drugger = !currentValue
+    setNeeds(prev => prev.map(n => n.id === id ? { ...n, is_drugger } : n))
+    await fetch('/api/shoe-needs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, is_drugger }),
+    })
+  }
+
   async function markDone(need: ShoeNeed) {
     if (!doneForm.visit_date || !doneForm.farrier_name) return
     setSavingDone(true)
@@ -351,13 +470,18 @@ export default function ShoesPage() {
         body: JSON.stringify({
           visit_date: doneForm.visit_date,
           farrier_name: doneForm.farrier_name,
-          horses: [{ horse_name: need.horse_name, work_done: need.what_needed, notes: doneForm.notes || null }],
+          horses: [{
+            horse_name: need.horse_name,
+            work_done: need.what_needed,
+            shoe_type: doneForm.shoe_type || need.shoe_type || 'regular',
+            notes: doneForm.notes || null,
+          }],
         }),
       })
       if (!visitRes.ok) throw new Error('Failed to save visit')
       await fetch(`/api/shoe-needs?id=${need.id}`, { method: 'DELETE' })
       setMarkingDone(null)
-      setDoneForm({ visit_date: '', farrier_name: '', notes: '' })
+      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
       await fetchData()
     } catch (err) {
       console.error(err)
@@ -367,10 +491,11 @@ export default function ShoesPage() {
   }
 
   async function addSuggestionToNeeds(horseName: string) {
+    const shoeType = lastKnownShoeType(horseName, visits)
     await fetch('/api/shoe-needs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ horse_name: horseName, what_needed: 'all_4s' }),
+      body: JSON.stringify({ horse_name: horseName, what_needed: 'all_4s', shoe_type: shoeType }),
     })
     await fetchData()
   }
@@ -404,20 +529,36 @@ export default function ShoesPage() {
 
           {/* Section 1 — Current Shoe Needs */}
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Current Shoe Needs</h2>
               <button
-                onClick={() => setAddForm(f => f ? null : { horse_name: '', what_needed: 'all_4s', notes: '' })}
+                onClick={() => setAddForm(f => f ? null : { horse_name: '', what_needed: 'all_4s', shoe_type: 'regular', notes: '' })}
                 style={{ padding: '6px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
               >
                 + Add Horse
               </button>
             </div>
 
+            {/* Add Horse prompt */}
             {addForm && (
               <div style={{ padding: 14, background: 'var(--color-accent-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)' }}>Add horse to list</span>
+                  <button
+                    onClick={() => setAddForm(null)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-3)', fontSize: 16, padding: 0, lineHeight: 1 }}
+                  >
+                    ✕
+                  </button>
+                </div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <HorseAutocomplete value={addForm.horse_name} onChange={v => setAddForm(f => f ? { ...f, horse_name: v } : f)} />
+                  <HorseAutocomplete
+                    value={addForm.horse_name}
+                    onChange={v => {
+                      const shoeType = lastKnownShoeType(v, visits)
+                      setAddForm(f => f ? { ...f, horse_name: v, shoe_type: shoeType } : f)
+                    }}
+                  />
                   <select
                     value={addForm.what_needed}
                     onChange={e => setAddForm(f => f ? { ...f, what_needed: e.target.value } : f)}
@@ -426,43 +567,71 @@ export default function ShoesPage() {
                     {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
                   </select>
                 </div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, color: 'var(--color-text-2)', display: 'block', marginBottom: 4 }}>Shoe type</label>
+                  <select
+                    value={addForm.shoe_type}
+                    onChange={e => setAddForm(f => f ? { ...f, shoe_type: e.target.value } : f)}
+                    style={{ fontSize: 12 }}
+                  >
+                    {SHOE_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                  </select>
+                </div>
                 <input
                   value={addForm.notes}
                   onChange={e => setAddForm(f => f ? { ...f, notes: e.target.value } : f)}
                   placeholder="Notes (optional)..."
                   style={{ width: '100%', fontSize: 12, marginBottom: 10, boxSizing: 'border-box' }}
                 />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={addNeed}
-                    disabled={addingSaving || !addForm.horse_name}
-                    style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: !addForm.horse_name ? 0.5 : 1 }}
-                  >
-                    {addingSaving ? 'Saving...' : 'Add to list'}
-                  </button>
-                  <button
-                    onClick={() => setAddForm(null)}
-                    style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <button
+                  onClick={addNeed}
+                  disabled={addingSaving || !addForm.horse_name}
+                  style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: !addForm.horse_name ? 0.5 : 1 }}
+                >
+                  {addingSaving ? 'Saving...' : 'Add to list'}
+                </button>
+              </div>
+            )}
+
+            {/* Filter chips */}
+            {!loading && needs.length > 0 && (
+              <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
+                {TYPE_FILTER_CHIPS.map(chip => {
+                  const isActive = typeFilter === chip.key
+                  return (
+                    <button
+                      key={chip.key}
+                      onClick={() => setTypeFilter(chip.key)}
+                      style={{
+                        padding: '3px 10px', borderRadius: 999, fontSize: 11, cursor: 'pointer', fontWeight: isActive ? 700 : 400,
+                        border: isActive ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                        background: isActive ? 'var(--color-accent-bg)' : 'var(--color-bg)',
+                        color: isActive ? 'var(--color-accent)' : 'var(--color-text-3)',
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  )
+                })}
               </div>
             )}
 
             {loading ? (
               <p style={{ fontSize: 13, color: 'var(--color-text-3)', textAlign: 'center', padding: '16px 0' }}>Loading...</p>
-            ) : needs.length === 0 ? (
+            ) : filteredNeeds.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 26, marginBottom: 6 }}>∩</div>
-                <p style={{ fontSize: 13 }}>No horses currently need shoeing</p>
+                <p style={{ fontSize: 13 }}>
+                  {needs.length > 0 ? 'No horses match this filter' : 'No horses currently need shoeing'}
+                </p>
               </div>
-            ) : needs.map(need => (
+            ) : filteredNeeds.map(need => (
               <NeedRow
                 key={need.id}
                 need={need}
                 onUpdate={updateNeed}
                 onRemove={removeNeed}
+                onToggleDrugger={toggleDrugger}
                 markingDone={markingDone}
                 setMarkingDone={setMarkingDone}
                 doneForm={doneForm}
@@ -481,7 +650,7 @@ export default function ShoesPage() {
 
               {overdue.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>
                     🔴 Overdue — 10+ weeks
                   </div>
                   {overdue.map(s => (
@@ -556,12 +725,21 @@ export default function ShoesPage() {
                   </span>
                 </div>
                 {visit.farrier_visit_horses.map(h => (
-                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', marginBottom: 5, border: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', marginBottom: 5, border: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 14 }}>🐴</span>
                     <span style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 80 }}>{h.horse_name}</span>
                     <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>
                       {WORK_LABELS[h.work_done] || h.work_done}
                     </span>
+                    {h.shoe_type && h.shoe_type !== 'regular' && (
+                      <ShoeTypeBadge shoeType={h.shoe_type} />
+                    )}
+                    {h.shoe_size && (
+                      <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>sz {h.shoe_size}</span>
+                    )}
+                    {h.placement && (
+                      <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{h.placement}</span>
+                    )}
                     {h.notes && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{h.notes}</span>}
                   </div>
                 ))}
@@ -576,6 +754,7 @@ export default function ShoesPage() {
             .shoes-content { padding: 12px !important; }
             .done-form-grid { grid-template-columns: 1fr !important; }
             .log-visit-grid { grid-template-columns: 1fr !important; }
+            .log-horse-grid { grid-template-columns: 1fr !important; }
           }
         ` }} />
       </main>
@@ -599,16 +778,34 @@ function LogVisitModal({ onClose, onSaved, needs }: {
   const today = new Date().toISOString().split('T')[0]
   const [visitDate, setVisitDate] = useState(today)
   const [farrierName, setFarrierName] = useState('')
-  const [horses, setHorses] = useState<{ horse_name: string; work_done: string; notes: string }[]>([])
-  const [currentHorse, setCurrentHorse] = useState({ horse_name: '', work_done: 'all_4s', notes: '' })
+  const [horses, setHorses] = useState<LogHorse[]>([])
+  const [currentHorse, setCurrentHorse] = useState({
+    horse_name: '', work_done: 'all_4s', shoe_type: 'regular',
+    shoe_size: '', placement: '', placement_other: '', notes: '',
+  })
   const [lastAdded, setLastAdded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  function resolveCurrentHorse(): LogHorse | null {
+    if (!currentHorse.horse_name) return null
+    return {
+      horse_name: currentHorse.horse_name,
+      work_done: currentHorse.work_done,
+      shoe_type: currentHorse.shoe_type,
+      shoe_size: currentHorse.shoe_size,
+      placement: currentHorse.placement === 'other'
+        ? (currentHorse.placement_other.trim() || 'Other')
+        : currentHorse.placement || null,
+      notes: currentHorse.notes,
+    }
+  }
+
   function addAnother() {
-    if (!currentHorse.horse_name) return
-    setHorses(prev => [...prev, { ...currentHorse }])
+    const resolved = resolveCurrentHorse()
+    if (!resolved) return
+    setHorses(prev => [...prev, resolved])
     setLastAdded(currentHorse.horse_name)
-    setCurrentHorse({ horse_name: '', work_done: 'all_4s', notes: '' })
+    setCurrentHorse({ horse_name: '', work_done: 'all_4s', shoe_type: 'regular', shoe_size: '', placement: '', placement_other: '', notes: '' })
     setTimeout(() => setLastAdded(null), 2000)
   }
 
@@ -617,10 +814,8 @@ function LogVisitModal({ onClose, onSaved, needs }: {
   }
 
   async function saveVisit() {
-    const allHorses = [
-      ...horses,
-      ...(currentHorse.horse_name ? [currentHorse] : []),
-    ]
+    const resolved = resolveCurrentHorse()
+    const allHorses: LogHorse[] = [...horses, ...(resolved ? [resolved] : [])]
     if (!visitDate || !farrierName || allHorses.length === 0) return
     setSaving(true)
     try {
@@ -633,13 +828,15 @@ function LogVisitModal({ onClose, onSaved, needs }: {
           horses: allHorses.map(h => ({
             horse_name: h.horse_name,
             work_done: h.work_done,
+            shoe_type: h.shoe_type || null,
+            shoe_size: h.shoe_size || null,
+            placement: h.placement || null,
             notes: h.notes || null,
           })),
         }),
       })
       if (!res.ok) throw new Error('Failed to save visit')
 
-      // Auto-remove horses from shoe_needs if they're on it
       const savedNames = new Set(allHorses.map(h => h.horse_name))
       const toRemove = needs.filter(n => savedNames.has(n.horse_name))
       await Promise.all(toRemove.map(n => fetch(`/api/shoe-needs?id=${n.id}`, { method: 'DELETE' })))
@@ -684,12 +881,7 @@ function LogVisitModal({ onClose, onSaved, needs }: {
           </div>
           <div>
             <label>Farrier Name</label>
-            <input
-              value={farrierName}
-              onChange={e => setFarrierName(e.target.value)}
-              placeholder="e.g. John Smith"
-              autoFocus
-            />
+            <input value={farrierName} onChange={e => setFarrierName(e.target.value)} placeholder="e.g. John Smith" autoFocus />
           </div>
         </div>
 
@@ -700,12 +892,15 @@ function LogVisitModal({ onClose, onSaved, needs }: {
               Horses in this visit
             </div>
             {horses.map((h, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 5 }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 5 }}>
                 <span style={{ fontSize: 14 }}>🐴</span>
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{h.horse_name}</span>
                 <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>
                   {WORK_LABELS[h.work_done]}
                 </span>
+                {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
+                {h.shoe_size && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>sz {h.shoe_size}</span>}
+                {h.placement && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{h.placement}</span>}
                 {h.notes && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{h.notes}</span>}
                 <button
                   onClick={() => removeHorse(i)}
@@ -730,6 +925,7 @@ function LogVisitModal({ onClose, onSaved, needs }: {
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
             {horses.length > 0 ? 'Add another horse' : 'Horse done'}
           </div>
+
           <div style={{ marginBottom: 10 }}>
             <label>Horse name</label>
             <HorseAutocomplete
@@ -737,16 +933,66 @@ function LogVisitModal({ onClose, onSaved, needs }: {
               onChange={v => setCurrentHorse(h => ({ ...h, horse_name: v }))}
             />
           </div>
-          <div style={{ marginBottom: 10 }}>
-            <label>What was done</label>
-            <select
-              value={currentHorse.work_done}
-              onChange={e => setCurrentHorse(h => ({ ...h, work_done: e.target.value }))}
-              style={{ fontSize: 13 }}
-            >
-              {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-            </select>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }} className="log-horse-grid">
+            <div>
+              <label>What was done</label>
+              <select
+                value={currentHorse.work_done}
+                onChange={e => setCurrentHorse(h => ({ ...h, work_done: e.target.value }))}
+                style={{ fontSize: 13 }}
+              >
+                {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Shoe type</label>
+              <select
+                value={currentHorse.shoe_type}
+                onChange={e => setCurrentHorse(h => ({ ...h, shoe_type: e.target.value }))}
+                style={{ fontSize: 13 }}
+              >
+                {SHOE_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+            </div>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }} className="log-horse-grid">
+            <div>
+              {/* TODO: use size history for analytics and pre-fill */}
+              <label>Size <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
+              <select
+                value={currentHorse.shoe_size}
+                onChange={e => setCurrentHorse(h => ({ ...h, shoe_size: e.target.value }))}
+                style={{ fontSize: 13 }}
+              >
+                {SHOE_SIZES.map(s => <option key={s} value={s}>{s || '— not recorded —'}</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Placement <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span></label>
+              <select
+                value={currentHorse.placement}
+                onChange={e => setCurrentHorse(h => ({ ...h, placement: e.target.value, placement_other: '' }))}
+                style={{ fontSize: 13 }}
+              >
+                {PLACEMENT_OPTIONS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {currentHorse.placement === 'other' && (
+            <div style={{ marginBottom: 10 }}>
+              <label>Placement detail</label>
+              <input
+                value={currentHorse.placement_other}
+                onChange={e => setCurrentHorse(h => ({ ...h, placement_other: e.target.value }))}
+                placeholder="Describe placement..."
+                style={{ fontSize: 13 }}
+              />
+            </div>
+          )}
+
           <div style={{ marginBottom: 18 }}>
             <label>Notes</label>
             <input
@@ -764,16 +1010,9 @@ function LogVisitModal({ onClose, onSaved, needs }: {
             onClick={saveVisit}
             disabled={saving || !canSave}
             style={{
-              flex: 1,
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              background: 'var(--color-accent)',
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: saving || !canSave ? 'not-allowed' : 'pointer',
-              opacity: !canSave ? 0.5 : 1,
+              flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none',
+              background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600,
+              cursor: saving || !canSave ? 'not-allowed' : 'pointer', opacity: !canSave ? 0.5 : 1,
             }}
           >
             {saving ? 'Saving...' : 'Save Visit'}
@@ -782,16 +1021,10 @@ function LogVisitModal({ onClose, onSaved, needs }: {
             onClick={addAnother}
             disabled={!currentHorse.horse_name}
             style={{
-              flex: 1,
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              background: 'var(--color-bg)',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: !currentHorse.horse_name ? 'not-allowed' : 'pointer',
-              color: 'var(--color-text-2)',
-              opacity: !currentHorse.horse_name ? 0.5 : 1,
+              flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)', background: 'var(--color-bg)',
+              fontSize: 13, fontWeight: 500, cursor: !currentHorse.horse_name ? 'not-allowed' : 'pointer',
+              color: 'var(--color-text-2)', opacity: !currentHorse.horse_name ? 0.5 : 1,
             }}
           >
             Save + Add Another horse

@@ -12,13 +12,19 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { horse_name, what_needed, notes } = body
+  const { horse_name, what_needed, shoe_type, is_drugger, notes } = body
   if (!horse_name || !what_needed) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
   const { data, error } = await supabase
     .from('shoe_needs')
-    .insert({ horse_name, what_needed, notes: notes || null })
+    .insert({
+      horse_name,
+      what_needed,
+      shoe_type: shoe_type || 'regular',
+      is_drugger: is_drugger || false,
+      notes: notes || null,
+    })
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
