@@ -187,11 +187,18 @@ function HorseAutocomplete({ value, onChange, placeholder }: { value: string; on
 
   function handleInput(v: string) {
     onChange(v)
-    if (v.length >= 2) {
+    if (v.length >= 1) {
+      const q = v.toLowerCase()
       const matches = HORSES
-        .filter(h => h.name.toLowerCase().includes(v.toLowerCase()) && h.status === 'active')
+        .filter(h => h.status === 'active' && h.name.toLowerCase().includes(q))
         .map(h => h.name)
-        .slice(0, 6)
+        .sort((a, b) => {
+          const aStarts = a.toLowerCase().startsWith(q)
+          const bStarts = b.toLowerCase().startsWith(q)
+          if (aStarts !== bStarts) return aStarts ? -1 : 1
+          return a.length - b.length
+        })
+        .slice(0, 8)
       setSuggestions(matches)
       setShow(matches.length > 0)
     } else {
