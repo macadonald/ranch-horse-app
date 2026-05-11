@@ -309,7 +309,7 @@ function NeedRow({
         </button>
       </div>
 
-      {/* Row 2: shoe type badge + work select (subtle) + date */}
+      {/* Row 2: shoe type badge + work select + date — all inline */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
         <ShoeTypeBadge shoeType={need.shoe_type || 'regular'} />
         <select
@@ -318,8 +318,8 @@ function NeedRow({
           onChange={e => { e.stopPropagation(); onUpdate(need.id, 'what_needed', e.target.value) }}
           style={{
             fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
-            cursor: 'pointer', flexShrink: 0, appearance: 'none', WebkitAppearance: 'none',
-            // Only fronts gets the red warning treatment; everything else is muted
+            cursor: 'pointer', flexShrink: 0, flexGrow: 0, width: 'auto',
+            appearance: 'none', WebkitAppearance: 'none',
             border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)',
             background: isFronts ? '#fee2e2' : 'var(--color-surface)',
             color: isFronts ? '#dc2626' : 'var(--color-text-3)',
@@ -327,7 +327,6 @@ function NeedRow({
         >
           {CARD_WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
-        <span style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Added {created}</span>
       </div>
 
