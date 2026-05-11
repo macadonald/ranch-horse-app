@@ -63,7 +63,7 @@ function HorseCard({ horse, dimmed }: { horse: typeof HORSES[0]; dimmed?: boolea
 
 // ─── Retired / Other view ─────────────────────────────────────────────────────
 
-const OTHER_GROUPS = ['Miniatures', 'Mares', 'Drafts', 'Geldings', 'Privates', 'Retirees', 'In Training', 'Other'] as const
+const OTHER_GROUPS = ['Miniatures', 'Mares', 'Drafts', 'Geldings', 'Privates', 'Retirees', 'In Training', 'Out for injury', 'Other'] as const
 type OtherGroup = typeof OTHER_GROUPS[number]
 
 type OtherAnimal = {

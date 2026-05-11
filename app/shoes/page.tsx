@@ -181,7 +181,7 @@ function ShoeTypeBadge({ shoeType }: { shoeType: string }) {
   )
 }
 
-function HorseAutocomplete({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function HorseAutocomplete({ value, onChange, placeholder, extraNames = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; extraNames?: string[] }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
 
@@ -189,9 +189,12 @@ function HorseAutocomplete({ value, onChange, placeholder }: { value: string; on
     onChange(v)
     if (v.length >= 1) {
       const q = v.toLowerCase()
-      const matches = HORSES
-        .filter(h => h.status === 'active' && h.name.toLowerCase().includes(q))
-        .map(h => h.name)
+      const allNames = Array.from(new Set([
+        ...HORSES.filter(h => h.status === 'active').map(h => h.name),
+        ...extraNames,
+      ]))
+      const matches = allNames
+        .filter(n => n.toLowerCase().includes(q))
         .sort((a, b) => {
           const aStarts = a.toLowerCase().startsWith(q)
           const bStarts = b.toLowerCase().startsWith(q)
@@ -880,6 +883,7 @@ export default function ShoesPage() {
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
+  const [otherAnimalNames, setOtherAnimalNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string } | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
@@ -895,17 +899,20 @@ export default function ShoesPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [needsRes, visitsRes, healthRes] = await Promise.all([
+      const [needsRes, visitsRes, healthRes, otherRes] = await Promise.all([
         fetch('/api/shoe-needs'),
         fetch('/api/farrier-visits'),
         fetch('/api/health'),
+        fetch('/api/other-animals'),
       ])
       const needsData = await needsRes.json()
       const visitsData = await visitsRes.json()
       const healthData = await healthRes.json()
+      const otherData = await otherRes.json()
       setNeeds(needsData.needs || [])
       setVisits(visitsData.visits || [])
       setHealthIssues(healthData.issues || [])
+      setOtherAnimalNames((otherData.animals || []).map((a: { name: string }) => a.name))
     } catch (err) {
       console.error(err)
     } finally {
@@ -1121,6 +1128,7 @@ export default function ShoesPage() {
                       setAddForm(f => f ? { ...f, horse_name: v, shoe_type: shoeType } : f)
                       setAddError(null)
                     }}
+                    extraNames={otherAnimalNames}
                   />
                   <select
                     value={addForm.what_needed}
@@ -1328,16 +1336,18 @@ export default function ShoesPage() {
           onClose={() => setShowLogVisit(false)}
           onSaved={handleVisitSaved}
           needs={needs}
+          extraNames={otherAnimalNames}
         />
       )}
     </div>
   )
 }
 
-function LogVisitModal({ onClose, onSaved, needs }: {
+function LogVisitModal({ onClose, onSaved, needs, extraNames = [] }: {
   onClose: () => void
   onSaved: (msg: string) => void
   needs: ShoeNeed[]
+  extraNames?: string[]
 }) {
   const today = new Date().toISOString().split('T')[0]
   const [visitDate, setVisitDate] = useState(today)
@@ -1490,6 +1500,7 @@ function LogVisitModal({ onClose, onSaved, needs }: {
             <HorseAutocomplete
               value={currentHorse.horse_name}
               onChange={v => setCurrentHorse(h => ({ ...h, horse_name: v }))}
+              extraNames={extraNames}
             />
           </div>
 
