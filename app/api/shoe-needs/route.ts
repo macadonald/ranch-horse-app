@@ -27,7 +27,19 @@ export async function POST(req: NextRequest) {
     })
     .select()
     .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Fallback: enhanced columns may not exist if migration hasn't been run yet
+    if (error.message.includes('shoe_type') || error.message.includes('is_drugger')) {
+      const { data: fd, error: fe } = await supabase
+        .from('shoe_needs')
+        .insert({ horse_name, what_needed, notes: notes || null })
+        .select()
+        .single()
+      if (fe) return NextResponse.json({ error: fe.message }, { status: 500 })
+      return NextResponse.json({ need: fd })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ need: data })
 }
 

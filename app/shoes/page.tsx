@@ -6,23 +6,26 @@ import { HORSES } from '@/lib/horses'
 // TODO: track size history per horse, surface last known size,
 // run analytics on shoe types and sizes across the herd
 
+// Used in Add Horse prompt and Log a Visit modal
 const WORK_OPTIONS = [
-  { key: 'fronts',   label: 'Fronts' },
-  { key: 'rears',    label: 'Rears' },
-  { key: 'all_4s',   label: 'All 4s' },
-  { key: 'reset',    label: 'Reset' },
-  { key: 'full_set', label: 'Full set' },
-]
-
-// Add Horse prompt uses a narrower set — Reset and Full set belong in visit history
-const NEEDS_WORK_OPTIONS = [
   { key: 'fronts',  label: 'Fronts' },
   { key: 'rears',   label: 'Rears' },
   { key: 'all_4s',  label: 'All 4s' },
+  { key: 'trim',    label: 'Trim' },
+]
+
+// Card edit select — includes legacy values for backward compat, shorter labels
+const CARD_WORK_OPTIONS = [
+  { key: 'fronts',   label: 'Fronts' },
+  { key: 'rears',    label: 'Rears' },
+  { key: 'all_4s',   label: '4s' },
+  { key: 'trim',     label: 'Trim' },
+  { key: 'reset',    label: 'Reset' },
+  { key: 'full_set', label: 'Full' },
 ]
 
 const WORK_LABELS: Record<string, string> = {
-  fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', reset: 'Reset', full_set: 'Full set',
+  fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', trim: 'Trim', reset: 'Reset', full_set: 'Full set',
 }
 
 const SHOE_TYPES = [
@@ -44,12 +47,16 @@ const PLACEMENT_OPTIONS = [
   { key: 'other',   label: 'Other' },
 ]
 
-const TYPE_FILTER_CHIPS = [
-  { key: 'all',      label: 'All' },
-  { key: 'regular',  label: 'Regular' },
-  { key: 'nb',       label: 'NB' },
-  { key: 'nb_pad',   label: 'NB+Pad' },
-  { key: 'plastics', label: 'Plastics' },
+const FILTER_CHIPS = [
+  { key: 'all',            label: 'All' },
+  { key: 'regular',        label: 'Regular' },
+  { key: 'nb',             label: 'NB' },
+  { key: 'nb_pad',         label: 'NB+Pad' },
+  { key: 'plastics',       label: 'Plastics' },
+  { key: 'drugger',        label: 'Drugger' },
+  { key: 'non_drugger',    label: 'Non-drugger' },
+  { key: 'needs_done_soon',label: 'Needs done soon' },
+  { key: 'overdue',        label: 'Overdue' },
 ]
 
 type ShoeNeed = {
@@ -108,6 +115,32 @@ function lastKnownShoeType(horseName: string, visits: FarrierVisit[]): string {
     if (h?.shoe_type) return h.shoe_type
   }
   return 'regular'
+}
+
+function horseLastVisitDate(horseName: string, visits: FarrierVisit[]): string | null {
+  let latest: string | null = null
+  visits.forEach(v => {
+    if (v.farrier_visit_horses.some(h => h.horse_name === horseName)) {
+      if (!latest || v.visit_date > latest) latest = v.visit_date
+    }
+  })
+  return latest
+}
+
+// Returns average days between consecutive visits; defaults to 42 days (6 weeks) if < 2 visits
+function horseAvgIntervalDays(horseName: string, visits: FarrierVisit[]): number {
+  const dates = visits
+    .filter(v => v.farrier_visit_horses.some(h => h.horse_name === horseName))
+    .map(v => v.visit_date)
+    .sort()
+  if (dates.length < 2) return 42
+  let total = 0
+  for (let i = 1; i < dates.length; i++) {
+    const prev = new Date(dates[i - 1] + 'T12:00:00').getTime()
+    const curr = new Date(dates[i] + 'T12:00:00').getTime()
+    total += (curr - prev) / (24 * 60 * 60 * 1000)
+  }
+  return total / (dates.length - 1)
 }
 
 function ShoeTypeBadge({ shoeType }: { shoeType: string }) {
@@ -214,7 +247,7 @@ function NeedRow({
     }
   }
 
-  const isRedWork = need.what_needed === 'fronts'
+  const isFronts = need.what_needed === 'fronts'
   const created = new Date(need.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   return (
@@ -276,7 +309,7 @@ function NeedRow({
         </button>
       </div>
 
-      {/* Row 2: shoe type badge + work select + date */}
+      {/* Row 2: shoe type badge + work select (subtle) + date */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
         <ShoeTypeBadge shoeType={need.shoe_type || 'regular'} />
         <select
@@ -284,14 +317,15 @@ function NeedRow({
           onClick={e => e.stopPropagation()}
           onChange={e => { e.stopPropagation(); onUpdate(need.id, 'what_needed', e.target.value) }}
           style={{
-            fontSize: 11, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
+            fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
             cursor: 'pointer', flexShrink: 0, appearance: 'none', WebkitAppearance: 'none',
-            border: `1px solid ${isRedWork ? '#fca5a5' : '#fcd34d'}`,
-            background: isRedWork ? '#fee2e2' : '#fef3c7',
-            color: isRedWork ? '#dc2626' : '#92400e',
+            // Only fronts gets the red warning treatment; everything else is muted
+            border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)',
+            background: isFronts ? '#fee2e2' : 'var(--color-surface)',
+            color: isFronts ? '#dc2626' : 'var(--color-text-3)',
           }}
         >
-          {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          {CARD_WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Added {created}</span>
@@ -406,7 +440,6 @@ function HorseProfileModal({ need, visits, onClose }: {
         onMouseUp={e => e.stopPropagation()}
         style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }}
       >
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 2 }}>
@@ -424,7 +457,6 @@ function HorseProfileModal({ need, visits, onClose }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', flexShrink: 0 }}>✕</button>
         </div>
 
-        {/* Last shod summary */}
         {lastVisit ? (
           <div style={{ padding: '10px 14px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', marginBottom: 18 }}>
             <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 2 }}>Last shod</div>
@@ -441,7 +473,6 @@ function HorseProfileModal({ need, visits, onClose }: {
           </div>
         )}
 
-        {/* Visit history */}
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
           Visit History ({horseVisits.length})
         </div>
@@ -449,7 +480,7 @@ function HorseProfileModal({ need, visits, onClose }: {
           <p style={{ fontSize: 13, color: 'var(--color-text-3)', textAlign: 'center', padding: '20px 0' }}>No history recorded</p>
         ) : horseVisits.map((v, i) => (
           <div key={i} style={{ padding: '10px 12px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: v.notes ? 4 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
               <span style={{ fontWeight: 600, fontSize: 13 }}>
                 {new Date(v.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
@@ -501,6 +532,7 @@ export default function ShoesPage() {
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [loading, setLoading] = useState(true)
   const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string } | null>(null)
+  const [addError, setAddError] = useState<string | null>(null)
   const [addingSaving, setAddingSaving] = useState(false)
   const [markingDone, setMarkingDone] = useState<string | null>(null)
   const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
@@ -534,8 +566,23 @@ export default function ShoesPage() {
 
   const filteredNeeds = useMemo(() => {
     if (typeFilter === 'all') return needs
+    if (typeFilter === 'drugger') return needs.filter(n => !!n.is_drugger)
+    if (typeFilter === 'non_drugger') return needs.filter(n => !n.is_drugger)
+    if (typeFilter === 'needs_done_soon' || typeFilter === 'overdue') {
+      const MS_PER_DAY = 24 * 60 * 60 * 1000
+      const TWO_WEEKS_MS = 14 * MS_PER_DAY
+      const now = Date.now()
+      return needs.filter(n => {
+        const lastDate = horseLastVisitDate(n.horse_name, visits)
+        if (!lastDate) return false
+        const avgDays = horseAvgIntervalDays(n.horse_name, visits)
+        const nextExpectedMs = new Date(lastDate + 'T12:00:00').getTime() + avgDays * MS_PER_DAY
+        if (typeFilter === 'overdue') return now > nextExpectedMs
+        return nextExpectedMs > now && nextExpectedMs - now <= TWO_WEEKS_MS
+      })
+    }
     return needs.filter(n => (n.shoe_type || 'regular') === typeFilter)
-  }, [needs, typeFilter])
+  }, [needs, visits, typeFilter])
 
   const suggestions = useMemo(() => {
     const lastShodMap: Record<string, { date: string; weeks: number }> = {}
@@ -569,8 +616,9 @@ export default function ShoesPage() {
   async function addNeed() {
     if (!addForm?.horse_name || !addForm.what_needed) return
     setAddingSaving(true)
+    setAddError(null)
     try {
-      await fetch('/api/shoe-needs', {
+      const res = await fetch('/api/shoe-needs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -580,8 +628,15 @@ export default function ShoesPage() {
           notes: addForm.notes || null,
         }),
       })
+      const data = await res.json()
+      if (!res.ok) {
+        setAddError(data.error || 'Failed to save — check Supabase migration has been run')
+        return
+      }
       setAddForm(null)
       await fetchData()
+    } catch {
+      setAddError('Network error — could not reach server')
     } finally {
       setAddingSaving(false)
     }
@@ -686,7 +741,7 @@ export default function ShoesPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Current Shoe Needs</h2>
               <button
-                onClick={() => setAddForm(f => f ? null : { horse_name: '', what_needed: 'all_4s', shoe_type: 'regular', notes: '' })}
+                onClick={() => { setAddForm(f => f ? null : { horse_name: '', what_needed: 'all_4s', shoe_type: 'regular', notes: '' }); setAddError(null) }}
                 style={{ padding: '6px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
               >
                 + Add Horse
@@ -699,7 +754,7 @@ export default function ShoesPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)' }}>Add horse to list</span>
                   <button
-                    onClick={() => setAddForm(null)}
+                    onClick={() => { setAddForm(null); setAddError(null) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-3)', fontSize: 16, padding: 0, lineHeight: 1 }}
                   >
                     ✕
@@ -711,6 +766,7 @@ export default function ShoesPage() {
                     onChange={v => {
                       const shoeType = lastKnownShoeType(v, visits)
                       setAddForm(f => f ? { ...f, horse_name: v, shoe_type: shoeType } : f)
+                      setAddError(null)
                     }}
                   />
                   <select
@@ -718,7 +774,7 @@ export default function ShoesPage() {
                     onChange={e => setAddForm(f => f ? { ...f, what_needed: e.target.value } : f)}
                     style={{ fontSize: 12 }}
                   >
-                    {NEEDS_WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                    {WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
                   </select>
                 </div>
                 <div style={{ marginBottom: 8 }}>
@@ -737,6 +793,11 @@ export default function ShoesPage() {
                   placeholder="Notes (optional)..."
                   style={{ width: '100%', fontSize: 12, marginBottom: 10, boxSizing: 'border-box' }}
                 />
+                {addError && (
+                  <div style={{ fontSize: 12, color: 'var(--color-danger)', background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-sm)', padding: '7px 10px', marginBottom: 10 }}>
+                    {addError}
+                  </div>
+                )}
                 <button
                   onClick={addNeed}
                   disabled={addingSaving || !addForm.horse_name}
@@ -750,7 +811,7 @@ export default function ShoesPage() {
             {/* Filter chips */}
             {!loading && needs.length > 0 && (
               <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
-                {TYPE_FILTER_CHIPS.map(chip => {
+                {FILTER_CHIPS.map(chip => {
                   const isActive = typeFilter === chip.key
                   return (
                     <button
@@ -1038,7 +1099,7 @@ function LogVisitModal({ onClose, onSaved, needs }: {
                 <span style={{ fontSize: 14 }}>🐴</span>
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{h.horse_name}</span>
                 <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>
-                  {WORK_LABELS[h.work_done]}
+                  {WORK_LABELS[h.work_done] || h.work_done}
                 </span>
                 {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
                 {h.shoe_size && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>sz {h.shoe_size}</span>}
