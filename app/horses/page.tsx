@@ -22,6 +22,10 @@ const SIZES: HorseSize[] = ['small', 'medium', 'large', 'draft']
 const BLOCKING_TYPES = ['lame', 'injured', 'day_off', 'in_training', 'retired'] as const
 type BlockingType = typeof BLOCKING_TYPES[number]
 
+type DisplayMode = 'list' | 'card'
+type RosterView = 'guest' | 'other'
+type FlagModalState = { horse: DbHorse; flagType: BlockingType } | null
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function hasBlockingFlag(h: DbHorse, today: string): boolean {
@@ -58,11 +62,33 @@ function matchesFilter(h: DbHorse, filter: string, today: string): boolean {
   }
 }
 
-// ─── FlagNotesModal ───────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const FLAG_DISPLAY: Record<BlockingType, string> = {
   lame: 'Lame', injured: 'Injured', day_off: 'Day Off', in_training: 'In Training', retired: 'Retired',
 }
+
+const STATUS_META: Record<BlockingType, { label: string; color: string; bg: string; border: string }> = {
+  lame:        { label: 'Lame',     color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
+  injured:     { label: 'Injured',  color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
+  day_off:     { label: 'Day Off',  color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db' },
+  in_training: { label: 'Training', color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db' },
+  retired:     { label: 'Retired',  color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db' },
+}
+
+const FILTER_CHIPS = [
+  { key: 'all',          label: 'All' },
+  { key: 'active',       label: 'Active' },
+  { key: 'inactive',     label: 'Inactive' },
+  { key: 'lame',         label: 'Lame' },
+  { key: 'injured',      label: 'Injured' },
+  { key: 'shoes',        label: 'Missing Shoes' },
+  { key: 'day_off',      label: 'Day Off' },
+  { key: 'in_training',  label: 'In Training' },
+  { key: 'retired_flag', label: 'Retired' },
+]
+
+// ─── FlagNotesModal ───────────────────────────────────────────────────────────
 
 function FlagNotesModal({ flagType, horseName, onConfirm, onClose }: {
   flagType: BlockingType; horseName: string
@@ -90,39 +116,45 @@ function FlagNotesModal({ flagType, horseName, onConfirm, onClose }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
         </div>
         <button
-          onClick={() => handle(false)}
-          disabled={saving}
+          onClick={() => handle(false)} disabled={saving}
           style={{ display: 'block', width: '100%', marginBottom: 12, padding: '7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', fontWeight: 500 }}
         >
           {saving ? '...' : 'Flag without notes (quick)'}
         </button>
         <label style={{ fontSize: 12, color: 'var(--color-text-3)', display: 'block', marginBottom: 5 }}>Notes (optional)</label>
         <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
+          value={notes} onChange={e => setNotes(e.target.value)}
           placeholder="e.g. left front, vet scheduled..."
-          rows={3}
-          autoFocus
+          rows={3} autoFocus
           style={{ width: '100%', resize: 'vertical', marginBottom: 12 }}
           onKeyDown={e => e.key === 'Enter' && e.metaKey && handle(true)}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={() => handle(true)}
-            disabled={saving}
+            onClick={() => handle(true)} disabled={saving}
             style={{ flex: 1, padding: '9px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
             {saving ? 'Saving...' : `Flag as ${FLAG_DISPLAY[flagType]}`}
           </button>
-          <button
-            onClick={onClose}
-            style={{ padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}
-          >
+          <button onClick={onClose} style={{ padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>
             Cancel
           </button>
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── ToggleSwitch ─────────────────────────────────────────────────────────────
+
+function ToggleSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      style={{ width: 44, height: 24, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: on ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
+    >
+      <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: on ? 23 : 3, transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+    </button>
   )
 }
 
@@ -133,44 +165,19 @@ type EditHorseForm = {
   is_active: boolean; exclude_from_ai: boolean; rank_last: boolean
 }
 
-function ToggleSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  return (
-    <button
-      onClick={onToggle}
-      style={{
-        width: 44, height: 24, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0,
-        background: on ? 'var(--color-accent)' : '#d1d5db',
-        position: 'relative', transition: 'background 0.2s',
-      }}
-    >
-      <div style={{
-        width: 18, height: 18, borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: 3, left: on ? 23 : 3,
-        transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-      }} />
-    </button>
-  )
-}
-
 function EditHorseModal({ horse, mode, onSave, onClose }: {
-  horse: Partial<DbHorse> | null
-  mode: 'new' | 'edit' | 'promote'
-  onSave: (form: EditHorseForm) => Promise<void>
-  onClose: () => void
+  horse: Partial<DbHorse> | null; mode: 'new' | 'edit' | 'promote'
+  onSave: (form: EditHorseForm) => Promise<void>; onClose: () => void
 }) {
   const isNew = mode === 'new'
   const isPromote = mode === 'promote'
   const nameEditable = isNew || isPromote
 
   const [form, setForm] = useState<EditHorseForm>({
-    name: horse?.name ?? '',
-    level: horse?.level ?? 'B',
-    weight: horse?.weight?.toString() ?? '',
-    size: horse?.size ?? 'medium',
-    notes: horse?.notes ?? '',
-    is_active: horse?.is_active ?? true,
-    exclude_from_ai: horse?.exclude_from_ai ?? false,
-    rank_last: horse?.rank_last ?? false,
+    name: horse?.name ?? '', level: horse?.level ?? 'B',
+    weight: horse?.weight?.toString() ?? '', size: horse?.size ?? 'medium',
+    notes: horse?.notes ?? '', is_active: horse?.is_active ?? true,
+    exclude_from_ai: horse?.exclude_from_ai ?? false, rank_last: horse?.rank_last ?? false,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -186,7 +193,7 @@ function EditHorseModal({ horse, mode, onSave, onClose }: {
     catch (e: any) { setError(e.message || 'Save failed'); setSaving(false) }
   }
 
-  const title = isNew ? 'Add New Horse' : isPromote ? `Promote to Guest String` : `Edit — ${horse?.name}`
+  const title = isNew ? 'Add New Horse' : isPromote ? 'Promote to Guest String' : `Edit — ${horse?.name}`
 
   return (
     <div
@@ -209,11 +216,8 @@ function EditHorseModal({ horse, mode, onSave, onClose }: {
           <div style={{ gridColumn: '1/-1' }}>
             <label>Name {nameEditable && <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span>}</label>
             <input
-              value={form.name}
-              onChange={e => nameEditable && set('name', e.target.value)}
-              readOnly={!nameEditable}
-              placeholder="Horse name..."
-              autoFocus={isNew}
+              value={form.name} onChange={e => nameEditable && set('name', e.target.value)}
+              readOnly={!nameEditable} placeholder="Horse name..." autoFocus={isNew}
               style={{ opacity: nameEditable ? 1 : 0.55, background: nameEditable ? undefined : 'var(--color-bg)' }}
             />
           </div>
@@ -264,8 +268,7 @@ function EditHorseModal({ horse, mode, onSave, onClose }: {
 
         <div style={{ display: 'flex', gap: 9 }}>
           <button
-            onClick={handleSave}
-            disabled={saving || !form.name.trim()}
+            onClick={handleSave} disabled={saving || !form.name.trim()}
             style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving || !form.name.trim() ? 0.5 : 1 }}
           >
             {saving ? 'Saving...' : isNew ? 'Add Horse' : isPromote ? 'Add to Guest String' : 'Save Changes'}
@@ -279,18 +282,10 @@ function EditHorseModal({ horse, mode, onSave, onClose }: {
   )
 }
 
-// ─── HorseCard ────────────────────────────────────────────────────────────────
+// ─── HorseDetailPanel ─────────────────────────────────────────────────────────
 
-const STATUS_META: Record<BlockingType, { label: string; color: string; bg: string; border: string }> = {
-  lame:        { label: 'Lame',       color: '#92400e', bg: '#fef3c7', border: '#fcd34d' },
-  injured:     { label: 'Injured',    color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
-  day_off:     { label: 'Day Off',    color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd' },
-  in_training: { label: 'Training',   color: '#6d28d9', bg: '#f5f3ff', border: '#c4b5fd' },
-  retired:     { label: 'Retired',    color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db' },
-}
-
-function HorseCard({ horse, today, onFlagClick, onMarkFit, onShoeClick, onToggleActive, onEdit, onDemote }: {
-  horse: DbHorse; today: string
+function HorseDetailPanel({ horse, today, onClose, onFlagClick, onMarkFit, onShoeClick, onToggleActive, onEdit, onDemote }: {
+  horse: DbHorse; today: string; onClose: () => void
   onFlagClick: (flagType: BlockingType) => void
   onMarkFit: () => void
   onShoeClick: (shoeType: 'fronts' | 'rears') => void
@@ -306,152 +301,325 @@ function HorseCard({ horse, today, onFlagClick, onMarkFit, onShoeClick, onToggle
   const hasRears = (horse.shoe_flags || []).some(s => s.what_needed === 'rears')
   const anyFlags = activeFlags.length > 0 || hasFronts || hasRears
 
-  const isFlagged = activeFlags.length > 0
-  const cardBg = !horse.is_active ? 'var(--color-bg)' : isFlagged ? '#fffbeb' : 'var(--color-surface)'
-  const cardBorderColor = !horse.is_active ? 'var(--color-border)' : isFlagged ? '#fcd34d' : 'var(--color-border)'
-
   return (
-    <div style={{
-      background: cardBg,
-      border: `1px solid ${cardBorderColor}`,
-      borderRadius: 'var(--radius-lg)',
-      padding: '14px 16px',
-      opacity: !horse.is_active ? 0.65 : 1,
-      transition: 'opacity 0.15s',
-    }}>
-      {/* Header row: name + level + active toggle */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700 }}>{horse.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            {horse.weight ? `Max ${horse.weight} lbs · ` : ''}{horse.size}
-            {horse.exclude_from_ai && (
-              <span style={{ padding: '1px 5px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontSize: 10, fontWeight: 500 }}>Manual only</span>
-            )}
-            {horse.rank_last && (
-              <span style={{ padding: '1px 5px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontSize: 10, fontWeight: 500 }}>Last resort</span>
-            )}
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 90 }} />
+      <div style={{
+        position: 'fixed', right: 0, top: 0, bottom: 0, width: 360,
+        background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)',
+        zIndex: 91, overflowY: 'auto', display: 'flex', flexDirection: 'column',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--color-border)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 5 }}>{horse.name}</h2>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600 }}>
+                  {LEVEL_LABELS[horse.level] || horse.level}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>
+                  {horse.weight ? `Max ${horse.weight} lbs` : 'No weight limit'} · {horse.size}
+                </span>
+              </div>
+              {(horse.exclude_from_ai || horse.rank_last) && (
+                <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {horse.exclude_from_ai && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 }}>Manual only</span>}
+                  {horse.rank_last && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 }}>Last resort</span>}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                onClick={onToggleActive}
+                title={horse.is_active ? 'Mark inactive' : 'Mark active'}
+                style={{ width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
+              >
+                <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 21 : 3, transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+              </button>
+              <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', lineHeight: 1 }}>✕</button>
+            </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            {LEVEL_LABELS[horse.level] || horse.level}
+
+        {/* Active flag badges summary */}
+        {anyFlags && (
+          <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--color-border)', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {activeFlags.map(f => {
+              const meta = STATUS_META[f.flag_type as BlockingType]
+              if (!meta) return null
+              return (
+                <span key={f.id} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontWeight: 600 }}>
+                  {meta.label}{f.notes ? ` — ${f.notes}` : ''}
+                </span>
+              )
+            })}
+            {hasFronts && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Missing Fronts</span>}
+            {hasRears && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Missing Rears</span>}
+          </div>
+        )}
+
+        {/* Notes */}
+        {horse.notes && (
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--color-border)' }}>
+            <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.6, margin: 0 }}>{horse.notes}</p>
+          </div>
+        )}
+
+        {/* Status flags */}
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--color-border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Status flags</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {BLOCKING_TYPES.map(type => {
+              const meta = STATUS_META[type]
+              const isOn = activeFlags.some(f => f.flag_type === type)
+              return (
+                <button
+                  key={type}
+                  onClick={() => onFlagClick(type)}
+                  style={{
+                    padding: '6px 13px', borderRadius: 999, fontSize: 12,
+                    fontWeight: isOn ? 700 : 400,
+                    border: `1px solid ${isOn ? meta.border : 'var(--color-border)'}`,
+                    background: isOn ? meta.bg : 'var(--color-bg)',
+                    color: isOn ? meta.color : 'var(--color-text-2)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {FLAG_DISPLAY[type]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Shoes */}
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--color-border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Shoes needed</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([
+              { type: 'fronts' as const, isOn: hasFronts, label: 'Missing Fronts' },
+              { type: 'rears' as const,  isOn: hasRears,  label: 'Missing Rears'  },
+            ]).map(({ type, isOn, label }) => (
+              <button
+                key={type}
+                onClick={() => onShoeClick(type)}
+                style={{
+                  padding: '6px 13px', borderRadius: 999, fontSize: 12,
+                  fontWeight: isOn ? 700 : 400,
+                  border: `1px solid ${isOn ? '#fcd34d' : 'var(--color-border)'}`,
+                  background: isOn ? '#fef3c7' : 'var(--color-bg)',
+                  color: isOn ? '#92400e' : 'var(--color-text-2)',
+                  cursor: 'pointer',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Mark Fit */}
+        {anyFlags && (
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--color-border)' }}>
+            <button
+              onClick={onMarkFit}
+              style={{
+                width: '100%', padding: '9px', borderRadius: 'var(--radius-md)', fontSize: 13, fontWeight: 600,
+                border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)',
+                cursor: 'pointer',
+              }}
+            >
+              Mark Fit ✓ — Clear all flags
+            </button>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ padding: '14px 18px', marginTop: 'auto', display: 'flex', gap: 8 }}>
+          <button
+            onClick={onEdit}
+            style={{ flex: 1, padding: '9px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)', fontWeight: 500 }}
+          >
+            Edit profile
+          </button>
+          <button
+            onClick={onDemote}
+            style={{ padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'transparent', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-3)' }}
+          >
+            → Retired
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── HorseListRow ─────────────────────────────────────────────────────────────
+
+function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit }: {
+  horse: DbHorse; today: string
+  onSelect: () => void
+  onToggleActive: () => void
+  onEdit: () => void
+}) {
+  const activeFlags = (horse.flags || []).filter(f =>
+    BLOCKING_TYPES.includes(f.flag_type as BlockingType) &&
+    (f.flag_type !== 'day_off' || f.day_off_date === today)
+  )
+  const hasFronts = (horse.shoe_flags || []).some(s => s.what_needed === 'fronts')
+  const hasRears = (horse.shoe_flags || []).some(s => s.what_needed === 'rears')
+  const hasShoes = hasFronts || hasRears
+  const isFlagged = activeFlags.length > 0
+
+  return (
+    <div
+      onClick={onSelect}
+      className="horse-list-row"
+      style={{
+        padding: '7px 14px',
+        borderBottom: '1px solid var(--color-border)',
+        cursor: 'pointer',
+        opacity: !horse.is_active ? 0.55 : 1,
+        background: isFlagged ? '#fffbeb' : 'transparent',
+      }}
+    >
+      {/* Main row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <span style={{ fontWeight: 600, fontSize: 13, minWidth: 0, marginRight: 2 }}>{horse.name}</span>
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {horse.level}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {horse.weight ? `${horse.weight} lbs` : '—'} · {horse.size}
+        </span>
+        <div style={{ flex: 1 }} />
+        {/* Active flag badges */}
+        {activeFlags.map(f => {
+          const meta = STATUS_META[f.flag_type as BlockingType]
+          if (!meta) return null
+          return (
+            <span key={f.id} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+              {meta.label}
+            </span>
+          )
+        })}
+        {hasShoes && (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {hasFronts && hasRears ? 'Fronts+Rears' : hasFronts ? 'Fronts' : 'Rears'}
+          </span>
+        )}
+        {/* Active toggle */}
+        <button
+          onClick={e => { e.stopPropagation(); onToggleActive() }}
+          title={horse.is_active ? 'Mark inactive' : 'Mark active'}
+          style={{ width: 32, height: 18, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
+        >
+          <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 17 : 3, transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+        </button>
+        {/* Edit icon */}
+        <button
+          onClick={e => { e.stopPropagation(); onEdit() }}
+          title="Edit"
+          style={{ width: 26, height: 26, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-3)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+        >
+          ✎
+        </button>
+      </div>
+      {/* Notes — truncated */}
+      {horse.notes && (
+        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', paddingRight: 70 }}>
+          {horse.notes}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── HorseCard (cleaned up — no flag buttons) ─────────────────────────────────
+
+function HorseCard({ horse, today, onSelect, onToggleActive, onEdit }: {
+  horse: DbHorse; today: string
+  onSelect: () => void
+  onToggleActive: () => void
+  onEdit: () => void
+}) {
+  const activeFlags = (horse.flags || []).filter(f =>
+    BLOCKING_TYPES.includes(f.flag_type as BlockingType) &&
+    (f.flag_type !== 'day_off' || f.day_off_date === today)
+  )
+  const hasFronts = (horse.shoe_flags || []).some(s => s.what_needed === 'fronts')
+  const hasRears = (horse.shoe_flags || []).some(s => s.what_needed === 'rears')
+  const isFlagged = activeFlags.length > 0
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        background: !horse.is_active ? 'var(--color-bg)' : isFlagged ? '#fffbeb' : 'var(--color-surface)',
+        border: `1px solid ${isFlagged ? '#fcd34d' : 'var(--color-border)'}`,
+        borderRadius: 'var(--radius-lg)',
+        padding: '12px 14px',
+        opacity: !horse.is_active ? 0.65 : 1,
+        cursor: 'pointer',
+        transition: 'opacity 0.15s',
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>{horse.name}</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>
+            {horse.weight ? `Max ${horse.weight} lbs · ` : ''}{horse.size}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600 }}>
+            {horse.level}
           </span>
           <button
-            onClick={onToggleActive}
+            onClick={e => { e.stopPropagation(); onToggleActive() }}
             title={horse.is_active ? 'Mark inactive' : 'Mark active'}
-            style={{
-              width: 36, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0,
-              background: horse.is_active ? 'var(--color-accent)' : '#d1d5db',
-              position: 'relative', transition: 'background 0.2s',
-            }}
+            style={{ width: 34, height: 19, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
           >
-            <div style={{
-              width: 14, height: 14, borderRadius: '50%', background: '#fff',
-              position: 'absolute', top: 3, left: horse.is_active ? 19 : 3,
-              transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
+            <div style={{ width: 13, height: 13, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 18 : 3, transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
           </button>
         </div>
       </div>
 
-      {/* Active flag badges */}
-      {anyFlags && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+      {/* Flag badges */}
+      {(activeFlags.length > 0 || hasFronts || hasRears || horse.exclude_from_ai || horse.rank_last) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
           {activeFlags.map(f => {
             const meta = STATUS_META[f.flag_type as BlockingType]
             if (!meta) return null
             return (
-              <span key={f.id} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontWeight: 600 }}>
-                {meta.label}{f.notes ? ` · ${f.notes}` : ''}
+              <span key={f.id} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontWeight: 600 }}>
+                {meta.label}
               </span>
             )
           })}
-          {hasFronts && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>🔴 Fronts</span>}
-          {hasRears && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>🟠 Rears</span>}
+          {hasFronts && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Fronts</span>}
+          {hasRears && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Rears</span>}
+          {horse.exclude_from_ai && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 }}>Manual only</span>}
+          {horse.rank_last && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 }}>Last resort</span>}
         </div>
       )}
 
-      {/* Notes */}
+      {/* Notes — 2 lines max */}
       {horse.notes && (
-        <p style={{ fontSize: 11, color: 'var(--color-text-2)', lineHeight: 1.5, borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ fontSize: 11, color: 'var(--color-text-2)', lineHeight: 1.5, margin: '4px 0 0', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
           {horse.notes}
         </p>
       )}
 
-      {/* Quick flag buttons */}
-      <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 10, marginTop: 10 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-          {BLOCKING_TYPES.map(type => {
-            const meta = STATUS_META[type]
-            const isOn = activeFlags.some(f => f.flag_type === type)
-            return (
-              <button
-                key={type}
-                onClick={() => onFlagClick(type)}
-                style={{
-                  padding: '3px 9px', borderRadius: 999, fontSize: 11,
-                  fontWeight: isOn ? 700 : 400,
-                  border: `1px solid ${isOn ? meta.border : 'var(--color-border)'}`,
-                  background: isOn ? meta.bg : 'transparent',
-                  color: isOn ? meta.color : 'var(--color-text-3)',
-                  cursor: 'pointer',
-                }}
-              >
-                {meta.label}
-              </button>
-            )
-          })}
-        </div>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-          {[
-            { type: 'fronts' as const, isOn: hasFronts, bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: 'Fronts' },
-            { type: 'rears' as const, isOn: hasRears, bg: '#fef3c7', color: '#92400e', border: '#fcd34d', label: 'Rears' },
-          ].map(({ type, isOn, bg, color, border, label }) => (
-            <button
-              key={type}
-              onClick={() => onShoeClick(type)}
-              style={{
-                padding: '3px 9px', borderRadius: 999, fontSize: 11,
-                fontWeight: isOn ? 700 : 400,
-                border: `1px solid ${isOn ? border : 'var(--color-border)'}`,
-                background: isOn ? bg : 'transparent',
-                color: isOn ? color : 'var(--color-text-3)',
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-          {anyFlags && (
-            <button
-              onClick={onMarkFit}
-              style={{
-                padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-                border: '1px solid var(--color-success-border)',
-                background: 'var(--color-success-bg)', color: 'var(--color-success)',
-                cursor: 'pointer', marginLeft: 'auto',
-              }}
-            >
-              Mark Fit ✓
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Footer: edit + demote */}
-      <div style={{ display: 'flex', gap: 6, marginTop: 10, borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
+      {/* Footer */}
+      <div style={{ display: 'flex', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--color-border)' }}>
         <button
-          onClick={onEdit}
-          style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}
+          onClick={e => { e.stopPropagation(); onEdit() }}
+          style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-2)' }}
         >
           Edit
-        </button>
-        <button
-          onClick={onDemote}
-          style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-3)', marginLeft: 'auto' }}
-        >
-          → Retired/Other
         </button>
       </div>
     </div>
@@ -578,21 +746,6 @@ function OtherAnimalCard({ animal, onEdit, onDelete, onPromote }: {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-const FILTER_CHIPS = [
-  { key: 'all', label: 'All' },
-  { key: 'active', label: 'Active' },
-  { key: 'inactive', label: 'Inactive' },
-  { key: 'lame', label: 'Lame' },
-  { key: 'injured', label: 'Injured' },
-  { key: 'shoes', label: 'Missing Shoes' },
-  { key: 'day_off', label: 'Day Off' },
-  { key: 'in_training', label: 'In Training' },
-  { key: 'retired_flag', label: 'Retired' },
-]
-
-type RosterView = 'guest' | 'other'
-type FlagModalState = { horse: DbHorse; flagType: BlockingType } | null
-
 export default function HorsesPage() {
   const today = getTucsonToday()
 
@@ -600,6 +753,9 @@ export default function HorsesPage() {
   const [horsesLoading, setHorsesLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('list')
+  const [selectedHorse, setSelectedHorse] = useState<DbHorse | null>(null)
+
   const [editingHorse, setEditingHorse] = useState<Partial<DbHorse> | null>(null)
   const [editMode, setEditMode] = useState<'new' | 'edit' | 'promote'>('new')
   const [showEditModal, setShowEditModal] = useState(false)
@@ -614,8 +770,14 @@ export default function HorsesPage() {
 
   const fetchHorses = useCallback(async () => {
     setHorsesLoading(true)
-    try { const res = await fetch('/api/horses'); const data = await res.json(); setDbHorses(data.horses || []) }
-    catch (err) { console.error(err) } finally { setHorsesLoading(false) }
+    try {
+      const res = await fetch('/api/horses')
+      const data = await res.json()
+      const horses: DbHorse[] = data.horses || []
+      setDbHorses(horses)
+      // Keep detail panel in sync after flag/shoe changes
+      setSelectedHorse(prev => prev ? horses.find(h => h.id === prev.id) ?? null : null)
+    } catch (err) { console.error(err) } finally { setHorsesLoading(false) }
   }, [])
 
   const fetchAnimals = useCallback(async () => {
@@ -627,23 +789,20 @@ export default function HorsesPage() {
   useEffect(() => { fetchHorses() }, [fetchHorses])
   useEffect(() => { if (view === 'other') fetchAnimals() }, [view, fetchAnimals])
 
-  // Toggle active (optimistic)
   async function toggleActive(horse: DbHorse) {
     setDbHorses(prev => prev.map(h => h.id === horse.id ? { ...h, is_active: !h.is_active } : h))
+    setSelectedHorse(prev => prev?.id === horse.id ? { ...prev, is_active: !prev.is_active } : prev)
     await fetch('/api/horses', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: horse.id, is_active: !horse.is_active }),
     })
     fetchHorses()
   }
 
-  // Flag management
   async function setFlag(horse: DbHorse, flagType: BlockingType, notes: string) {
     setFlagModal(null)
     await fetch('/api/horse-flags', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ horse_name: horse.name, flag_type: flagType, notes: notes || null }),
     })
     await fetchHorses()
@@ -675,15 +834,13 @@ export default function HorsesPage() {
       await fetch(`/api/shoe-needs?id=${existing.id}`, { method: 'DELETE' })
     } else {
       await fetch('/api/shoe-needs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ horse_name: horse.name, what_needed: shoeType }),
       })
     }
     await fetchHorses()
   }
 
-  // Save horse (new / edit / promote)
   async function saveHorse(form: EditHorseForm) {
     const payload = {
       name: form.name.trim(), level: form.level,
@@ -698,8 +855,7 @@ export default function HorsesPage() {
       const res = await fetch('/api/horses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed to add horse') }
       await fetch(`/api/other-animals?id=${encodeURIComponent(promotingAnimal.id)}`, { method: 'DELETE' })
-      setPromotingAnimal(null)
-      fetchAnimals()
+      setPromotingAnimal(null); fetchAnimals()
     } else if (editingHorse?.id) {
       const res = await fetch('/api/horses', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingHorse.id, ...payload }) })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed to update horse') }
@@ -708,12 +864,11 @@ export default function HorsesPage() {
     await fetchHorses()
   }
 
-  // Demote to Retired/Other
   async function demoteHorse(horse: DbHorse) {
     if (!confirm(`Move ${horse.name} to Retired/Other? This removes them from the guest string.`)) return
+    setSelectedHorse(null)
     await fetch('/api/other-animals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: horse.name, group_name: 'Retirees', notes: horse.notes || null }),
     })
     await fetch(`/api/horses?id=${horse.id}`, { method: 'DELETE' })
@@ -739,8 +894,11 @@ export default function HorsesPage() {
   )
 
   const activeCount = dbHorses.filter(h => h.is_active && !hasBlockingFlag(h, today)).length
-
   const grouped = OTHER_GROUPS.map(g => ({ group: g, items: animals.filter(a => a.group_name === g) })).filter(g => g.items.length > 0)
+
+  function openEdit(horse: DbHorse) {
+    setEditingHorse(horse); setEditMode('edit'); setShowEditModal(true)
+  }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -759,6 +917,7 @@ export default function HorsesPage() {
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Add horse button */}
               {view === 'guest' && (
                 <button
                   onClick={() => { setEditMode('new'); setEditingHorse(null); setShowEditModal(true) }}
@@ -775,6 +934,26 @@ export default function HorsesPage() {
                   + Add horse
                 </button>
               )}
+
+              {/* List / Card view toggle */}
+              {view === 'guest' && (
+                <div style={{ display: 'flex', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 999, padding: 3, gap: 2 }}>
+                  {([
+                    { mode: 'list' as const, label: '≡ List' },
+                    { mode: 'card' as const, label: '⊞ Cards' },
+                  ]).map(({ mode, label }) => (
+                    <button
+                      key={mode}
+                      onClick={() => setDisplayMode(mode)}
+                      style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: displayMode === mode ? 'var(--color-surface)' : 'transparent', color: displayMode === mode ? 'var(--color-text)' : 'var(--color-text-3)', fontSize: 12, fontWeight: displayMode === mode ? 600 : 400, cursor: 'pointer', boxShadow: displayMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Guest / Retired tab toggle */}
               <div style={{ display: 'flex', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 999, padding: 3, gap: 2 }}>
                 {(['guest', 'other'] as const).map(v => (
                   <button key={v} onClick={() => setView(v)} style={{ padding: '5px 14px', borderRadius: 999, border: 'none', background: view === v ? 'var(--color-surface)' : 'transparent', color: view === v ? 'var(--color-text)' : 'var(--color-text-3)', fontSize: 12, fontWeight: view === v ? 600 : 400, cursor: 'pointer', boxShadow: view === v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
@@ -818,7 +997,7 @@ export default function HorsesPage() {
 
         {/* ── Guest horses view ── */}
         {view === 'guest' && (
-          <div style={{ padding: 24 }}>
+          <div style={{ padding: displayMode === 'list' ? '16px 24px' : 24 }}>
             {horsesLoading ? (
               <p style={{ textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13, padding: 40 }}>Loading horses...</p>
             ) : filteredHorses.length === 0 ? (
@@ -834,6 +1013,19 @@ export default function HorsesPage() {
                   </button>
                 )}
               </div>
+            ) : displayMode === 'list' ? (
+              <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                {filteredHorses.map(horse => (
+                  <HorseListRow
+                    key={horse.id}
+                    horse={horse}
+                    today={today}
+                    onSelect={() => setSelectedHorse(horse)}
+                    onToggleActive={() => toggleActive(horse)}
+                    onEdit={() => openEdit(horse)}
+                  />
+                ))}
+              </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
                 {filteredHorses.map(horse => (
@@ -841,12 +1033,9 @@ export default function HorsesPage() {
                     key={horse.id}
                     horse={horse}
                     today={today}
-                    onFlagClick={type => handleFlagClick(horse, type)}
-                    onMarkFit={() => markFit(horse)}
-                    onShoeClick={st => handleShoeClick(horse, st)}
+                    onSelect={() => setSelectedHorse(horse)}
                     onToggleActive={() => toggleActive(horse)}
-                    onEdit={() => { setEditingHorse(horse); setEditMode('edit'); setShowEditModal(true) }}
-                    onDemote={() => demoteHorse(horse)}
+                    onEdit={() => openEdit(horse)}
                   />
                 ))}
               </div>
@@ -895,11 +1084,25 @@ export default function HorsesPage() {
 
       </main>
 
-      {/* Edit / Add / Promote modal */}
+      {/* Detail panel */}
+      {selectedHorse && (
+        <HorseDetailPanel
+          horse={selectedHorse}
+          today={today}
+          onClose={() => setSelectedHorse(null)}
+          onFlagClick={type => handleFlagClick(selectedHorse, type)}
+          onMarkFit={() => markFit(selectedHorse)}
+          onShoeClick={st => handleShoeClick(selectedHorse, st)}
+          onToggleActive={() => toggleActive(selectedHorse)}
+          onEdit={() => openEdit(selectedHorse)}
+          onDemote={() => demoteHorse(selectedHorse)}
+        />
+      )}
+
+      {/* Edit modal */}
       {showEditModal && (
         <EditHorseModal
-          horse={editingHorse}
-          mode={editMode}
+          horse={editingHorse} mode={editMode}
           onSave={saveHorse}
           onClose={() => { setShowEditModal(false); setEditingHorse(null); setPromotingAnimal(null) }}
         />
@@ -925,8 +1128,9 @@ export default function HorsesPage() {
       )}
 
       <style dangerouslySetInnerHTML={{ __html: `
+        .horse-list-row:hover { background: var(--color-bg) !important; }
         @media (max-width: 768px) {
-          main > div[style*="padding: 24px"] { padding: 12px !important; }
+          main > div[style*="padding"] { padding: 12px !important; }
         }
       ` }} />
     </div>
