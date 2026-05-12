@@ -58,12 +58,14 @@ export async function PUT(req: NextRequest) {
   const body = await req.json()
   const { id, ...fields } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+  console.log('[PUT /api/health] id:', id, 'fields:', JSON.stringify(fields))
   const { data, error } = await supabase
     .from('horse_health_issues')
     .update(fields)
     .eq('id', id)
     .select()
     .single()
+  console.log('[PUT /api/health] supabase data:', JSON.stringify(data), 'error:', error?.message)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ issue: data })
 }

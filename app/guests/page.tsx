@@ -117,7 +117,7 @@ export default function GuestsPage() {
 
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
-  useEffect(() => { detailPanelRef.current?.scrollTo({ top: 0 }) }, [selectedGuest?.id])
+  useEffect(() => { detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id])
 
   const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))

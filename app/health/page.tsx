@@ -1114,8 +1114,14 @@ export default function HealthPage() {
     const last_treated_at = new Date().toISOString()
     const done_today_date = tucsonToday
     setIssues(prev => prev.map(i => i.id === issue.id ? { ...i, done_today: true, done_today_date, last_treated_at } : i))
+    console.log('[markDone] sending:', { id: issue.id, done_today: true, done_today_date, last_treated_at })
     const res = await fetch('/api/health', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: issue.id, done_today: true, done_today_date, last_treated_at }) })
-    if (!res.ok) {
+    const resData = await res.json()
+    console.log('[markDone] response:', res.status, resData)
+    if (res.ok && resData.issue) {
+      setIssues(prev => prev.map(i => i.id === issue.id ? resData.issue : i))
+    } else if (!res.ok) {
+      console.error('[markDone] PUT failed — reverting. Error:', resData.error)
       setIssues(prev => prev.map(i => i.id === issue.id ? { ...i, done_today: issue.done_today, done_today_date: issue.done_today_date, last_treated_at: issue.last_treated_at } : i))
     }
   }
@@ -1147,8 +1153,14 @@ export default function HealthPage() {
   async function handleMarkSupplementDone(supplement: HorseSupplement) {
     const done_today_date = tucsonToday
     setSupplements(prev => prev.map(s => s.id === supplement.id ? { ...s, done_today: true, done_today_date } : s))
+    console.log('[markSupplementDone] sending:', { id: supplement.id, done_today: true, done_today_date })
     const res = await fetch('/api/supplements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: supplement.id, done_today: true, done_today_date }) })
-    if (!res.ok) {
+    const resData = await res.json()
+    console.log('[markSupplementDone] response:', res.status, resData)
+    if (res.ok && resData.supplement) {
+      setSupplements(prev => prev.map(s => s.id === supplement.id ? resData.supplement : s))
+    } else if (!res.ok) {
+      console.error('[markSupplementDone] PUT failed — reverting. Error:', resData.error)
       setSupplements(prev => prev.map(s => s.id === supplement.id ? { ...s, done_today: supplement.done_today, done_today_date: supplement.done_today_date } : s))
     }
   }
