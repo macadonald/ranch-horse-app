@@ -1,14 +1,12 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Sidebar from '@/components/Sidebar'
-import { HORSES, ACTIVE_HORSES, Horse, LEVEL_ORDER } from '@/lib/horses'
+import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
 
 const WORK_LABELS: Record<string, string> = {
   fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', reset: 'Reset', full_set: 'Full set',
 }
-
-const UNAVAILABLE_STATUSES = new Set(['lame', 'out', 'donotuse', 'naughty'])
 
 type GuestInfo = {
   guest_id: string
@@ -35,7 +33,7 @@ type Guest = {
   horse_assignments?: { horse_name: string; status: string; incompatible: boolean; assignment_type: string }[]
 }
 
-function checkCompatibility(horse: Horse, guest: Guest): { fit: 'good' | 'adjacent' | 'poor'; reason: string } {
+function checkCompatibility(horse: DbHorse, guest: Guest): { fit: 'good' | 'adjacent' | 'poor'; reason: string } {
   if (guest.weight && horse.weight && guest.weight > horse.weight) {
     return { fit: 'poor', reason: `Over ${horse.weight} lb limit` }
   }
@@ -49,7 +47,7 @@ function checkCompatibility(horse: Horse, guest: Guest): { fit: 'good' | 'adjace
 }
 
 function AssignRiderModal({ horse, guests, onAssign, onClose, today, tomorrow }: {
-  horse: Horse
+  horse: DbHorse
   guests: Guest[]
   onAssign: (guestId: string, guestName: string, type: string) => Promise<void>
   onClose: () => void
@@ -98,22 +96,18 @@ function AssignRiderModal({ horse, guests, onAssign, onClose, today, tomorrow }:
         </div>
 
         <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div>
-            <input
-              placeholder="Search guest name or room..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ width: '100%', fontSize: 13 }}
-              autoFocus
-            />
-          </div>
-          <div>
-            <select value={assignType} onChange={e => setAssignType(e.target.value)} style={{ fontSize: 13, width: '100%' }}>
-              <option value="primary">Primary</option>
-              <option value="secondary">Secondary</option>
-              <option value="additional">Additional</option>
-            </select>
-          </div>
+          <input
+            placeholder="Search guest name or room..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', fontSize: 13 }}
+            autoFocus
+          />
+          <select value={assignType} onChange={e => setAssignType(e.target.value)} style={{ fontSize: 13, width: '100%' }}>
+            <option value="primary">Primary</option>
+            <option value="secondary">Secondary</option>
+            <option value="additional">Additional</option>
+          </select>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
@@ -184,13 +178,12 @@ export default function BoardPage() {
   const [assignmentMap, setAssignmentMap] = useState<Record<string, GuestInfo[]>>({})
   const [shoeMap, setShoeMap] = useState<Record<string, ShoeWarning>>({})
   const [vetFlaggedNames, setVetFlaggedNames] = useState<Set<string>>(new Set())
-  const [lameFlaggedNames, setLameFlaggedNames] = useState<Set<string>>(new Set())
-  const [stiffSoreNames, setStiffSoreNames] = useState<Set<string>>(new Set())
+  const [dbHorses, setDbHorses] = useState<DbHorse[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
-  const [assigningHorse, setAssigningHorse] = useState<Horse | null>(null)
+  const [assigningHorse, setAssigningHorse] = useState<DbHorse | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
 
   const today = getTucsonToday()
@@ -198,12 +191,11 @@ export default function BoardPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [assignRes, shoeRes, guestRes, healthRes, lameRes] = await Promise.all([
+      const [assignRes, guestRes, healthRes, horsesRes] = await Promise.all([
         fetch('/api/assignments').then(r => r.json()),
-        fetch('/api/shoe-needs').then(r => r.json()),
         fetch('/api/guests').then(r => r.json()),
         fetch('/api/health').then(r => r.json()),
-        fetch('/api/lame').then(r => r.json()),
+        fetch('/api/horses').then(r => r.json()),
       ])
 
       const newAssignmentMap: Record<string, GuestInfo[]> = {}
@@ -223,18 +215,16 @@ export default function BoardPage() {
       })
       setAssignmentMap(newAssignmentMap)
 
+      const horses: DbHorse[] = horsesRes.horses || []
       const newShoeMap: Record<string, ShoeWarning> = {}
-      ;(shoeRes.needs || []).forEach((n: any) => {
-        newShoeMap[n.horse_name] = {
-          what_needed: n.what_needed,
-          level: n.what_needed === 'fronts' ? 'red' : 'amber',
-        }
+      horses.forEach(h => {
+        const shoe = h.shoe_flags?.[0]
+        if (shoe) newShoeMap[h.name] = { what_needed: shoe.what_needed, level: shoe.what_needed === 'fronts' ? 'red' : 'amber' }
       })
+      setDbHorses(horses)
       setShoeMap(newShoeMap)
       setGuests(guestRes.guests || [])
       setVetFlaggedNames(new Set(healthRes.vet_flagged_horses || []))
-      setLameFlaggedNames(new Set(lameRes.lame_horses || []))
-      setStiffSoreNames(new Set(lameRes.stiff_sore_horses || []))
     } catch (err) {
       console.error(err)
     } finally {
@@ -244,18 +234,22 @@ export default function BoardPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const unavailableHorses = HORSES.filter(h => UNAVAILABLE_STATUSES.has(h.status))
-  // Horses with an active vet_required health issue or lame flag are pulled from the pool
-  const healthUnavailable = ACTIVE_HORSES.filter(h => vetFlaggedNames.has(h.name))
-  const lameUnavailable = ACTIVE_HORSES.filter(h => lameFlaggedNames.has(h.name))
-  const poolHorses = ACTIVE_HORSES.filter(h => !vetFlaggedNames.has(h.name) && !lameFlaggedNames.has(h.name))
+  const hasBlockingFlag = (h: DbHorse) => (h.flags || []).some(f => {
+    if (f.flag_type === 'day_off') return f.day_off_date === today
+    return ['lame', 'injured', 'in_training', 'retired'].includes(f.flag_type)
+  })
+
+  const flagBlockedHorses = dbHorses.filter(h => h.is_active && hasBlockingFlag(h))
+  const healthUnavailable = dbHorses.filter(h => h.is_active && !hasBlockingFlag(h) && vetFlaggedNames.has(h.name))
+  const poolHorses = dbHorses.filter(h => h.is_active && !hasBlockingFlag(h) && !vetFlaggedNames.has(h.name))
+  const inactiveHorses = dbHorses.filter(h => !h.is_active)
   const assignedHorses = poolHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) > 0)
   const freeHorses = poolHorses.filter(h => !(assignmentMap[h.name]?.length ?? 0))
 
   const statFree = freeHorses.length
   const statAssigned = assignedHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) === 1).length
   const statDouble = assignedHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) >= 2).length
-  const statUnavailable = unavailableHorses.length
+  const statUnavailable = inactiveHorses.length
 
   function toggleFilter(key: string) {
     if (key === 'all') { setActiveFilters(new Set()); return }
@@ -266,7 +260,7 @@ export default function BoardPage() {
     })
   }
 
-  function horseMatchesFilters(horse: Horse, section: 'free' | 'assigned' | 'unavailable'): boolean {
+  function horseMatchesFilters(horse: DbHorse, section: 'free' | 'assigned' | 'unavailable'): boolean {
     if (activeFilters.size === 0) return true
     const assignments = assignmentMap[horse.name] || []
     const isDouble = assignments.length >= 2
@@ -281,8 +275,6 @@ export default function BoardPage() {
       if (f === 'shoes' && !shoe) return false
       if (f === 'today' && !outToday) return false
       if (f === 'tomorrow' && !outTomorrow) return false
-      if (f === 'lame' && horse.status !== 'lame') return false
-      if (f === 'injured' && horse.status !== 'out') return false
       if (f === 'B' && horse.level !== 'B') return false
       if (f === 'AB' && horse.level !== 'AB') return false
       if (f === 'I' && horse.level !== 'I' && horse.level !== 'I/AI') return false
@@ -309,7 +301,7 @@ export default function BoardPage() {
     (!q || h.name.toLowerCase().includes(q)) && horseMatchesFilters(h, 'free')
   )
 
-  const filteredUnavailable = unavailableHorses.filter(h =>
+  const filteredInactive = inactiveHorses.filter(h =>
     (!q || h.name.toLowerCase().includes(q)) && horseMatchesFilters(h, 'unavailable')
   )
 
@@ -364,7 +356,7 @@ export default function BoardPage() {
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Assignment Board</h1>
               <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
-                {loading ? 'Loading...' : `${ACTIVE_HORSES.length} active horses · ${Object.keys(assignmentMap).length} assigned`}
+                {loading ? 'Loading...' : `${poolHorses.length} in pool · ${Object.keys(assignmentMap).length} assigned`}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
@@ -439,7 +431,6 @@ export default function BoardPage() {
                     const assignments = assignmentMap[horse.name] || []
                     const shoe = shoeMap[horse.name]
                     const isDouble = assignments.length >= 2
-                    const isStiff = stiffSoreNames.has(horse.name)
                     return (
                       <div
                         key={horse.name}
@@ -454,11 +445,6 @@ export default function BoardPage() {
                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 6 }}>
                           <span style={{ fontWeight: 700, fontSize: 14 }}>🐴 {horse.name}</span>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
-                            {isStiff && (
-                              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
-                                Stiff
-                              </span>
-                            )}
                             {shoe && (
                               <span style={{
                                 fontSize: 10, padding: '2px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap',
@@ -512,45 +498,33 @@ export default function BoardPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }} className="board-grid-sm">
                   {filteredFree.map(horse => {
                     const shoe = shoeMap[horse.name]
-                    const isStiff = stiffSoreNames.has(horse.name)
                     return (
                       <div
                         key={horse.name}
                         onClick={() => setAssigningHorse(horse)}
                         className="free-card"
                         style={{
-                          background: isStiff ? '#fffbeb' : 'var(--color-surface)',
-                          border: `1px solid ${isStiff ? '#fcd34d' : 'var(--color-border)'}`,
-                          borderLeft: isStiff ? '3px solid #d97706' : '1px solid var(--color-border)',
+                          background: 'var(--color-surface)',
+                          border: '1px solid var(--color-border)',
                           borderRadius: 'var(--radius-md)',
                           padding: '10px 12px',
-                          opacity: horse.status === 'backup' ? 0.65 : 1,
                           cursor: 'pointer',
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
-                          <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-                            {isStiff && (
-                              <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
-                                Stiff
-                              </span>
-                            )}
-                            {shoe && (
-                              <span style={{
-                                fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, flexShrink: 0,
-                                background: shoe.level === 'red' ? '#fee2e2' : '#fef3c7',
-                                color: shoe.level === 'red' ? '#dc2626' : '#92400e',
-                                border: `1px solid ${shoe.level === 'red' ? '#fca5a5' : '#fcd34d'}`,
-                              }}>
-                                {shoe.level === 'red' ? '🔴' : '🟠'}
-                              </span>
-                            )}
-                          </div>
+                          {shoe && (
+                            <span style={{
+                              fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, flexShrink: 0,
+                              background: shoe.level === 'red' ? '#fee2e2' : '#fef3c7',
+                              color: shoe.level === 'red' ? '#dc2626' : '#92400e',
+                              border: `1px solid ${shoe.level === 'red' ? '#fca5a5' : '#fcd34d'}`,
+                            }}>
+                              {shoe.level === 'red' ? '🔴' : '🟠'}
+                            </span>
+                          )}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>
-                          {horse.level}{horse.status === 'backup' ? ' · backup' : ''}
-                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>{horse.level}</div>
                         <div style={{ fontSize: 10, color: 'var(--color-accent)', marginTop: 5, fontWeight: 500 }}>tap to assign →</div>
                       </div>
                     )
@@ -559,24 +533,29 @@ export default function BoardPage() {
               </div>
             )}
 
-            {lameUnavailable.length > 0 && (
+            {flagBlockedHorses.length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
-                  Lame — {lameUnavailable.length} horse{lameUnavailable.length !== 1 ? 's' : ''} out of pool
+                  Out of pool — {flagBlockedHorses.length} horse{flagBlockedHorses.length !== 1 ? 's' : ''}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }} className="board-grid-sm">
-                  {lameUnavailable.map(horse => (
-                    <div
-                      key={horse.name}
-                      style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderLeft: '3px solid #d97706', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
-                        <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d' }}>Lame</span>
+                  {flagBlockedHorses.map(horse => {
+                    const FLAG_LABELS: Record<string, string> = { lame: 'Lame', injured: 'Injured', day_off: 'Day Off', in_training: 'Training', retired: 'Retired' }
+                    const primaryFlag = (horse.flags || []).find(f => ['lame','injured','day_off','in_training','retired'].includes(f.flag_type))
+                    const flagLabel = primaryFlag ? (FLAG_LABELS[primaryFlag.flag_type] || primaryFlag.flag_type) : 'Flagged'
+                    return (
+                      <div
+                        key={horse.name}
+                        style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderLeft: '3px solid #d97706', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
+                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d' }}>{flagLabel}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#92400e', marginTop: 1 }}>{horse.level} · out of pool</div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#92400e', marginTop: 1 }}>{horse.level} · out of pool</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -603,26 +582,26 @@ export default function BoardPage() {
               </div>
             )}
 
-            {filteredUnavailable.length > 0 && (
+            {filteredInactive.length > 0 && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
-                  Unavailable — {filteredUnavailable.length} horse{filteredUnavailable.length !== 1 ? 's' : ''}
+                  Inactive — {filteredInactive.length} horse{filteredInactive.length !== 1 ? 's' : ''}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }} className="board-grid-sm">
-                  {filteredUnavailable.map(horse => (
+                  {filteredInactive.map(horse => (
                     <div
                       key={horse.name}
                       style={{ background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px', opacity: 0.4 }}
                     >
                       <span style={{ fontWeight: 600, fontSize: 13 }}>🐴 {horse.name}</span>
-                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>{horse.level} · {horse.status}</div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>{horse.level} · inactive</div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {filteredAssigned.length === 0 && filteredFree.length === 0 && filteredUnavailable.length === 0 && healthUnavailable.length === 0 && lameUnavailable.length === 0 && (
+            {filteredAssigned.length === 0 && filteredFree.length === 0 && filteredInactive.length === 0 && healthUnavailable.length === 0 && flagBlockedHorses.length === 0 && (
               <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 36, marginBottom: 10 }}>▦</div>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>

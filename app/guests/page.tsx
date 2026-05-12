@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
-import { HORSES, ACTIVE_HORSES, LEVEL_ORDER, Horse } from '@/lib/horses'
+import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -39,13 +39,13 @@ type DraftRow = {
   flagged: boolean
 }
 
-function HorseAutocomplete({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: string[] }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
   function handleInput(v: string) {
     onChange(v)
     if (v.length >= 2) {
-      const matches = HORSES.filter(h => h.name.toLowerCase().includes(v.toLowerCase()) && h.status === 'active').map(h => h.name).slice(0, 6)
+      const matches = horses.filter(n => n.toLowerCase().includes(v.toLowerCase())).slice(0, 6)
       setSuggestions(matches); setShow(matches.length > 0)
     } else { setShow(false) }
   }
@@ -105,13 +105,21 @@ export default function GuestsPage() {
   const [assignAllProgress, setAssignAllProgress] = useState('')
   const [assignAllPct, setAssignAllPct] = useState(0)
   const [draftRows, setDraftRows] = useState<DraftRow[]>([])
+  const [dbHorses, setDbHorses] = useState<DbHorse[]>([])
   const detailPanelRef = useRef<HTMLDivElement>(null)
 
   const today = getTucsonToday()
   const tomorrowStr = getTucsonTomorrow()
 
   const fetchGuests = useCallback(async () => {
-    try { const res = await fetch('/api/guests'); const data = await res.json(); setGuests(data.guests || []) }
+    try {
+      const [guestRes, horsesRes] = await Promise.all([
+        fetch('/api/guests').then(r => r.json()),
+        fetch('/api/horses').then(r => r.json()),
+      ])
+      setGuests(guestRes.guests || [])
+      setDbHorses(horsesRes.horses || [])
+    }
     catch (err) { console.error(err) } finally { setLoading(false) }
   }, [])
 
@@ -250,6 +258,12 @@ export default function GuestsPage() {
       dbAssignedMap[a.horse_name].push({ checkOut: g.check_out_date })
     }
 
+    const hasBlockingFlag = (h: DbHorse) => (h.flags || []).some(f => {
+      if (f.flag_type === 'day_off') return f.day_off_date === now
+      return ['lame', 'injured', 'in_training', 'retired'].includes(f.flag_type)
+    })
+    const eligibleHorses = dbHorses.filter(h => h.is_active && !h.exclude_from_ai && !hasBlockingFlag(h))
+
     // Unassigned active guests from current state
     const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= now)
     const unassigned = activeGuests.filter(g =>
@@ -278,13 +292,12 @@ export default function GuestsPage() {
       const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
       if (gIdx === -1) { pass2Queue.push(guest); continue }
 
-      const candidates = ACTIVE_HORSES
-        .filter(h => !h.excludeFromAI)
+      const candidates = eligibleHorses
         .filter(h => !dbAssignedMap[h.name] && !usedInPass1.has(h.name))
         .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
         .map(h => ({ horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), margin: (h.weight ?? 999) - (guest.weight ?? 0) }))
         .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
-        .sort((a, b) => (Number(a.horse.rankLast) - Number(b.horse.rankLast)) || a.diff - b.diff || b.margin - a.margin)
+        .sort((a, b) => (Number(a.horse.rank_last) - Number(b.horse.rank_last)) || a.diff - b.diff || b.margin - a.margin)
 
       if (candidates.length > 0) {
         usedInPass1.add(candidates[0].horse.name)
@@ -306,8 +319,7 @@ export default function GuestsPage() {
       const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
       if (gIdx === -1) { pass3Queue.push(guest); continue }
 
-      const candidates = ACTIVE_HORSES
-        .filter(h => !h.excludeFromAI)
+      const candidates = eligibleHorses
         .filter(h => runtimeDoubleMap[h.name] || usedInPass1.has(h.name))
         .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
         .map(h => {
@@ -318,7 +330,7 @@ export default function GuestsPage() {
           return { horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), soonest }
         })
         .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
-        .sort((a, b) => (Number(a.horse.rankLast) - Number(b.horse.rankLast)) || a.diff - b.diff || a.soonest.localeCompare(b.soonest))
+        .sort((a, b) => (Number(a.horse.rank_last) - Number(b.horse.rank_last)) || a.diff - b.diff || a.soonest.localeCompare(b.soonest))
 
       if (candidates.length > 0) {
         const best = candidates[0]
@@ -460,7 +472,7 @@ export default function GuestsPage() {
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                     <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
                     <div style={{ display: 'flex', gap: 7 }}>
-                      <HorseAutocomplete value={manualHorse} onChange={setManualHorse} placeholder="Type horse name..." />
+                      <HorseAutocomplete value={manualHorse} onChange={setManualHorse} placeholder="Type horse name..." horses={dbHorses.filter(h => h.is_active).map(h => h.name)} />
                       <select value={manualType} onChange={e => setManualType(e.target.value)} style={{ fontSize: 13, width: 120 }}>
                         <option value="primary">Primary</option><option value="secondary">Secondary</option><option value="additional">Additional</option>
                       </select>
@@ -535,6 +547,7 @@ export default function GuestsPage() {
           initialRows={draftRows}
           onConfirm={confirmAssignAll}
           onCancel={() => { setAssignAllPhase('idle'); setDraftRows([]) }}
+          horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active).map(h => [h.name, { level: h.level, weight: h.weight }]))}
         />
       )}
     </div>
@@ -592,7 +605,7 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 
 // Autocomplete uses position:fixed for its dropdown (escapes overflow:hidden scroll containers).
 // Never conditionally unmount this component — that loses input focus.
-function DraftHorseAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function DraftHorseAutocomplete({ value, onChange, horses }: { value: string; onChange: (v: string) => void; horses: string[] }) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [show, setShow] = useState(false)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 })
@@ -601,7 +614,7 @@ function DraftHorseAutocomplete({ value, onChange }: { value: string; onChange: 
   function handleInput(v: string) {
     onChange(v)
     const hits = v.length >= 1
-      ? ACTIVE_HORSES.filter(h => h.name.toLowerCase().includes(v.toLowerCase())).map(h => h.name).slice(0, 8)
+      ? horses.filter(n => n.toLowerCase().includes(v.toLowerCase())).slice(0, 8)
       : []
     if (hits.length > 0 && inputRef.current) {
       const r = inputRef.current.getBoundingClientRect()
@@ -634,10 +647,11 @@ function DraftHorseAutocomplete({ value, onChange }: { value: string; onChange: 
   )
 }
 
-function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
+function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap }: {
   initialRows: DraftRow[]
   onConfirm: (rows: DraftRow[]) => Promise<void>
   onCancel: () => void
+  horseMap: Record<string, { level: string; weight: number | null }>
 }) {
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
@@ -701,7 +715,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
         {rows.map(row => {
           const { guest, suggestedHorse, isDouble, needsReview, flagged } = row
 
-          const horse = suggestedHorse ? ACTIVE_HORSES.find(h => h.name === suggestedHorse) : null
+          const horse = suggestedHorse ? horseMap[suggestedHorse] : null
           const guestLevelIdx = LEVEL_ORDER.indexOf(guest.riding_level)
           const horseLevelIdx = horse ? LEVEL_ORDER.indexOf(horse.level) : -1
           const levelDiff = horse && guestLevelIdx >= 0 && horseLevelIdx >= 0
@@ -744,7 +758,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel }: {
 
               {/* Horse autocomplete — always in the same DOM position, never conditionally mounted */}
               <div>
-                <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} />
+                <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} horses={Object.keys(horseMap)} />
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
                   {matchQuality === 'exact' && (
                     <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🟢 Good match</span>

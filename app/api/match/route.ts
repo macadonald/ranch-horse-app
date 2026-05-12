@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ACTIVE_HORSES } from '@/lib/horses'
 import { supabase } from '@/lib/supabase'
+import { getTucsonToday } from '@/lib/timezone'
 
 // Bracket-matches to find the next complete JSON object in accumulated text
 function extractNextObject(text: string, startPos: number): { obj: string; end: number } | null {
@@ -32,17 +32,32 @@ export async function POST(req: NextRequest) {
     }
     const weightNum = parseInt(weight)
     const ageNum = parseInt(age)
-    const today = new Date().toISOString().split('T')[0]
+    const today = getTucsonToday()
 
     // Parallel Supabase fetches
-    const [riderCountResult, assignmentsResult, shoeNeedsResult] = await Promise.all([
+    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, lameFlagsResult] = await Promise.all([
       supabase.from('daily_rider_counts').select('rider_count').eq('date', today).single(),
       supabase.from('horse_assignments')
         .select('horse_name, assignment_type, guests(name, room_number, check_out_date)')
         .eq('status', 'active')
         .eq('incompatible', false),
       supabase.from('shoe_needs').select('horse_name, what_needed'),
+      supabase.from('horses').select('*').eq('is_active', true),
+      supabase.from('horse_status_flags').select('horse_name, flag_type, day_off_date').eq('status', 'active'),
+      supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
     ])
+
+    // Build set of flag-blocked horse names
+    const blockingFlagTypes = new Set(['lame', 'injured', 'in_training', 'retired'])
+    const flagBlocked = new Set<string>()
+    ;(statusFlagsResult.data || []).forEach((f: any) => {
+      if (f.flag_type === 'day_off') {
+        if (f.day_off_date === today) flagBlocked.add(f.horse_name)
+      } else if (blockingFlagTypes.has(f.flag_type)) {
+        flagBlocked.add(f.horse_name)
+      }
+    })
+    ;(lameFlagsResult.data || []).forEach((f: any) => flagBlocked.add(f.horse_name))
 
     const riderCount = riderCountResult.data?.rider_count || 0
 
@@ -74,10 +89,11 @@ export async function POST(req: NextRequest) {
     tomorrow.setDate(tomorrow.getDate() + 1)
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
 
-    const eligible = ACTIVE_HORSES.filter(h => {
-      if (h.excludeFromAI) return false
+    const eligible = (horsesResult.data || []).filter((h: any) => {
+      if (h.exclude_from_ai) return false
       if (h.weight === null) return false
       if (weightNum > h.weight) return false
+      if (flagBlocked.has(h.name)) return false
       if (incompatibleHorses.includes(h.name)) return false
       if (dismissedHorses.includes(h.name)) return false
       return true
@@ -92,12 +108,12 @@ export async function POST(req: NextRequest) {
     })
 
     const sortedEligible = [
-      ...eligible.filter(h => !h.rankLast),
-      ...eligible.filter(h => h.rankLast),
+      ...eligible.filter((h: any) => !h.rank_last),
+      ...eligible.filter((h: any) => h.rank_last),
     ]
-    const rankLastNames = eligible.filter(h => h.rankLast).map(h => h.name)
+    const rankLastNames = eligible.filter((h: any) => h.rank_last).map((h: any) => h.name)
 
-    const rosterLines = sortedEligible.map(h => {
+    const rosterLines = sortedEligible.map((h: any) => {
       const assigned = assignmentMap[h.name] || []
       let availNote = 'Available'
       if (assigned.length === 1) {

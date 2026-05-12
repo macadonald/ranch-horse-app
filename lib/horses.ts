@@ -142,3 +142,39 @@ export const LEVEL_LABELS: Record<string, string> = {
   'AI':   'Advanced Intermediate',
   'A':    'Advanced',
 }
+
+// ─── Supabase-backed horse types (used after migration to horses table) ────────
+
+export interface DbHorseFlag {
+  id: string
+  horse_name: string
+  flag_type: 'lame' | 'injured' | 'day_off' | 'in_training' | 'retired'
+  notes: string | null
+  flagged_at: string
+  day_off_date: string | null
+  status: 'active' | 'resolved'
+  legacy?: boolean
+}
+
+export interface DbShoeFlag {
+  id: string
+  horse_name: string
+  what_needed: string
+  notes: string | null
+}
+
+export interface DbHorse {
+  id: string
+  name: string
+  level: string
+  weight: number | null
+  size: HorseSize
+  notes: string
+  is_active: boolean
+  exclude_from_ai: boolean
+  rank_last: boolean
+  created_at: string
+  updated_at: string
+  flags: DbHorseFlag[]
+  shoe_flags: DbShoeFlag[]
+}
