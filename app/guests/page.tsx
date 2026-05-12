@@ -279,11 +279,12 @@ export default function GuestsPage() {
       if (gIdx === -1) { pass2Queue.push(guest); continue }
 
       const candidates = ACTIVE_HORSES
+        .filter(h => !h.excludeFromAI)
         .filter(h => !dbAssignedMap[h.name] && !usedInPass1.has(h.name))
         .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
         .map(h => ({ horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), margin: (h.weight ?? 999) - (guest.weight ?? 0) }))
         .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
-        .sort((a, b) => a.diff - b.diff || b.margin - a.margin)
+        .sort((a, b) => (Number(a.horse.rankLast) - Number(b.horse.rankLast)) || a.diff - b.diff || b.margin - a.margin)
 
       if (candidates.length > 0) {
         usedInPass1.add(candidates[0].horse.name)
@@ -306,6 +307,7 @@ export default function GuestsPage() {
       if (gIdx === -1) { pass3Queue.push(guest); continue }
 
       const candidates = ACTIVE_HORSES
+        .filter(h => !h.excludeFromAI)
         .filter(h => runtimeDoubleMap[h.name] || usedInPass1.has(h.name))
         .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
         .map(h => {
@@ -316,7 +318,7 @@ export default function GuestsPage() {
           return { horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), soonest }
         })
         .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
-        .sort((a, b) => a.diff - b.diff || a.soonest.localeCompare(b.soonest))
+        .sort((a, b) => (Number(a.horse.rankLast) - Number(b.horse.rankLast)) || a.diff - b.diff || a.soonest.localeCompare(b.soonest))
 
       if (candidates.length > 0) {
         const best = candidates[0]

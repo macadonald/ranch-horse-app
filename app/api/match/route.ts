@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
 
     const eligible = ACTIVE_HORSES.filter(h => {
+      if (h.excludeFromAI) return false
       if (h.weight === null) return false
       if (weightNum > h.weight) return false
       if (incompatibleHorses.includes(h.name)) return false
@@ -90,7 +91,13 @@ export async function POST(req: NextRequest) {
       else availabilityMap[h.name] = 'double_assigned'
     })
 
-    const rosterLines = eligible.map(h => {
+    const sortedEligible = [
+      ...eligible.filter(h => !h.rankLast),
+      ...eligible.filter(h => h.rankLast),
+    ]
+    const rankLastNames = eligible.filter(h => h.rankLast).map(h => h.name)
+
+    const rosterLines = sortedEligible.map(h => {
       const assigned = assignmentMap[h.name] || []
       let availNote = 'Available'
       if (assigned.length === 1) {
@@ -106,11 +113,13 @@ export async function POST(req: NextRequest) {
 
     const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
+    const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${ageWarning}
+${rankLastInstruction}
 Rider: Age ${age}, Weight ${weight}lbs, Height ${height}, Level ${level}, Gender ${gender || 'not specified'}, Notes: ${notes || 'none'}
 Eligible horses:
 ${rosterLines}
