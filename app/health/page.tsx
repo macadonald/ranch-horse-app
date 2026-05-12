@@ -1114,8 +1114,10 @@ export default function HealthPage() {
     const last_treated_at = new Date().toISOString()
     const done_today_date = tucsonToday
     setIssues(prev => prev.map(i => i.id === issue.id ? { ...i, done_today: true, done_today_date, last_treated_at } : i))
-    await fetch('/api/health', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: issue.id, done_today: true, done_today_date, last_treated_at }) })
-    await fetchData()
+    const res = await fetch('/api/health', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: issue.id, done_today: true, done_today_date, last_treated_at }) })
+    if (!res.ok) {
+      setIssues(prev => prev.map(i => i.id === issue.id ? { ...i, done_today: issue.done_today, done_today_date: issue.done_today_date, last_treated_at: issue.last_treated_at } : i))
+    }
   }
 
   async function handleDelete(issue: HorseHealthIssue) {
@@ -1145,8 +1147,10 @@ export default function HealthPage() {
   async function handleMarkSupplementDone(supplement: HorseSupplement) {
     const done_today_date = tucsonToday
     setSupplements(prev => prev.map(s => s.id === supplement.id ? { ...s, done_today: true, done_today_date } : s))
-    await fetch('/api/supplements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: supplement.id, done_today: true, done_today_date }) })
-    await fetchData()
+    const res = await fetch('/api/supplements', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: supplement.id, done_today: true, done_today_date }) })
+    if (!res.ok) {
+      setSupplements(prev => prev.map(s => s.id === supplement.id ? { ...s, done_today: supplement.done_today, done_today_date: supplement.done_today_date } : s))
+    }
   }
 
   async function handleDeleteSupplement(supplement: HorseSupplement) {

@@ -105,6 +105,7 @@ export default function GuestsPage() {
   const [assignAllProgress, setAssignAllProgress] = useState('')
   const [assignAllPct, setAssignAllPct] = useState(0)
   const [draftRows, setDraftRows] = useState<DraftRow[]>([])
+  const detailPanelRef = useRef<HTMLDivElement>(null)
 
   const today = getTucsonToday()
   const tomorrowStr = getTucsonTomorrow()
@@ -116,6 +117,7 @@ export default function GuestsPage() {
 
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
+  useEffect(() => { detailPanelRef.current?.scrollTo({ top: 0 }) }, [selectedGuest?.id])
 
   const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
@@ -363,7 +365,7 @@ export default function GuestsPage() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
       <Sidebar />
-      <main style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }} className='guest-main'>
         {assignmentConfirmation && <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000 }}>{assignmentConfirmation}</div>}
         <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
@@ -376,8 +378,8 @@ export default function GuestsPage() {
             <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>
           </div>
         </div>
-        <div style={{ display: 'flex', minHeight: 'calc(100vh - 73px)' }} className='guest-split'>
-          <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0, alignSelf: 'flex-start' }}>
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }} className='guest-split'>
+          <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
             {loading ? <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading...</p>
               : filteredGuests.length === 0 ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>◎</div><p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>No guests yet</p><p style={{ fontSize: 12, marginTop: 4 }}>Click + Add Guest to start</p></div>
               : filteredGuests.map(guest => {
@@ -392,7 +394,7 @@ export default function GuestsPage() {
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
                         {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
-                        {guest.horse_request && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
+                        {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
                       </div>
                     </div>
                   </div>
@@ -400,7 +402,7 @@ export default function GuestsPage() {
               })}
           </div>
           {selectedGuest && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
+            <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
               <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
               <div style={{ maxWidth: 680 }}>
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -429,7 +431,14 @@ export default function GuestsPage() {
                     <EditableField label="Check-out Date" value={selectedGuest.check_out_date} onSave={v => updateGuestField('check_out_date', v)} type="date" />
                   </div>
                   <div style={{ marginBottom: 8 }}><EditableField label="Notes" value={selectedGuest.notes || ''} onSave={v => updateGuestField('notes', v)} /></div>
-                  <div><EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} /></div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7 }}>
+                    <div style={{ flex: 1 }}><EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} /></div>
+                    {selectedGuest.horse_request && (
+                      <button onClick={() => assignHorse(selectedGuest.horse_request, activeAssignments.length === 0 ? 'primary' : 'secondary')} disabled={assigningHorse === selectedGuest.horse_request} style={{ padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {assigningHorse === selectedGuest.horse_request ? 'Assigning...' : 'Quick Assign'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Horses</h3>
@@ -499,10 +508,11 @@ export default function GuestsPage() {
 
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
-            .guest-split { flex-direction: column !important; height: auto !important; }
+            .guest-main { overflow: auto !important; display: block !important; }
+            .guest-split { flex-direction: column !important; height: auto !important; flex: initial !important; min-height: initial !important; }
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
-          .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; }
-          .guest-back-btn { display: flex !important; }
+            .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; }
+            .guest-back-btn { display: flex !important; }
           }
         ` }} />
       </main>
@@ -564,8 +574,8 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} /></div>
           <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} /></div>
           <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} /></div>
+          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} /></div>
           <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} /></div>
-          <div style={{ gridColumn: '1/-1' }}><label>Height</label><input placeholder="e.g. 5'9" value={form.height} onChange={f('height')} /></div>
           <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} style={{ resize: 'vertical' }} /></div>
           <div style={{ gridColumn: '1/-1' }}><label>Horse Request</label><input placeholder="e.g. Ringo" value={form.horse_request} onChange={f('horse_request')} /></div>
         </div>
