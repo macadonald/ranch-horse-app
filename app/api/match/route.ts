@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const today = getTucsonToday()
 
     // Parallel Supabase fetches
-    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, lameFlagsResult] = await Promise.all([
+    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, lameFlagsResult, guestResult, historyResult] = await Promise.all([
       supabase.from('daily_rider_counts').select('rider_count').eq('date', today).single(),
       supabase.from('horse_assignments')
         .select('horse_name, assignment_type, guests(name, room_number, check_out_date)')
@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
       supabase.from('horses').select('*').eq('is_active', true),
       supabase.from('horse_status_flags').select('horse_name, flag_type, day_off_date').eq('status', 'active'),
       supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
+      guestId ? supabase.from('guests').select('overestimates_level').eq('id', guestId).single() : Promise.resolve({ data: null }),
+      guestId ? supabase.from('assignment_history').select('horse_name, match_quality, doesnt_work').eq('guest_id', guestId).gte('assigned_date', '2026-05-11') : Promise.resolve({ data: [] }),
     ])
 
     // Build set of flag-blocked horse names
@@ -60,6 +62,13 @@ export async function POST(req: NextRequest) {
     ;(lameFlagsResult.data || []).forEach((f: any) => flagBlocked.add(f.horse_name))
 
     const riderCount = riderCountResult.data?.rider_count || 0
+
+    // Build past-ride map from history (for learning cutoff >= 2026-05-11)
+    const overestimatesLevel = guestResult.data?.overestimates_level || false
+    const pastHorseMap: Record<string, { match_quality: number | null; doesnt_work: boolean }> = {}
+    ;(historyResult.data || []).forEach((h: any) => {
+      pastHorseMap[h.horse_name] = { match_quality: h.match_quality ?? null, doesnt_work: h.doesnt_work || false }
+    })
 
     const shoeNeedsMap: Record<string, string> = {}
     ;(shoeNeedsResult.data || []).forEach((n: { horse_name: string; what_needed: string }) => {
@@ -127,6 +136,19 @@ export async function POST(req: NextRequest) {
       return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs, size: ${h.size}, availability: ${availNote}${h.notes ? ', notes: ' + h.notes : ''})`
     }).join('\n')
 
+    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I', I: 'AB', AB: 'B', B: 'B' }
+    const effectiveLevel = overestimatesLevel ? (LEVEL_DOWNGRADE[level] || level) : level
+    const overestimatesNote = overestimatesLevel && effectiveLevel !== level
+      ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
+      : ''
+
+    const thumbsDownNames = Object.entries(pastHorseMap).filter(([, v]) => v.match_quality === -1 && !v.doesnt_work).map(([n]) => n)
+    const doesntWorkNames = Object.entries(pastHorseMap).filter(([, v]) => v.doesnt_work).map(([n]) => n)
+    const thumbsUpNames = Object.entries(pastHorseMap).filter(([, v]) => v.match_quality === 1).map(([n]) => n)
+    const thumbsDownNote = thumbsDownNames.length > 0 ? `AVOID (guest previously rated negatively): ${thumbsDownNames.join(', ')}` : ''
+    const doesntWorkNote = doesntWorkNames.length > 0 ? `DO NOT SUGGEST (marked "doesn't work"): ${doesntWorkNames.join(', ')}` : ''
+    const thumbsUpNote = thumbsUpNames.length > 0 ? `PREFERRED (guest liked before): ${thumbsUpNames.join(', ')}` : ''
+
     const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
@@ -135,8 +157,12 @@ Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advan
 ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${ageWarning}
+${overestimatesNote}
+${doesntWorkNote}
+${thumbsDownNote}
+${thumbsUpNote}
 ${rankLastInstruction}
-Rider: Age ${age}, Weight ${weight}lbs, Height ${height}, Level ${level}, Gender ${gender || 'not specified'}, Notes: ${notes || 'none'}
+Rider: Age ${age}, Weight ${weight}lbs, Height ${height}, Level ${effectiveLevel}, Gender ${gender || 'not specified'}, Notes: ${notes || 'none'}
 Eligible horses:
 ${rosterLines}
 Respond ONLY with valid JSON array, no markdown:
@@ -208,7 +234,8 @@ Respond ONLY with valid JSON array, no markdown:
                 }
                 const shoeNeed = shoeNeedsMap[raw.name]
                 const shoeWarning: 'red' | 'amber' | null = shoeNeed === 'fronts' ? 'red' : shoeNeed ? 'amber' : null
-                const match = { ...raw, availability: dbAvailability, warning, shoeWarning }
+                const pastEntry = pastHorseMap[raw.name]
+                const match = { ...raw, availability: dbAvailability, warning, shoeWarning, rodeThisBefore: !!pastEntry && !pastEntry.doesnt_work, pastMatchQuality: pastEntry?.match_quality ?? null }
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'match', match })}\n\n`))
               } catch {}
               searchPos = result.end

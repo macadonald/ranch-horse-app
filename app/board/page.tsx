@@ -313,6 +313,12 @@ export default function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guest_id: guestId, horse_name: assigningHorse.name, assignment_type: type, status: 'active', incompatible: false, requested_by_guest: false }),
       })
+      // Log to permanent assignment history
+      fetch('/api/assignment-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guest_name: guestName, guest_id: guestId, horse_name: assigningHorse.name, assignment_type: type, assigned_date: today, source: 'board' }),
+      }).catch(() => {})
       setConfirmation(`✓ ${assigningHorse.name} assigned to ${guestName}`)
       setTimeout(() => setConfirmation(null), 4000)
       setAssigningHorse(null)

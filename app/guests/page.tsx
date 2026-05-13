@@ -26,10 +26,29 @@ type Guest = {
   id: string; name: string; room_number: string; check_in_date: string
   check_out_date: string; age: number; weight: number; height: string
   riding_level: string; notes: string; horse_request: string; gender: string
+  overestimates_level?: boolean
   horse_assignments?: Assignment[]
 }
 
-type Match = { name: string; fit: string; reason: string; warning: string; availability: string }
+type Match = {
+  name: string; fit: string; reason: string; warning: string; availability: string
+  rodeThisBefore?: boolean; pastMatchQuality?: number | null
+  shoeWarning?: 'red' | 'amber' | null
+}
+
+type HistoryRecord = {
+  id: string
+  guest_name: string
+  guest_id: string | null
+  horse_name: string
+  assignment_type: string
+  assigned_date: string
+  match_quality: number | null
+  doesnt_work: boolean
+  doesnt_work_reason: string | null
+  archived_at: string | null
+  source: string
+}
 
 type DraftRow = {
   guest: Guest
@@ -106,6 +125,12 @@ export default function GuestsPage() {
   const [assignAllPct, setAssignAllPct] = useState(0)
   const [draftRows, setDraftRows] = useState<DraftRow[]>([])
   const [dbHorses, setDbHorses] = useState<DbHorse[]>([])
+  const [guestHistory, setGuestHistory] = useState<HistoryRecord[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [returningGuestNames, setReturningGuestNames] = useState<Set<string>>(new Set())
+  const [doesntWorkTarget, setDoesntWorkTarget] = useState<{ horseName: string; assignmentId: string } | null>(null)
+  const [doesntWorkReason, setDoesntWorkReason] = useState('')
+  const [assignAllPastRideMap, setAssignAllPastRideMap] = useState<Record<string, Set<string>>>({})
   const detailPanelRef = useRef<HTMLDivElement>(null)
 
   const today = getTucsonToday()
@@ -113,12 +138,14 @@ export default function GuestsPage() {
 
   const fetchGuests = useCallback(async () => {
     try {
-      const [guestRes, horsesRes] = await Promise.all([
+      const [guestRes, horsesRes, returningRes] = await Promise.all([
         fetch('/api/guests').then(r => r.json()),
         fetch('/api/horses').then(r => r.json()),
+        fetch('/api/assignment-history?all_returning=true').then(r => r.json()),
       ])
       setGuests(guestRes.guests || [])
       setDbHorses(horsesRes.horses || [])
+      setReturningGuestNames(new Set((returningRes.names || []).map((n: string) => n.toLowerCase())))
     }
     catch (err) { console.error(err) } finally { setLoading(false) }
   }, [])
@@ -126,6 +153,33 @@ export default function GuestsPage() {
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
   useEffect(() => { detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id])
+
+  async function fetchGuestHistory(guestId: string) {
+    setHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/assignment-history?guest_id=${guestId}`).then(r => r.json())
+      setGuestHistory(res.history || [])
+    } catch {} finally { setHistoryLoading(false) }
+  }
+
+  async function logHistory(guestName: string, guestId: string, horseName: string, assignmentType: string, source: string) {
+    try {
+      await fetch('/api/assignment-history', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guest_name: guestName, guest_id: guestId, horse_name: horseName, assignment_type: assignmentType, assigned_date: today, source })
+      })
+    } catch {}
+  }
+
+  async function updateHistoryQuality(historyId: string, quality: number | null) {
+    try {
+      await fetch('/api/assignment-history', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: historyId, match_quality: quality })
+      })
+      if (selectedGuest) fetchGuestHistory(selectedGuest.id)
+    } catch {}
+  }
 
   const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
@@ -143,9 +197,21 @@ export default function GuestsPage() {
     } catch (err) { console.error(err) }
   }
 
+  async function toggleOverestimatesLevel() {
+    if (!selectedGuest) return
+    const newVal = !selectedGuest.overestimates_level
+    await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, overestimates_level: newVal }) })
+    await fetchGuests()
+    const updated = { ...selectedGuest, overestimates_level: newVal }
+    await runMatch(updated as Guest, dismissedHorses)
+  }
+
   async function openGuest(guest: Guest) {
     setSelectedGuest(guest); setMatches([]); setDismissedHorses([]); setManualHorse(''); setAssignmentConfirmation(null)
-    await runMatch(guest, [])
+    await Promise.all([
+      runMatch(guest, []),
+      fetchGuestHistory(guest.id),
+    ])
   }
 
   async function runMatch(guest: Guest, dismissed: string[]) {
@@ -214,26 +280,53 @@ export default function GuestsPage() {
     setAssigningHorse(horseName); setAssignmentConfirmation(null)
     try {
       await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: selectedGuest.id, horse_name: horseName, assignment_type: type, status: 'active', incompatible: false, requested_by_guest: false }) })
+      await logHistory(selectedGuest.name, selectedGuest.id, horseName, type, 'manual')
       setAssignmentConfirmation(`✓ ${horseName} assigned to ${selectedGuest.name} as ${type} horse`)
-      setTimeout(() => setAssignmentConfirmation(null), 4000); await fetchGuests()
+      setTimeout(() => setAssignmentConfirmation(null), 4000)
+      await Promise.all([fetchGuests(), fetchGuestHistory(selectedGuest.id)])
     } catch (err) { console.error(err) } finally { setAssigningHorse(null) }
   }
 
   async function removeAssignment(id: string) { try { await fetch(`/api/assignments?id=${id}`, { method: 'DELETE' }); await fetchGuests() } catch (err) { console.error(err) } }
 
-  async function markIncompatible(horseName: string, assignmentId: string) {
+  // FIX: only UPDATE existing record — removes duplicate pill bug
+  async function markIncompatible(horseName: string, assignmentId: string, reason?: string) {
     if (!selectedGuest) return
     try {
-      await fetch('/api/assignments', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: assignmentId, incompatible: true, status: 'removed' }) })
-      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: selectedGuest.id, horse_name: horseName, incompatible: true, status: 'removed' }) })
+      await fetch('/api/assignments', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: assignmentId, incompatible: true, status: 'removed', reason: reason || null })
+      })
+      // Mark doesnt_work in history
+      const histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
+      if (histRec) {
+        await fetch('/api/assignment-history', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: histRec.id, doesnt_work: true, doesnt_work_reason: reason || null, match_quality: -1 })
+        })
+      }
       await fetchGuests()
+      await fetchGuestHistory(selectedGuest.id)
+      setDoesntWorkTarget(null)
+      setDoesntWorkReason('')
     } catch (err) { console.error(err) }
   }
 
   async function deleteGuest(id: string) {
-    if (!confirm('Remove this guest?')) return
+    if (!confirm('Remove this guest? Their history will NOT be archived. Use Check Out to preserve history.')) return
     await fetch(`/api/guests?id=${id}`, { method: 'DELETE' })
     if (selectedGuest?.id === id) setSelectedGuest(null); await fetchGuests()
+  }
+
+  async function checkOutGuest(guest: Guest) {
+    if (!confirm(`Check out ${guest.name}? History will be archived permanently and they'll be removed.`)) return
+    await fetch('/api/assignment-history', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archive_guest_name: guest.name })
+    })
+    await fetch(`/api/guests?id=${guest.id}`, { method: 'DELETE' })
+    if (selectedGuest?.id === guest.id) { setSelectedGuest(null); setGuestHistory([]) }
+    await fetchGuests()
   }
 
   async function saveManualHorse() {
@@ -247,7 +340,19 @@ export default function GuestsPage() {
     setAssignAllProgress('Fetching current assignments...')
     setAssignAllPct(10)
 
-    const assignRes = await fetch('/api/assignments').then(r => r.json())
+    const [assignRes, histRes] = await Promise.all([
+      fetch('/api/assignments').then(r => r.json()),
+      fetch('/api/assignment-history?since=2026-05-11').then(r => r.json()),
+    ])
+
+    // Build past-ride map for draft disclaimers (guest_name → horse name set)
+    const pastRideMapLocal: Record<string, Set<string>> = {}
+    for (const rec of histRes.history || []) {
+      const key = (rec.guest_name as string).toLowerCase()
+      if (!pastRideMapLocal[key]) pastRideMapLocal[key] = new Set()
+      pastRideMapLocal[key].add(rec.horse_name)
+    }
+    setAssignAllPastRideMap(pastRideMapLocal)
 
     // Map: horse name → [{checkOut}] for horses already in DB
     const dbAssignedMap: Record<string, { checkOut: string }[]> = {}
@@ -264,15 +369,12 @@ export default function GuestsPage() {
     })
     const eligibleHorses = dbHorses.filter(h => h.is_active && !h.exclude_from_ai && !hasBlockingFlag(h))
 
-    // Unassigned active guests from current state
-    const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= now)
     const unassigned = activeGuests.filter(g =>
       !g.horse_assignments?.some(a => a.status === 'active' && !a.incompatible)
     )
 
     if (unassigned.length === 0) { setAssignAllPhase('idle'); return }
 
-    // Most constrained (highest level) guests first so they get first pick
     const sorted = [...unassigned].sort((a, b) => {
       const ai = LEVEL_ORDER.indexOf(a.riding_level)
       const bi = LEVEL_ORDER.indexOf(b.riding_level)
@@ -283,7 +385,6 @@ export default function GuestsPage() {
     const usedInPass1 = new Set<string>()
     const pass2Queue: Guest[] = []
 
-    // Pass 1 — unassigned horses only
     setAssignAllProgress('Pass 1: Finding best matches...')
     setAssignAllPct(35)
     await new Promise(r => setTimeout(r, 350))
@@ -307,7 +408,6 @@ export default function GuestsPage() {
       }
     }
 
-    // Pass 2 — double up on existing or pass-1 horses
     setAssignAllProgress('Pass 2: Filling gaps with shared horses...')
     setAssignAllPct(65)
     await new Promise(r => setTimeout(r, 350))
@@ -342,7 +442,6 @@ export default function GuestsPage() {
       }
     }
 
-    // Pass 3 — flag remainders
     setAssignAllProgress('Pass 3: Flagging guests needing manual review...')
     setAssignAllPct(90)
     await new Promise(r => setTimeout(r, 350))
@@ -360,13 +459,14 @@ export default function GuestsPage() {
   async function confirmAssignAll(rows: DraftRow[]) {
     const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
     await Promise.all(
-      toSave.map(r =>
-        fetch('/api/assignments', {
+      toSave.map(async r => {
+        await fetch('/api/assignments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false }),
         })
-      )
+        await logHistory(r.guest.name, r.guest.id, r.suggestedHorse!, 'primary', 'assign_all')
+      })
     )
     await fetchGuests()
     setAssignAllPhase('idle')
@@ -398,6 +498,7 @@ export default function GuestsPage() {
               : filteredGuests.length === 0 ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>◎</div><p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>No guests yet</p><p style={{ fontSize: 12, marginTop: 4 }}>Click + Add Guest to start</p></div>
               : filteredGuests.map(guest => {
                 const primary = guest.horse_assignments?.find(a => a.assignment_type === 'primary' && a.status === 'active' && !a.incompatible)
+                const isReturning = returningGuestNames.has(guest.name.toLowerCase())
                 return (
                   <div key={guest.id} onClick={() => openGuest(guest)} style={{ padding: '11px 13px', borderRadius: 'var(--radius-md)', border: `1px solid ${selectedGuest?.id === guest.id ? 'var(--color-accent)' : 'var(--color-border)'}`, background: selectedGuest?.id === guest.id ? 'var(--color-accent-bg)' : 'var(--color-surface)', marginBottom: 7, cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -408,6 +509,7 @@ export default function GuestsPage() {
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
                         {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
+                        {isReturning && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd', whiteSpace: 'nowrap' }}>Returning</span>}
                         {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
                       </div>
                     </div>
@@ -419,14 +521,25 @@ export default function GuestsPage() {
             <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
               <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
               <div style={{ maxWidth: 680 }}>
+                {/* Guest profile card */}
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                     <div>
-                      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700 }}>{selectedGuest.name}</h2>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700 }}>{selectedGuest.name}</h2>
+                        {returningGuestNames.has(selectedGuest.name.toLowerCase()) && (
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd' }}>🔄 Returning</span>
+                        )}
+                      </div>
                       <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>Tap any field below to edit</p>
                     </div>
-                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                      {checkoutSoon(selectedGuest) && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'} — horses free up soon</span>}
+                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {checkoutSoon(selectedGuest) && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
+                      {/* Overestimates level toggle */}
+                      <button onClick={toggleOverestimatesLevel} title="Flag if guest overstates their riding ability" style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, border: '1px solid', background: selectedGuest.overestimates_level ? '#fef3c7' : 'var(--color-bg)', color: selectedGuest.overestimates_level ? '#92400e' : 'var(--color-text-3)', borderColor: selectedGuest.overestimates_level ? '#fcd34d' : 'var(--color-border)', cursor: 'pointer', fontWeight: selectedGuest.overestimates_level ? 600 : 400 }}>
+                        {selectedGuest.overestimates_level ? '⚠ Overestimates level' : 'Overestimates?'}
+                      </button>
+                      <button onClick={() => checkOutGuest(selectedGuest)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)', cursor: 'pointer', fontWeight: 600 }}>Check Out</button>
                       <button onClick={() => deleteGuest(selectedGuest.id)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove guest</button>
                     </div>
                   </div>
@@ -454,21 +567,33 @@ export default function GuestsPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Assigned horses */}
                 <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Horses</h3>
                   {activeAssignments.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>None assigned yet</p>
-                    : activeAssignments.map((a, i) => (
-                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 7, background: 'var(--color-bg)' }}>
-                        <span style={{ fontSize: 16 }}>🐴</span>
-                        <div style={{ flex: 1 }}>
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
-                          <span style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: i === 0 ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: i === 0 ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>{a.assignment_type}</span>
+                    : activeAssignments.map((a, i) => {
+                      const histRec = guestHistory.find(h => h.horse_name === a.horse_name && !h.doesnt_work)
+                      return (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 7, background: 'var(--color-bg)' }}>
+                          <span style={{ fontSize: 16 }}>🐴</span>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
+                            <span style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: i === 0 ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: i === 0 ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>{a.assignment_type}</span>
+                          </div>
+                          {/* Thumbs up/down for match quality */}
+                          {histRec && (
+                            <div style={{ display: 'flex', gap: 3 }}>
+                              <button onClick={() => updateHistoryQuality(histRec.id, histRec.match_quality === 1 ? null : 1)} title="Good match" style={{ fontSize: 13, background: histRec.match_quality === 1 ? '#d1fae5' : 'var(--color-bg)', border: '1px solid', borderColor: histRec.match_quality === 1 ? '#6ee7b7' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 6px' }}>👍</button>
+                              <button onClick={() => updateHistoryQuality(histRec.id, histRec.match_quality === -1 ? null : -1)} title="Poor match" style={{ fontSize: 13, background: histRec.match_quality === -1 ? '#fee2e2' : 'var(--color-bg)', border: '1px solid', borderColor: histRec.match_quality === -1 ? '#fca5a5' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 6px' }}>👎</button>
+                            </div>
+                          )}
+                          <button onClick={() => setDoesntWorkTarget({ horseName: a.horse_name, assignmentId: a.id })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn&apos;t work</button>
+                          <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
                         </div>
-                        <button onClick={() => markIncompatible(a.horse_name, a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn't work</button>
-                        <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
-                      </div>
-                    ))}
-                  {incompatibleHorses.length > 0 && <div style={{ marginTop: 10 }}><p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Doesn't work with:</p><div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>{incompatibleHorses.map(a => <span key={a.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>{a.horse_name}</span>)}</div></div>}
+                      )
+                    })}
+                  {incompatibleHorses.length > 0 && <div style={{ marginTop: 10 }}><p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Doesn&apos;t work with:</p><div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>{incompatibleHorses.map(a => <span key={a.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>{a.horse_name}{a.reason ? ` — ${a.reason}` : ''}</span>)}</div></div>}
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                     <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
                     <div style={{ display: 'flex', gap: 7 }}>
@@ -480,9 +605,14 @@ export default function GuestsPage() {
                     </div>
                   </div>
                 </div>
-                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
+
+                {/* Horse Matches */}
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Horse Matches</h3>
+                    <div>
+                      <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Horse Matches</h3>
+                      {selectedGuest.overestimates_level && <p style={{ fontSize: 11, color: '#92400e', marginTop: 2 }}>⚠ Matching at adjusted level (overestimates)</p>}
+                    </div>
                     <button onClick={() => runMatch(selectedGuest, dismissedHorses)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-2)', cursor: 'pointer' }}>Refresh all</button>
                   </div>
                   {matchLoading && matches.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '12px 0' }}>Scanning the herd...</p>
@@ -502,6 +632,13 @@ export default function GuestsPage() {
                               {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>Double</span>}
                               {isSingle && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Assigned</span>}
                               {isCheckout && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', fontWeight: 600 }}>Avail soon</span>}
+                              {m.rodeThisBefore && (
+                                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd' }}>
+                                  {m.pastMatchQuality === 1 ? '👍 Liked' : m.pastMatchQuality === -1 ? '👎 Disliked' : '🔄 Rode before'}
+                                </span>
+                              )}
+                              {m.shoeWarning === 'red' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600, border: '1px solid #fca5a5' }}>🔴 Shoes</span>}
+                              {m.shoeWarning === 'amber' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d' }}>🟠 Shoes</span>}
                             </div>
                           </div>
                           <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 7 : 0 }}>{m.reason}</p>
@@ -514,11 +651,28 @@ export default function GuestsPage() {
                       )
                     })}{matchLoading && <p style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: '6px 0', fontStyle: 'italic' }}>Finding more matches...</p>}</>}
                 </div>
+
+                {/* Ride history */}
+                {(guestHistory.length > 0 || historyLoading) && (
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
+                    <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ride History</h3>
+                    {historyLoading ? <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Loading...</p>
+                      : guestHistory.map(rec => (
+                        <div key={rec.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--color-border)' }}>
+                          <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>🐴 {rec.horse_name}</span>
+                          <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{rec.assigned_date}</span>
+                          <span style={{ fontSize: 10, color: 'var(--color-text-muted)', padding: '1px 5px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>{rec.source}</span>
+                          {rec.doesnt_work && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>{rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "Didn't work"}</span>}
+                          {rec.match_quality === 1 && !rec.doesnt_work && <span style={{ fontSize: 13 }}>👍</span>}
+                          {rec.match_quality === -1 && !rec.doesnt_work && <span style={{ fontSize: 13 }}>👎</span>}
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
         </div>
-
 
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
@@ -530,7 +684,31 @@ export default function GuestsPage() {
           }
         ` }} />
       </main>
+
       {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} />}
+
+      {/* Doesn't work reason modal */}
+      {doesntWorkTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 360 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Why doesn&apos;t {doesntWorkTarget.horseName} work?</h3>
+            <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12 }}>Optional — leave blank if no specific reason</p>
+            <input
+              placeholder="e.g. Too spirited, scared of them, fell off..."
+              value={doesntWorkReason}
+              onChange={e => setDoesntWorkReason(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && markIncompatible(doesntWorkTarget.horseName, doesntWorkTarget.assignmentId, doesntWorkReason)}
+              autoFocus
+              style={{ width: '100%', fontSize: 13, marginBottom: 14 }}
+            />
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => { setDoesntWorkTarget(null); setDoesntWorkReason('') }} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
+              <button onClick={() => markIncompatible(doesntWorkTarget.horseName, doesntWorkTarget.assignmentId, doesntWorkReason)} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Mark — Doesn&apos;t Work</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {assignAllPhase === 'running' && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: '32px 40px', minWidth: 320, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}>
@@ -548,6 +726,7 @@ export default function GuestsPage() {
           onConfirm={confirmAssignAll}
           onCancel={() => { setAssignAllPhase('idle'); setDraftRows([]) }}
           horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active).map(h => [h.name, { level: h.level, weight: h.weight }]))}
+          pastRideMap={assignAllPastRideMap}
         />
       )}
     </div>
@@ -559,6 +738,19 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   const [saving, setSaving] = useState(false)
   const [count, setCount] = useState(0)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
+  const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string } | null>(null)
+
+  async function checkReturning(name: string) {
+    if (!name || name.length < 3) { setReturningInfo(null); return }
+    try {
+      const res = await fetch(`/api/assignment-history?check_returning=${encodeURIComponent(name)}`).then(r => r.json())
+      if (res.isReturning && res.records?.[0]) {
+        setReturningInfo({ lastHorse: res.records[0].horse_name, lastDate: res.records[0].assigned_date })
+      } else {
+        setReturningInfo(null)
+      }
+    } catch { setReturningInfo(null) }
+  }
 
   async function save(addAnother: boolean) {
     if (!form.name || !form.riding_level) return
@@ -566,7 +758,7 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     try {
       await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null }) })
       onSaved()
-      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '' })); setTimeout(() => setLastSaved(null), 2000) }
+      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '' })); setTimeout(() => setLastSaved(null), 2000) }
       else { onClose() }
     } finally { setSaving(false) }
   }
@@ -581,8 +773,16 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
         </div>
         {lastSaved && <div style={{ background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: 'var(--color-success)', fontWeight: 500 }}>✓ {lastSaved} saved — enter next guest</div>}
+        {returningInfo && (
+          <div style={{ background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#6d28d9', fontWeight: 500 }}>
+            🔄 Returning guest! Last rode {returningInfo.lastHorse} on {returningInfo.lastDate}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
-          <div style={{ gridColumn: '1/-1' }}><label>Full Name *</label><input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} autoFocus /></div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label>Full Name *</label>
+            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => checkReturning(form.name)} autoFocus />
+          </div>
           <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} /></div>
           <div><label>Gender</label><select value={form.gender} onChange={f('gender')}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
           <div><label>Riding Level *</label><select value={form.riding_level} onChange={f('riding_level')}><option value="">Select...</option>{LEVELS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select></div>
@@ -647,11 +847,12 @@ function DraftHorseAutocomplete({ value, onChange, horses }: { value: string; on
   )
 }
 
-function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap }: {
+function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMap }: {
   initialRows: DraftRow[]
   onConfirm: (rows: DraftRow[]) => Promise<void>
   onCancel: () => void
   horseMap: Record<string, { level: string; weight: number | null }>
+  pastRideMap: Record<string, Set<string>>
 }) {
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
@@ -724,6 +925,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap }: {
           const nearWeight = !!(horse && horse.weight !== null && guest.weight && (horse.weight - guest.weight) <= 20)
           const checkingOutToday = guest.check_out_date === today
           const checkingOutTomorrow = !checkingOutToday && guest.check_out_date === tomorrow
+          const hasRiddenBefore = !!(suggestedHorse && pastRideMap[guest.name.toLowerCase()]?.has(suggestedHorse))
 
           const bg = flagged ? 'var(--color-bg)' : needsReview ? 'var(--color-danger-bg)' : isDouble ? '#fef3c7' : 'var(--color-surface)'
           const border = flagged ? 'var(--color-border)' : needsReview ? 'var(--color-danger-border)' : isDouble ? '#fcd34d' : 'var(--color-border)'
@@ -777,6 +979,9 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap }: {
                   )}
                   {nearWeight && (
                     <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>
+                  )}
+                  {hasRiddenBefore && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd', fontWeight: 600, whiteSpace: 'nowrap' }}>🔄 Rode before</span>
                   )}
                   {flagged && (
                     <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🚩 Flagged — skip on save</span>
