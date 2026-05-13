@@ -203,7 +203,18 @@ export default function GuestsPage() {
 
   async function setLovesHorse(horseName: string, currentLoves: boolean) {
     if (!selectedGuest) return
-    const histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
+    let histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
+    if (!histRec) {
+      // No history record yet — create one so the loves signal has somewhere to live
+      try {
+        const res = await fetch('/api/assignment-history', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guest_name: selectedGuest.name, guest_id: selectedGuest.id, horse_name: horseName, assignment_type: 'primary', assigned_date: today, source: 'loves_toggle' })
+        })
+        const data = await res.json()
+        histRec = data.record
+      } catch { return }
+    }
     if (!histRec) return
     await fetch('/api/assignment-history', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -389,13 +400,16 @@ export default function GuestsPage() {
     ])
 
     // Build enriched past-ride map for draft disclaimers (guest_name_lower → horse_name → PastRideDetail)
+    // doesntWork and loves are ORed across all records so a single flag is never lost by a newer neutral record.
     const pastRideMapLocal: Record<string, Record<string, PastRideDetail>> = {}
     for (const rec of histRes.history || []) {
       const key = (rec.guest_name as string).toLowerCase()
       if (!pastRideMapLocal[key]) pastRideMapLocal[key] = {}
       const existing = pastRideMapLocal[key][rec.horse_name]
-      if (!existing || rec.assigned_date > existing.date) {
-        pastRideMapLocal[key][rec.horse_name] = { date: rec.assigned_date, loves: rec.loves_horse || false, doesntWork: rec.doesnt_work || false }
+      pastRideMapLocal[key][rec.horse_name] = {
+        date: !existing || rec.assigned_date > existing.date ? rec.assigned_date : existing.date,
+        loves: (rec.loves_horse || false) || (existing?.loves || false),
+        doesntWork: (rec.doesnt_work || false) || (existing?.doesntWork || false),
       }
     }
     setAssignAllPastRideMap(pastRideMapLocal)
@@ -635,10 +649,8 @@ export default function GuestsPage() {
                               <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
                               <span style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: i === 0 ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: i === 0 ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>{a.assignment_type}</span>
                             </div>
-                            {/* Loves this horse toggle */}
-                            {histRec && (
-                              <button onClick={() => setLovesHorse(a.horse_name, isLoved)} title={isLoved ? 'Remove loves signal' : 'Mark as loves this horse'} style={{ fontSize: 15, background: isLoved ? '#fda4af' : 'var(--color-bg)', border: '1px solid', borderColor: isLoved ? '#fb7185' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 7px', lineHeight: 1.3 }}>❤️</button>
-                            )}
+                            {/* Loves this horse toggle — always shown for any active assignment */}
+                            <button onClick={() => setLovesHorse(a.horse_name, isLoved)} title={isLoved ? 'Remove loves signal' : 'Mark as loves this horse'} style={{ fontSize: 15, background: isLoved ? '#fda4af' : 'var(--color-bg)', border: '1px solid', borderColor: isLoved ? '#fb7185' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 7px', lineHeight: 1.3 }}>❤️</button>
                             <button onClick={() => setDoesntWorkTarget({ horseName: a.horse_name, assignmentId: a.id })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn&apos;t work</button>
                             <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
                           </div>
@@ -741,59 +753,103 @@ export default function GuestsPage() {
         {/* ── HISTORY VIEW ── */}
         {guestViewMode === 'history' && (
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }} className='guest-split'>
-            {/* Archived guest list */}
-            <div style={{ width: selectedArchived ? 280 : '100%', borderRight: selectedArchived ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
-              {archivedLoading ? <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading history...</p>
-                : filteredArchived.length === 0 ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-                    <p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>{historySearch ? 'No matches' : 'No checked-out guests yet'}</p>
-                    <p style={{ fontSize: 12, marginTop: 4 }}>Past guests appear here after Check Out</p>
+            {/* Archived guest list — document/table style */}
+            <div style={{ width: selectedArchived ? 320 : '100%', maxWidth: selectedArchived ? 320 : 'none', borderRight: selectedArchived ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', flexShrink: 0, background: 'var(--color-surface)' }}>
+              {archivedLoading ? (
+                <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading history...</p>
+              ) : filteredArchived.length === 0 ? (
+                <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+                  <p style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>{historySearch ? 'No matches' : 'No checked-out guests yet'}</p>
+                  <p style={{ fontSize: 12, marginTop: 4 }}>Past guests appear here after Check Out</p>
+                </div>
+              ) : (
+                <>
+                  {/* Column header row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '7px 14px', borderBottom: '2px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-surface)', zIndex: 1 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Guest</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last visit</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Signals</span>
                   </div>
-                ) : filteredArchived.map(ag => {
-                  const lovesRec = ag.records.find(r => r.loves_horse)
-                  const doesntWorkRecs = ag.records.filter(r => r.doesnt_work)
-                  const goodRecs = ag.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse)
-                  return (
-                    <div key={ag.guest_name} onClick={() => setSelectedArchived(ag)} style={{ padding: '11px 13px', borderRadius: 'var(--radius-md)', border: `1px solid ${selectedArchived?.guest_name === ag.guest_name ? 'var(--color-accent)' : 'var(--color-border)'}`, background: selectedArchived?.guest_name === ag.guest_name ? 'var(--color-accent-bg)' : 'var(--color-surface)', marginBottom: 7, cursor: 'pointer' }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{ag.guest_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>Checked out {ag.checkout_date.slice(0, 10)}</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
-                        {lovesRec && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fff1f2', color: '#9f1239', border: '1px solid #fda4af', fontWeight: 600 }}>❤️ {lovesRec.horse_name}</span>}
-                        {goodRecs.slice(0, 2).map(r => <span key={r.id} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600 }}>✓ {r.horse_name}</span>)}
-                        {doesntWorkRecs.slice(0, 1).map(r => <span key={r.id} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>✗ {r.horse_name}</span>)}
+                  {filteredArchived.map(ag => {
+                    const lovesRecs = ag.records.filter(r => r.loves_horse)
+                    const doesntWorkRecs = ag.records.filter(r => r.doesnt_work)
+                    const goodRecs = ag.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse)
+                    const uniqueHorses = ag.records.map(r => r.horse_name).filter((n, i, a) => a.indexOf(n) === i)
+                    const isSelected = selectedArchived?.guest_name === ag.guest_name
+                    return (
+                      <div key={ag.guest_name} onClick={() => setSelectedArchived(isSelected ? null : ag)}
+                        style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '9px 14px', borderBottom: '1px solid var(--color-border)', background: isSelected ? 'var(--color-accent-bg)' : 'transparent', borderLeft: `3px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`, cursor: 'pointer' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ag.guest_name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {uniqueHorses.slice(0, 3).join(', ')}{uniqueHorses.length > 3 ? ` +${uniqueHorses.length - 3}` : ''}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', paddingTop: 2 }}>{ag.checkout_date.slice(0, 10)}</div>
+                        <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start', paddingTop: 2, justifyContent: 'flex-end' }}>
+                          {lovesRecs.length > 0 && <span title={`Loves: ${lovesRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 12 }}>❤️</span>}
+                          {goodRecs.length > 0 && <span title={`Good match: ${goodRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 700 }}>✓</span>}
+                          {doesntWorkRecs.length > 0 && <span title={`Didn't work: ${doesntWorkRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: '#dc2626', fontWeight: 700 }}>✗</span>}
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </>
+              )}
             </div>
 
-            {/* Archived guest detail */}
+            {/* Archived guest detail — document style */}
             {selectedArchived && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }}>
-                <button onClick={() => setSelectedArchived(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back</button>
-                <div style={{ maxWidth: 560 }}>
-                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
-                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, marginBottom: 4 }}>{selectedArchived.guest_name}</h2>
-                    <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Checked out {selectedArchived.checkout_date.slice(0, 10)} · {selectedArchived.records.length} assignment{selectedArchived.records.length !== 1 ? 's' : ''} on record</p>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', minWidth: 0, background: 'var(--color-bg)' }}>
+                <button onClick={() => setSelectedArchived(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 14, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back</button>
+                <div style={{ maxWidth: 580 }}>
+                  {/* Document header */}
+                  <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid var(--color-border)' }}>
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>{selectedArchived.guest_name}</h2>
+                    <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 4 }}>
+                      Last visit archived {selectedArchived.checkout_date.slice(0, 10)} · {selectedArchived.records.length} ride record{selectedArchived.records.length !== 1 ? 's' : ''}
+                    </p>
+                    {/* Signal summary line */}
+                    {(() => {
+                      const lv = selectedArchived.records.filter(r => r.loves_horse).map(r => r.horse_name)
+                      const dw = selectedArchived.records.filter(r => r.doesnt_work).map(r => r.horse_name)
+                      const gm = selectedArchived.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse).map(r => r.horse_name)
+                      return (lv.length > 0 || dw.length > 0 || gm.length > 0) ? (
+                        <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
+                          {lv.length > 0 && <span style={{ fontSize: 12, color: '#9f1239', fontWeight: 600 }}>❤️ Loves: {lv.filter((n, i, a) => a.indexOf(n) === i).join(', ')}</span>}
+                          {gm.length > 0 && <span style={{ fontSize: 12, color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match: {gm.filter((n, i, a) => a.indexOf(n) === i).join(', ')}</span>}
+                          {dw.length > 0 && <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>✗ Didn't work: {dw.filter((n, i, a) => a.indexOf(n) === i).join(', ')}</span>}
+                        </div>
+                      ) : null
+                    })()}
                   </div>
-                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
-                    <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>All Rides</h3>
-                    {selectedArchived.records.map(rec => (
-                      <div key={rec.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--color-border)' }}>
-                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>🐴 {rec.horse_name}</span>
-                        {rec.loves_horse && <span title="Loves this horse" style={{ fontSize: 14 }}>❤️</span>}
-                        {rec.match_quality === 1 && !rec.loves_horse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600 }}>Good match</span>}
-                        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{rec.assigned_date}</span>
-                        <span style={{ fontSize: 10, color: 'var(--color-text-muted)', padding: '1px 5px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>{rec.assignment_type}</span>
-                        {rec.doesnt_work && (
-                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>
-                            {rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "Didn't work"}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+
+                  {/* Ride history table */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <th style={{ textAlign: 'left', padding: '5px 8px', fontSize: 10, color: 'var(--color-text-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date</th>
+                        <th style={{ textAlign: 'left', padding: '5px 8px', fontSize: 10, color: 'var(--color-text-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Horse</th>
+                        <th style={{ textAlign: 'left', padding: '5px 8px', fontSize: 10, color: 'var(--color-text-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Signal</th>
+                        <th style={{ textAlign: 'left', padding: '5px 8px', fontSize: 10, color: 'var(--color-text-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedArchived.records.map(rec => (
+                        <tr key={rec.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                          <td style={{ padding: '9px 8px', fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{rec.assigned_date}</td>
+                          <td style={{ padding: '9px 8px', fontSize: 13, fontWeight: 500 }}>{rec.horse_name}</td>
+                          <td style={{ padding: '9px 8px', fontSize: 12 }}>
+                            {rec.loves_horse && <span style={{ color: '#e11d48', fontWeight: 600 }}>❤️ Loves</span>}
+                            {rec.match_quality === 1 && !rec.loves_horse && <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match</span>}
+                            {rec.doesnt_work && <span style={{ color: '#dc2626', fontWeight: 600 }}>{rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "✗ Didn't work"}</span>}
+                          </td>
+                          <td style={{ padding: '9px 8px', fontSize: 11, color: 'var(--color-text-3)', textTransform: 'capitalize' }}>{rec.assignment_type}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -1032,10 +1088,10 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
                   {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>×2 Double</span>}
                   {needsReview && !suggestedHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Needs review</span>}
                   {nearWeight && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>}
-                  {/* Past ride disclaimer — always shown when guest has ridden this horse before */}
+                  {/* Past ride note — informational only, not a block */}
                   {pastRide && !pastRide.doesntWork && (
-                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: pastRide.loves ? '#fff1f2' : '#ede9fe', color: pastRide.loves ? '#9f1239' : '#6d28d9', border: `1px solid ${pastRide.loves ? '#fda4af' : '#c4b5fd'}`, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {pastRide.loves ? '❤️' : '🔄'} Rode {pastRide.date} — confirm or swap
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: pastRide.loves ? '#fff1f2' : 'var(--color-bg)', color: pastRide.loves ? '#9f1239' : 'var(--color-text-3)', border: `1px solid ${pastRide.loves ? '#fda4af' : 'var(--color-border)'}`, fontWeight: pastRide.loves ? 600 : 400, whiteSpace: 'nowrap' }}>
+                      {pastRide.loves ? '❤️ Loves this horse' : 'Rode this horse before'}
                     </span>
                   )}
                   {flagged && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🚩 Flagged — skip on save</span>}
