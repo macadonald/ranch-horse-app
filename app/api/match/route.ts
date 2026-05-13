@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       supabase.from('horse_status_flags').select('horse_name, flag_type, day_off_date').eq('status', 'active'),
       supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
       guestId ? supabase.from('guests').select('overestimates_level').eq('id', guestId).single() : Promise.resolve({ data: null }),
-      guestId ? supabase.from('assignment_history').select('horse_name, match_quality, doesnt_work').eq('guest_id', guestId).gte('assigned_date', '2026-05-11') : Promise.resolve({ data: [] }),
+      guestId ? supabase.from('assignment_history').select('horse_name, match_quality, doesnt_work, loves_horse').eq('guest_id', guestId).gte('assigned_date', '2026-05-11') : Promise.resolve({ data: [] }),
     ])
 
     // Build set of flag-blocked horse names
@@ -65,9 +65,14 @@ export async function POST(req: NextRequest) {
 
     // Build past-ride map from history (for learning cutoff >= 2026-05-11)
     const overestimatesLevel = guestResult.data?.overestimates_level || false
-    const pastHorseMap: Record<string, { match_quality: number | null; doesnt_work: boolean }> = {}
+    const pastHorseMap: Record<string, { match_quality: number | null; doesnt_work: boolean; loves_horse: boolean }> = {}
     ;(historyResult.data || []).forEach((h: any) => {
-      pastHorseMap[h.horse_name] = { match_quality: h.match_quality ?? null, doesnt_work: h.doesnt_work || false }
+      const existing = pastHorseMap[h.horse_name]
+      pastHorseMap[h.horse_name] = {
+        match_quality: h.loves_horse ? 2 : (h.match_quality ?? existing?.match_quality ?? null),
+        doesnt_work: h.doesnt_work || existing?.doesnt_work || false,
+        loves_horse: h.loves_horse || existing?.loves_horse || false,
+      }
     })
 
     const shoeNeedsMap: Record<string, string> = {}
@@ -142,12 +147,13 @@ export async function POST(req: NextRequest) {
       ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
       : ''
 
-    const thumbsDownNames = Object.entries(pastHorseMap).filter(([, v]) => v.match_quality === -1 && !v.doesnt_work).map(([n]) => n)
+    // Signal hierarchy: loves_horse > implicit thumbs up (stayed all week) > doesnt_work
+    const lovesHorseNames = Object.entries(pastHorseMap).filter(([, v]) => v.loves_horse).map(([n]) => n)
+    const goodMatchNames = Object.entries(pastHorseMap).filter(([, v]) => v.match_quality === 1 && !v.loves_horse && !v.doesnt_work).map(([n]) => n)
     const doesntWorkNames = Object.entries(pastHorseMap).filter(([, v]) => v.doesnt_work).map(([n]) => n)
-    const thumbsUpNames = Object.entries(pastHorseMap).filter(([, v]) => v.match_quality === 1).map(([n]) => n)
-    const thumbsDownNote = thumbsDownNames.length > 0 ? `AVOID (guest previously rated negatively): ${thumbsDownNames.join(', ')}` : ''
-    const doesntWorkNote = doesntWorkNames.length > 0 ? `DO NOT SUGGEST (marked "doesn't work"): ${doesntWorkNames.join(', ')}` : ''
-    const thumbsUpNote = thumbsUpNames.length > 0 ? `PREFERRED (guest liked before): ${thumbsUpNames.join(', ')}` : ''
+    const lovesNote = lovesHorseNames.length > 0 ? `❤️ LOVES THESE HORSES — guest has a genuine connection, prioritize but always show disclaimer to confirm: ${lovesHorseNames.join(', ')}` : ''
+    const goodMatchNote = goodMatchNames.length > 0 ? `POSITIVE HISTORY (rode all week, no issues) — slight preference: ${goodMatchNames.join(', ')}` : ''
+    const doesntWorkNote = doesntWorkNames.length > 0 ? `DO NOT SUGGEST — marked "doesn't work" for this guest: ${doesntWorkNames.join(', ')}` : ''
 
     const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
@@ -158,9 +164,9 @@ ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${ageWarning}
 ${overestimatesNote}
+${lovesNote}
+${goodMatchNote}
 ${doesntWorkNote}
-${thumbsDownNote}
-${thumbsUpNote}
 ${rankLastInstruction}
 Rider: Age ${age}, Weight ${weight}lbs, Height ${height}, Level ${effectiveLevel}, Gender ${gender || 'not specified'}, Notes: ${notes || 'none'}
 Eligible horses:
@@ -235,7 +241,8 @@ Respond ONLY with valid JSON array, no markdown:
                 const shoeNeed = shoeNeedsMap[raw.name]
                 const shoeWarning: 'red' | 'amber' | null = shoeNeed === 'fronts' ? 'red' : shoeNeed ? 'amber' : null
                 const pastEntry = pastHorseMap[raw.name]
-                const match = { ...raw, availability: dbAvailability, warning, shoeWarning, rodeThisBefore: !!pastEntry && !pastEntry.doesnt_work, pastMatchQuality: pastEntry?.match_quality ?? null }
+                const lovesThisHorse = pastEntry?.loves_horse ?? false
+                const match = { ...raw, availability: dbAvailability, warning, shoeWarning, rodeThisBefore: !!pastEntry && !pastEntry.doesnt_work, pastMatchQuality: pastEntry?.match_quality ?? null, lovesThisHorse }
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'match', match })}\n\n`))
               } catch {}
               searchPos = result.end
