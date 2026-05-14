@@ -128,3 +128,11 @@ button {
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-sm);
 }
+
+/* Prevent iOS auto-zoom on input focus (triggered when font-size < 16px).
+   !important overrides React inline fontSize styles which have higher specificity. */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
