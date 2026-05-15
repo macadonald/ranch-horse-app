@@ -148,6 +148,7 @@ export default function GuestsPage() {
   const [archivedGuests, setArchivedGuests] = useState<ArchivedGuestSummary[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
   const [selectedArchived, setSelectedArchived] = useState<ArchivedGuestSummary | null>(null)
+  const [guestGridView, setGuestGridView] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('guestGridView') === 'grid' : false)
   const detailPanelRef = useRef<HTMLDivElement>(null)
 
   const today = getTucsonToday()
@@ -257,6 +258,9 @@ export default function GuestsPage() {
   async function toggleOverestimatesLevel() {
     if (!selectedGuest) return
     const newVal = !selectedGuest.overestimates_level
+    // Optimistic update
+    setSelectedGuest(prev => prev ? { ...prev, overestimates_level: newVal } : null)
+    setGuests(prev => prev.map(g => g.id === selectedGuest.id ? { ...g, overestimates_level: newVal } : g))
     await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, overestimates_level: newVal }) })
     await fetchGuests()
     const updated = { ...selectedGuest, overestimates_level: newVal }
@@ -374,6 +378,14 @@ export default function GuestsPage() {
           })
         }
       }
+    }
+
+    // Ensure guest appears in history even if no rides were logged
+    if (histRecords.length === 0) {
+      await fetch('/api/assignment-history', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guest_name: guest.name, guest_id: guest.id, horse_name: '—', assignment_type: 'none', assigned_date: today, source: 'checkout_only' })
+      })
     }
 
     await fetch('/api/assignment-history', {
@@ -521,13 +533,13 @@ export default function GuestsPage() {
   const filteredArchived = archivedGuests.filter(g => !historySearch || g.guest_name.toLowerCase().includes(historySearch.toLowerCase()))
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)' }}>
       <Sidebar />
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }} className='guest-main'>
         {assignmentConfirmation && <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000 }}>{assignmentConfirmation}</div>}
 
         {/* Header */}
-        <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Guests</h1>
@@ -547,6 +559,9 @@ export default function GuestsPage() {
               style={{ fontSize: 13, width: 200 }}
             />
             {guestViewMode === 'active' && <>
+              <button onClick={() => { const next = !guestGridView; setGuestGridView(next); localStorage.setItem('guestGridView', next ? 'grid' : 'list') }} style={{ padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {guestGridView ? '≡ List' : '⊞ Grid'}
+              </button>
               <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>
               <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>
             </>}
@@ -560,28 +575,47 @@ export default function GuestsPage() {
             <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
               {loading ? <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading...</p>
                 : filteredGuests.length === 0 ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>◎</div><p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>No guests yet</p><p style={{ fontSize: 12, marginTop: 4 }}>Click + Add Guest to start</p></div>
-                : filteredGuests.map(guest => {
-                  const primary = guest.horse_assignments?.find(a => a.assignment_type === 'primary' && a.status === 'active' && !a.incompatible)
-                  const isReturning = returningGuestNames.has(guest.name.toLowerCase())
-                  const lovesHorse = lovesMap[guest.name.toLowerCase()]
-                  return (
-                    <div key={guest.id} onClick={() => openGuest(guest)} style={{ padding: '11px 13px', borderRadius: 'var(--radius-md)', border: `1px solid ${selectedGuest?.id === guest.id ? 'var(--color-accent)' : 'var(--color-border)'}`, background: selectedGuest?.id === guest.id ? 'var(--color-accent-bg)' : 'var(--color-surface)', marginBottom: 7, cursor: 'pointer' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{guest.name}</div>
-                          <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 1 }}>Room {guest.room_number} · {LEVEL_LABELS[guest.riding_level] || guest.riding_level}{guest.gender ? ' · ' + guest.gender : ''}</div>
-                          {primary && <div style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 2, fontWeight: 500 }}>🐴 {primary.horse_name}{lovesHorse === primary.horse_name ? ' ❤️' : ''}</div>}
+                : (
+                  <div style={{ display: guestGridView ? 'grid' : 'block', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: guestGridView ? 8 : undefined }}>
+                    {filteredGuests.map(guest => {
+                      const primary = guest.horse_assignments?.find(a => a.assignment_type === 'primary' && a.status === 'active' && !a.incompatible)
+                      const isReturning = returningGuestNames.has(guest.name.toLowerCase())
+                      const lovesHorse = lovesMap[guest.name.toLowerCase()]
+                      if (guestGridView) {
+                        return (
+                          <div key={guest.id} onClick={() => openGuest(guest)} style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', border: `1px solid ${selectedGuest?.id === guest.id ? 'var(--color-accent)' : 'var(--color-border)'}`, background: 'var(--color-surface)', cursor: 'pointer' }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{guest.name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>Rm {guest.room_number}</div>
+                            {primary && <div style={{ fontSize: 10, color: 'var(--color-accent)', marginTop: 2 }}>🐴 {primary.horse_name}{lovesHorse === primary.horse_name ? ' ❤️' : ''}</div>}
+                            {!primary && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 2 }}>Unassigned</div>}
+                            <div style={{ marginTop: 3, display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 600 }}>{guest.riding_level}</span>
+                              {checkoutSoon(guest) && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600 }}>Out</span>}
+                              {isReturning && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600 }}>↩</span>}
+                            </div>
+                          </div>
+                        )
+                      }
+                      return (
+                        <div key={guest.id} onClick={() => openGuest(guest)} style={{ padding: '11px 13px', borderRadius: 'var(--radius-md)', border: `1px solid ${selectedGuest?.id === guest.id ? 'var(--color-accent)' : 'var(--color-border)'}`, background: selectedGuest?.id === guest.id ? 'var(--color-accent-bg)' : 'var(--color-surface)', marginBottom: 7, cursor: 'pointer' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{guest.name}</div>
+                              <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 1 }}>Room {guest.room_number} · {LEVEL_LABELS[guest.riding_level] || guest.riding_level}{guest.gender ? ' · ' + guest.gender : ''}</div>
+                              {primary && <div style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 2, fontWeight: 500 }}>🐴 {primary.horse_name}{lovesHorse === primary.horse_name ? ' ❤️' : ''}</div>}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', flexShrink: 0, marginLeft: 6 }}>
+                              {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
+                              {isReturning && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd', whiteSpace: 'nowrap' }}>Returning</span>}
+                              {guest.overestimates_level && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d', whiteSpace: 'nowrap' }}>Overestimates</span>}
+                              {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', flexShrink: 0, marginLeft: 6 }}>
-                          {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
-                          {isReturning && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd', whiteSpace: 'nowrap' }}>Returning</span>}
-                          {guest.overestimates_level && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d', whiteSpace: 'nowrap' }}>Overestimates</span>}
-                          {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                      )
+                    })}
+                  </div>
+                )}
             </div>
 
             {/* Guest detail panel */}
@@ -627,11 +661,15 @@ export default function GuestsPage() {
                       <EditableField label="Check-out Date" value={selectedGuest.check_out_date} onSave={v => updateGuestField('check_out_date', v)} type="date" />
                     </div>
                     <div style={{ marginBottom: 8 }}><EditableField label="Notes" value={selectedGuest.notes || ''} onSave={v => updateGuestField('notes', v)} /></div>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7 }}>
-                      <div style={{ flex: 1 }}><EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} /></div>
+                    <div style={{ position: 'relative' }}>
+                      <EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} />
                       {selectedGuest.horse_request && (
-                        <button onClick={() => assignHorse(selectedGuest.horse_request, activeAssignments.length === 0 ? 'primary' : 'secondary')} disabled={assigningHorse === selectedGuest.horse_request} style={{ padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          {assigningHorse === selectedGuest.horse_request ? 'Assigning...' : 'Quick Assign'}
+                        <button
+                          onClick={() => assignHorse(selectedGuest.horse_request, activeAssignments.length === 0 ? 'primary' : 'secondary')}
+                          disabled={assigningHorse === selectedGuest.horse_request}
+                          style={{ position: 'absolute', right: 8, bottom: 8, padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          {assigningHorse === selectedGuest.horse_request ? '...' : 'Assign'}
                         </button>
                       )}
                     </div>
@@ -838,18 +876,26 @@ export default function GuestsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedArchived.records.map(rec => (
-                        <tr key={rec.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                          <td style={{ padding: '9px 8px', fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{rec.assigned_date}</td>
-                          <td style={{ padding: '9px 8px', fontSize: 13, fontWeight: 500 }}>{rec.horse_name}</td>
-                          <td style={{ padding: '9px 8px', fontSize: 12 }}>
-                            {rec.loves_horse && <span style={{ color: '#e11d48', fontWeight: 600 }}>❤️ Loves</span>}
-                            {rec.match_quality === 1 && !rec.loves_horse && <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match</span>}
-                            {rec.doesnt_work && <span style={{ color: '#dc2626', fontWeight: 600 }}>{rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "✗ Didn't work"}</span>}
-                          </td>
-                          <td style={{ padding: '9px 8px', fontSize: 11, color: 'var(--color-text-3)', textTransform: 'capitalize' }}>{rec.assignment_type}</td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        const rides = selectedArchived.records.filter(r => r.source !== 'checkout_only')
+                        if (rides.length === 0) return (
+                          <tr>
+                            <td colSpan={4} style={{ padding: '12px 8px', color: 'var(--color-text-3)', fontSize: 12 }}>No rides recorded during this visit</td>
+                          </tr>
+                        )
+                        return rides.map(rec => (
+                          <tr key={rec.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                            <td style={{ padding: '9px 8px', fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{rec.assigned_date}</td>
+                            <td style={{ padding: '9px 8px', fontSize: 13, fontWeight: 500 }}>{rec.horse_name}</td>
+                            <td style={{ padding: '9px 8px', fontSize: 12 }}>
+                              {rec.loves_horse && <span style={{ color: '#e11d48', fontWeight: 600 }}>❤️ Loves</span>}
+                              {rec.match_quality === 1 && !rec.loves_horse && <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match</span>}
+                              {rec.doesnt_work && <span style={{ color: '#dc2626', fontWeight: 600 }}>{rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "✗ Didn't work"}</span>}
+                            </td>
+                            <td style={{ padding: '9px 8px', fontSize: 11, color: 'var(--color-text-3)', textTransform: 'capitalize' }}>{rec.assignment_type}</td>
+                          </tr>
+                        ))
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -865,11 +911,12 @@ export default function GuestsPage() {
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
             .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; }
             .guest-back-btn { display: flex !important; }
+            .guest-header { padding-left: 12px !important; padding-right: 12px !important; }
           }
         ` }} />
       </main>
 
-      {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} />}
+      {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active).map(h => h.name)} />}
 
       {/* Doesn't work reason modal */}
       {doesntWorkTarget && (
@@ -910,8 +957,8 @@ export default function GuestsPage() {
   )
 }
 
-function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '' })
+function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => void; onSaved: () => void; horseNames?: string[] }) {
+  const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' as 'yes' | 'no', repeat_guest_notes: '' })
   const [saving, setSaving] = useState(false)
   const [count, setCount] = useState(0)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
@@ -933,9 +980,9 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     if (!form.name || !form.riding_level) return
     setSaving(true)
     try {
-      await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null }) })
+      await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null, repeat_guest: form.repeat_guest === 'yes', repeat_guest_notes: form.repeat_guest_notes || null }) })
       onSaved()
-      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '' })); setTimeout(() => setLastSaved(null), 2000) }
+      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no', repeat_guest_notes: '' })); setTimeout(() => setLastSaved(null), 2000) }
       else { onClose() }
     } finally { setSaving(false) }
   }
@@ -969,7 +1016,34 @@ function AddGuestModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} /></div>
           <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} /></div>
           <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} style={{ resize: 'vertical' }} /></div>
-          <div style={{ gridColumn: '1/-1' }}><label>Horse Request</label><input placeholder="e.g. Ringo" value={form.horse_request} onChange={f('horse_request')} /></div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label>Repeat guest?</label>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              {(['no', 'yes'] as const).map(val => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, repeat_guest: val }))}
+                  style={{ padding: '5px 14px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontWeight: form.repeat_guest === val ? 600 : 400, border: `1px solid ${form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-border)'}`, background: form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-surface)', color: form.repeat_guest === val ? '#fff' : 'var(--color-text-2)' }}
+                >
+                  {val === 'yes' ? 'Yes' : 'No'}
+                </button>
+              ))}
+            </div>
+            {form.repeat_guest === 'yes' && (
+              <textarea
+                rows={2}
+                placeholder="Previous visit notes (optional)"
+                value={form.repeat_guest_notes}
+                onChange={e => setForm(prev => ({ ...prev, repeat_guest_notes: e.target.value }))}
+                style={{ marginTop: 8, resize: 'vertical', width: '100%' }}
+              />
+            )}
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label>Horse Request</label>
+            <HorseAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={horseNames} />
+          </div>
         </div>
         <div style={{ marginTop: 18, display: 'flex', gap: 9 }}>
           <button onClick={() => save(false)} disabled={saving || !form.name || !form.riding_level} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Save Guest'}</button>

@@ -83,9 +83,10 @@ export async function POST(req: NextRequest) {
     let incompatibleHorses: string[] = []
     if (guestId) {
       const { data: incompatible } = await supabase
-        .from('horse_incompatibilities')
+        .from('horse_assignments')
         .select('horse_name')
         .eq('guest_id', guestId)
+        .eq('incompatible', true)
       incompatibleHorses = (incompatible || []).map((i: { horse_name: string }) => i.horse_name)
     }
 
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
 
     const eligible = (horsesResult.data || []).filter((h: any) => {
       if (h.exclude_from_ai) return false
+      if (h.is_deceased) return false
       if (h.weight === null) return false
       if (weightNum > h.weight) return false
       if (flagBlocked.has(h.name)) return false
@@ -153,6 +155,7 @@ export async function POST(req: NextRequest) {
     const doesntWorkNames = Object.entries(pastHorseMap).filter(([, v]) => v.doesnt_work).map(([n]) => n)
     const lovesNote = lovesHorseNames.length > 0 ? `❤️ LOVES THESE HORSES — guest has a genuine connection, prioritize but always show disclaimer to confirm: ${lovesHorseNames.join(', ')}` : ''
     const goodMatchNote = goodMatchNames.length > 0 ? `POSITIVE HISTORY (rode all week, no issues) — slight preference: ${goodMatchNames.join(', ')}` : ''
+    // Doesn't Work is per-guest only — zero effect on other guests' suggestions or global horse scoring
     const doesntWorkNote = doesntWorkNames.length > 0 ? `DO NOT SUGGEST — marked "doesn't work" for this guest: ${doesntWorkNames.join(', ')}` : ''
 
     const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''

@@ -173,6 +173,7 @@ export interface DbHorse {
   is_active: boolean
   exclude_from_ai: boolean
   rank_last: boolean
+  is_deceased: boolean
   created_at: string
   updated_at: string
   flags: DbHorseFlag[]

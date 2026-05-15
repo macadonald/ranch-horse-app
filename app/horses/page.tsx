@@ -128,6 +128,7 @@ function FlagNotesModal({ flagType, horseName, onConfirm, onClose }: {
           rows={3} autoFocus
           style={{ width: '100%', resize: 'vertical', marginBottom: 12 }}
           onKeyDown={e => e.key === 'Enter' && e.metaKey && handle(true)}
+          onMouseDown={e => e.stopPropagation()}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -162,22 +163,28 @@ function ToggleSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 
 type EditHorseForm = {
   name: string; level: string; weight: string; size: string; notes: string
-  is_active: boolean; exclude_from_ai: boolean; rank_last: boolean
+  is_active: boolean; exclude_from_ai: boolean; rank_last: boolean; is_deceased: boolean
 }
 
-function EditHorseModal({ horse, mode, onSave, onClose }: {
+function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today }: {
   horse: Partial<DbHorse> | null; mode: 'new' | 'edit' | 'promote'
   onSave: (form: EditHorseForm) => Promise<void>; onClose: () => void
+  onFlagClick?: (flagType: BlockingType) => void
+  onShoeClick?: (shoeType: 'fronts' | 'rears') => void
+  onMarkFit?: () => void
+  today?: string
 }) {
   const isNew = mode === 'new'
   const isPromote = mode === 'promote'
   const nameEditable = isNew || isPromote
 
+  const [inEditMode, setInEditMode] = useState(isNew || isPromote)
   const [form, setForm] = useState<EditHorseForm>({
     name: horse?.name ?? '', level: horse?.level ?? 'B',
     weight: horse?.weight?.toString() ?? '', size: horse?.size ?? 'medium',
     notes: horse?.notes ?? '', is_active: horse?.is_active ?? true,
     exclude_from_ai: horse?.exclude_from_ai ?? false, rank_last: horse?.rank_last ?? false,
+    is_deceased: (horse as DbHorse)?.is_deceased ?? false,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -193,7 +200,16 @@ function EditHorseModal({ horse, mode, onSave, onClose }: {
     catch (e: any) { setError(e.message || 'Save failed'); setSaving(false) }
   }
 
-  const title = isNew ? 'Add New Horse' : isPromote ? 'Promote to Guest String' : `Edit — ${horse?.name}`
+  const title = isNew ? 'Add New Horse' : isPromote ? 'Promote to Guest String' : horse?.name ?? 'Horse'
+
+  // For edit mode: compute active flags and shoe flags from the horse object
+  const activeFlags = mode === 'edit' && horse ? (horse as DbHorse).flags?.filter(f =>
+    BLOCKING_TYPES.includes(f.flag_type as BlockingType) &&
+    (f.flag_type !== 'day_off' || (today && f.day_off_date === today))
+  ) || [] : []
+  const hasFronts = mode === 'edit' && horse ? ((horse as DbHorse).shoe_flags || []).some(s => s.what_needed === 'fronts') : false
+  const hasRears = mode === 'edit' && horse ? ((horse as DbHorse).shoe_flags || []).some(s => s.what_needed === 'rears') : false
+  const anyFlags = activeFlags.length > 0 || hasFronts || hasRears
 
   return (
     <div
@@ -201,82 +217,206 @@ function EditHorseModal({ horse, mode, onSave, onClose }: {
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>{title}</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
-        </div>
-
-        {isPromote && (
-          <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--color-accent-bg)', border: '1px solid var(--color-accent-border)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--color-accent)' }}>
-            Fill in level, weight, and size to add to the guest string.
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-          <div style={{ gridColumn: '1/-1' }}>
-            <label>Name {nameEditable && <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span>}</label>
-            <input
-              value={form.name} onChange={e => nameEditable && set('name', e.target.value)}
-              readOnly={!nameEditable} placeholder="Horse name..." autoFocus={isNew}
-              style={{ opacity: nameEditable ? 1 : 0.55, background: nameEditable ? undefined : 'var(--color-bg)' }}
-            />
-          </div>
-          <div>
-            <label>Level <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span></label>
-            <select value={form.level} onChange={e => set('level', e.target.value)} autoFocus={isPromote}>
-              {LEVELS.map(l => <option key={l} value={l}>{LEVEL_LABELS[l] || l}</option>)}
-            </select>
-          </div>
-          <div>
-            <label>Size <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span></label>
-            <select value={form.size} onChange={e => set('size', e.target.value)}>
-              {SIZES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-            </select>
-          </div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <label>Max Weight (lbs)</label>
-            <input type="number" value={form.weight} onChange={e => set('weight', e.target.value)} placeholder="e.g. 250" />
-          </div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <label>Notes / Description</label>
-            <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={3} style={{ resize: 'vertical' }} placeholder="Notes about this horse..." />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {mode === 'edit' && !inEditMode && (
+              <button onClick={() => setInEditMode(true)} style={{ padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}>
+                Edit ✎
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
           </div>
         </div>
 
-        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 14, marginBottom: 14 }}>
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 10 }}>Status &amp; AI flags</p>
-          {[
-            { field: 'is_active' as const, label: 'Active in guest string', desc: 'Shows on board and in AI matches' },
-            { field: 'exclude_from_ai' as const, label: 'Manual Only', desc: 'Never in AI suggestions or Assign All — manual assignment only' },
-            { field: 'rank_last' as const, label: 'Last Resort', desc: 'AI ranks last — only if no other suitable horse exists' },
-          ].map(({ field, label, desc }) => (
-            <div key={field} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{desc}</div>
-              </div>
-              <ToggleSwitch on={form[field]} onToggle={() => set(field, !form[field])} />
+        {/* View mode (edit only, not new/promote) */}
+        {mode === 'edit' && !inEditMode && (
+          <div style={{ marginBottom: 16 }}>
+            {/* Horse summary */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600 }}>
+                {LEVEL_LABELS[horse?.level ?? ''] || horse?.level}
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--color-text-3)' }}>
+                {horse?.weight ? `Max ${horse.weight} lbs` : 'No weight limit'} · {horse?.size}
+              </span>
             </div>
-          ))}
-        </div>
+            {horse?.notes && (
+              <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.6, marginBottom: 10, padding: '8px 10px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                {horse.notes}
+              </p>
+            )}
+            {anyFlags && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
+                {activeFlags.map(f => {
+                  const meta = STATUS_META[f.flag_type as BlockingType]
+                  if (!meta) return null
+                  return (
+                    <span key={f.id} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontWeight: 600 }}>
+                      {meta.label}{f.notes ? ` — ${f.notes}` : ''}
+                    </span>
+                  )
+                })}
+                {hasFronts && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Missing Fronts</span>}
+                {hasRears && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Missing Rears</span>}
+              </div>
+            )}
 
-        {error && (
-          <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--color-danger)' }}>
-            {error}
+            {/* Quick actions */}
+            {(onShoeClick || onFlagClick || onMarkFit) && (
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, marginBottom: 4 }}>
+                <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 8 }}>Quick actions</p>
+                {onShoeClick && (
+                  <div style={{ display: 'flex', gap: 5, marginBottom: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 36 }}>Shoes</span>
+                    {([
+                      { type: 'fronts' as const, label: 'Fronts', isOn: hasFronts },
+                      { type: 'rears' as const, label: 'Rears', isOn: hasRears },
+                    ]).map(({ type, label, isOn }) => (
+                      <button
+                        key={type}
+                        onClick={() => onShoeClick(type)}
+                        style={{
+                          padding: '4px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
+                          border: `1px solid ${isOn ? '#fcd34d' : 'var(--color-border)'}`,
+                          background: isOn ? '#fef3c7' : 'var(--color-bg)',
+                          color: isOn ? '#92400e' : 'var(--color-text-2)',
+                          fontWeight: isOn ? 700 : 400,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => { onShoeClick('fronts'); onShoeClick('rears') }}
+                      style={{
+                        padding: '4px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
+                        border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-2)',
+                      }}
+                    >
+                      ×4
+                    </button>
+                  </div>
+                )}
+                {onFlagClick && (
+                  <div style={{ display: 'flex', gap: 5, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 36 }}>Status</span>
+                    {(['lame', 'injured'] as BlockingType[]).map(type => {
+                      const meta = STATUS_META[type]
+                      const isOn = activeFlags.some(f => f.flag_type === type)
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => onFlagClick(type)}
+                          style={{
+                            padding: '4px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
+                            border: `1px solid ${isOn ? meta.border : 'var(--color-border)'}`,
+                            background: isOn ? meta.bg : 'var(--color-bg)',
+                            color: isOn ? meta.color : 'var(--color-text-2)',
+                            fontWeight: isOn ? 700 : 400,
+                          }}
+                        >
+                          {FLAG_DISPLAY[type]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {onMarkFit && anyFlags && (
+                  <button
+                    onClick={onMarkFit}
+                    style={{
+                      width: '100%', padding: '7px', borderRadius: 'var(--radius-md)', fontSize: 12, fontWeight: 600,
+                      border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Mark Fit ✓ — Clear all flags
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 9 }}>
-          <button
-            onClick={handleSave} disabled={saving || !form.name.trim()}
-            style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving || !form.name.trim() ? 0.5 : 1 }}
-          >
-            {saving ? 'Saving...' : isNew ? 'Add Horse' : isPromote ? 'Add to Guest String' : 'Save Changes'}
-          </button>
-          <button onClick={onClose} style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>
-            Cancel
-          </button>
-        </div>
+        {/* Edit form — shown when inEditMode */}
+        {inEditMode && (
+          <>
+            {isPromote && (
+              <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--color-accent-bg)', border: '1px solid var(--color-accent-border)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--color-accent)' }}>
+                Fill in level, weight, and size to add to the guest string.
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div style={{ gridColumn: '1/-1' }}>
+                <label>Name {nameEditable && <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span>}</label>
+                <input
+                  onMouseDown={e => e.stopPropagation()}
+                  value={form.name} onChange={e => nameEditable && set('name', e.target.value)}
+                  readOnly={!nameEditable} placeholder="Horse name..." autoFocus={isNew}
+                  style={{ opacity: nameEditable ? 1 : 0.55, background: nameEditable ? undefined : 'var(--color-bg)' }}
+                />
+              </div>
+              <div>
+                <label>Level <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span></label>
+                <select value={form.level} onChange={e => set('level', e.target.value)} autoFocus={isPromote}>
+                  {LEVELS.map(l => <option key={l} value={l}>{LEVEL_LABELS[l] || l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label>Size <span style={{ color: 'var(--color-danger)', fontSize: 11 }}>*</span></label>
+                <select value={form.size} onChange={e => set('size', e.target.value)}>
+                  {SIZES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '1/-1' }}>
+                <label>Max Weight (lbs)</label>
+                <input onMouseDown={e => e.stopPropagation()} type="number" value={form.weight} onChange={e => set('weight', e.target.value)} placeholder="e.g. 250" />
+              </div>
+              <div style={{ gridColumn: '1/-1' }}>
+                <label>Notes / Description</label>
+                <textarea onMouseDown={e => e.stopPropagation()} value={form.notes} onChange={e => set('notes', e.target.value)} rows={3} style={{ resize: 'vertical' }} placeholder="Notes about this horse..." />
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 14, marginBottom: 14 }}>
+              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 10 }}>Status &amp; AI flags</p>
+              {[
+                { field: 'is_active' as const, label: 'Active in guest string', desc: 'Shows on board and in AI matches' },
+                { field: 'exclude_from_ai' as const, label: 'Manual Only', desc: 'Never in AI suggestions or Assign All — manual assignment only' },
+                { field: 'rank_last' as const, label: 'Last Resort', desc: 'AI ranks last — only if no other suitable horse exists' },
+                { field: 'is_deceased' as const, label: 'Deceased', desc: 'Mark if horse has passed — removes from all AI suggestions permanently' },
+              ].map(({ field, label, desc }) => (
+                <div key={field} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{desc}</div>
+                  </div>
+                  <ToggleSwitch on={form[field]} onToggle={() => set(field, !form[field])} />
+                </div>
+              ))}
+            </div>
+
+            {error && (
+              <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--color-danger)' }}>
+                {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button
+                onClick={handleSave} disabled={saving || !form.name.trim()}
+                style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving || !form.name.trim() ? 0.5 : 1 }}
+              >
+                {saving ? 'Saving...' : isNew ? 'Add Horse' : isPromote ? 'Add to Guest String' : 'Save Changes'}
+              </button>
+              <button onClick={onClose} style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -474,7 +614,7 @@ function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit }: {
 
   return (
     <div
-      onClick={onSelect}
+      onClick={onEdit}
       className="horse-list-row"
       style={{
         padding: '7px 14px',
@@ -517,18 +657,10 @@ function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit }: {
         >
           <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 17 : 3, transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
         </button>
-        {/* Edit icon */}
-        <button
-          onClick={e => { e.stopPropagation(); onEdit() }}
-          title="Edit"
-          style={{ width: 26, height: 26, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-3)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-        >
-          ✎
-        </button>
       </div>
       {/* Notes — truncated */}
       {horse.notes && (
-        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', paddingRight: 70 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', paddingRight: 50 }}>
           {horse.notes}
         </div>
       )}
@@ -847,13 +979,22 @@ export default function HorsesPage() {
       weight: form.weight ? parseInt(form.weight) : null,
       size: form.size, notes: form.notes,
       is_active: form.is_active, exclude_from_ai: form.exclude_from_ai, rank_last: form.rank_last,
+      is_deceased: form.is_deceased,
     }
     if (editMode === 'new') {
       const res = await fetch('/api/horses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed to add horse') }
+      if (!res.ok) {
+        const d = await res.json()
+        const msg = (d.error || '').toLowerCase()
+        throw new Error(msg.includes('duplicate') || msg.includes('unique') || msg.includes('already') ? 'Horse is already in system' : d.error || 'Failed to add horse')
+      }
     } else if (editMode === 'promote' && promotingAnimal) {
       const res = await fetch('/api/horses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed to add horse') }
+      if (!res.ok) {
+        const d = await res.json()
+        const msg = (d.error || '').toLowerCase()
+        throw new Error(msg.includes('duplicate') || msg.includes('unique') || msg.includes('already') ? 'Horse is already in system' : d.error || 'Failed to add horse')
+      }
       await fetch(`/api/other-animals?id=${encodeURIComponent(promotingAnimal.id)}`, { method: 'DELETE' })
       setPromotingAnimal(null); fetchAnimals()
     } else if (editingHorse?.id) {
@@ -1020,7 +1161,7 @@ export default function HorsesPage() {
                     key={horse.id}
                     horse={horse}
                     today={today}
-                    onSelect={() => setSelectedHorse(horse)}
+                    onSelect={() => openEdit(horse)}
                     onToggleActive={() => toggleActive(horse)}
                     onEdit={() => openEdit(horse)}
                   />
@@ -1033,7 +1174,7 @@ export default function HorsesPage() {
                     key={horse.id}
                     horse={horse}
                     today={today}
-                    onSelect={() => setSelectedHorse(horse)}
+                    onSelect={() => openEdit(horse)}
                     onToggleActive={() => toggleActive(horse)}
                     onEdit={() => openEdit(horse)}
                   />
@@ -1084,27 +1225,16 @@ export default function HorsesPage() {
 
       </main>
 
-      {/* Detail panel */}
-      {selectedHorse && (
-        <HorseDetailPanel
-          horse={selectedHorse}
-          today={today}
-          onClose={() => setSelectedHorse(null)}
-          onFlagClick={type => handleFlagClick(selectedHorse, type)}
-          onMarkFit={() => markFit(selectedHorse)}
-          onShoeClick={st => handleShoeClick(selectedHorse, st)}
-          onToggleActive={() => toggleActive(selectedHorse)}
-          onEdit={() => openEdit(selectedHorse)}
-          onDemote={() => demoteHorse(selectedHorse)}
-        />
-      )}
-
       {/* Edit modal */}
       {showEditModal && (
         <EditHorseModal
           horse={editingHorse} mode={editMode}
           onSave={saveHorse}
           onClose={() => { setShowEditModal(false); setEditingHorse(null); setPromotingAnimal(null) }}
+          today={today}
+          onFlagClick={editMode === 'edit' && editingHorse ? (type => { handleFlagClick(editingHorse as DbHorse, type) }) : undefined}
+          onShoeClick={editMode === 'edit' && editingHorse ? (st => { handleShoeClick(editingHorse as DbHorse, st) }) : undefined}
+          onMarkFit={editMode === 'edit' && editingHorse ? (() => { markFit(editingHorse as DbHorse) }) : undefined}
         />
       )}
 

@@ -103,7 +103,7 @@ type HealthIssue = {
   opened_at: string
 }
 
-type DoneForm = { visit_date: string; farrier_name: string; shoe_type: string; notes: string }
+type DoneForm = { visit_date: string; farrier_name: string; shoe_type: string; notes: string; work_done: string }
 
 type LogHorse = {
   horse_name: string
@@ -253,6 +253,7 @@ function NeedRow({
 }) {
   const [horseName, setHorseName] = useState(need.horse_name)
   const [notes, setNotes] = useState(need.notes || '')
+  const [workDoneSelection, setWorkDoneSelection] = useState('')
   useEffect(() => { setHorseName(need.horse_name) }, [need.horse_name])
   useEffect(() => { setNotes(need.notes || '') }, [need.notes])
 
@@ -261,10 +262,10 @@ function NeedRow({
   function toggleExpand() {
     if (isExpanded) {
       setMarkingDone(null)
-      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
+      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' })
     } else {
       setMarkingDone(need.id)
-      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: need.shoe_type || 'regular', notes: '' })
+      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: need.shoe_type || 'regular', notes: '', work_done: '' })
     }
   }
 
@@ -283,6 +284,7 @@ function NeedRow({
   return (
     <div
       onClick={() => onViewProfile(need)}
+      className="need-row"
       style={{ padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', marginBottom: 5, cursor: 'pointer' }}
     >
       {/* Row 1: emoji + editable name + drugger + done + remove */}
@@ -382,6 +384,38 @@ function NeedRow({
           style={{ marginTop: 10, padding: 12, background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}
         >
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Record this visit</div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 5 }}>What was done?</div>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+              {['Fronts', 'Rears', 'x4', 'Other'].map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => {
+                    const next = workDoneSelection === opt ? '' : opt
+                    setWorkDoneSelection(next)
+                    setDoneForm({ ...doneForm, work_done: next === 'Other' ? '' : next })
+                  }}
+                  style={{
+                    padding: '4px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
+                    border: `1px solid ${workDoneSelection === opt ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    background: workDoneSelection === opt ? 'var(--color-accent)' : 'var(--color-bg)',
+                    color: workDoneSelection === opt ? '#fff' : 'var(--color-text-2)',
+                    fontWeight: workDoneSelection === opt ? 600 : 400,
+                  }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+            {workDoneSelection === 'Other' && (
+              <input
+                value={doneForm.notes}
+                onChange={e => setDoneForm({ ...doneForm, notes: e.target.value, work_done: e.target.value })}
+                placeholder="Describe what was done..."
+                style={{ marginTop: 6, width: '100%', fontSize: 13 }}
+              />
+            )}
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }} className="done-form-grid">
             <div>
               <label>Visit Date</label>
@@ -889,7 +923,7 @@ export default function ShoesPage() {
   const [addError, setAddError] = useState<string | null>(null)
   const [addingSaving, setAddingSaving] = useState(false)
   const [markingDone, setMarkingDone] = useState<string | null>(null)
-  const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
+  const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' })
   const [savingDone, setSavingDone] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
   const [showLogVisit, setShowLogVisit] = useState(false)
@@ -1041,7 +1075,7 @@ export default function ShoesPage() {
           farrier_name: doneForm.farrier_name,
           horses: [{
             horse_name: need.horse_name,
-            work_done: need.what_needed,
+            work_done: doneForm.work_done || need.what_needed,
             shoe_type: doneForm.shoe_type || need.shoe_type || 'regular',
             notes: doneForm.notes || null,
           }],
@@ -1050,7 +1084,7 @@ export default function ShoesPage() {
       if (!visitRes.ok) throw new Error('Failed to save visit')
       await fetch(`/api/shoe-needs?id=${need.id}`, { method: 'DELETE' })
       setMarkingDone(null)
-      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '' })
+      setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' })
       await fetchData()
     } catch (err) {
       console.error(err)
@@ -1319,6 +1353,10 @@ export default function ShoesPage() {
             .log-horse-grid { grid-template-columns: 1fr !important; }
             .analytics-summary-grid { grid-template-columns: 1fr 1fr !important; }
             .analytics-trends-grid { grid-template-columns: 1fr !important; }
+          }
+          @media (max-width: 640px) {
+            .need-row { padding: 6px 8px !important; }
+            .need-row .horse-name { font-size: 11px !important; }
           }
         ` }} />
       </main>
