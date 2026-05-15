@@ -153,6 +153,8 @@ export default function GuestsPage() {
   const [archivedGuests, setArchivedGuests] = useState<ArchivedGuestSummary[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
   const [selectedArchived, setSelectedArchived] = useState<ArchivedGuestSummary | null>(null)
+  const [selectedHistoryGuest, setSelectedHistoryGuest] = useState<Guest | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
   const [guestGridView, setGuestGridView] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('guestGridView') === 'grid' : false)
   const detailPanelRef = useRef<HTMLDivElement>(null)
 
@@ -181,6 +183,12 @@ export default function GuestsPage() {
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
   useEffect(() => { detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id])
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   async function fetchGuestHistory(guestId: string) {
     setHistoryLoading(true)
@@ -244,7 +252,22 @@ export default function GuestsPage() {
     await fetchGuestHistory(selectedGuest.id)
   }
 
-  const activeGuests = guests.filter(g => !g.checked_out)
+  const cutoffDate = (() => {
+    const d = new Date(today + 'T12:00:00Z')
+    d.setUTCDate(d.getUTCDate() - 14)
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  })()
+  const activeGuests = guests.filter(g =>
+    !g.checked_out &&
+    g.check_in_date >= cutoffDate &&
+    (!g.check_out_date || g.check_out_date >= today)
+  )
+  const checkedOutGuests = guests
+    .filter(g => g.checked_out === true)
+    .sort((a, b) => (b.checked_out_at || '').localeCompare(a.checked_out_at || ''))
+  const filteredCheckedOut = checkedOutGuests.filter(g =>
+    !historySearch || g.name?.toLowerCase().includes(historySearch.toLowerCase())
+  )
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
@@ -267,7 +290,6 @@ export default function GuestsPage() {
     setSelectedGuest(prev => prev ? { ...prev, overestimates_level: newVal } : null)
     setGuests(prev => prev.map(g => g.id === selectedGuest.id ? { ...g, overestimates_level: newVal } : g))
     await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, overestimates_level: newVal }) })
-    await fetchGuests()
     const updated = { ...selectedGuest, overestimates_level: newVal }
     await runMatch(updated as Guest, dismissedHorses)
   }
@@ -537,9 +559,6 @@ export default function GuestsPage() {
   const incompatibleHorses: typeof incompatibleHorsesRaw = []
   incompatibleHorsesMap.forEach(v => incompatibleHorses.push(v))
 
-  // Filtered archived guests for history view
-  const filteredArchived = archivedGuests.filter(g => !historySearch || g.guest_name.toLowerCase().includes(historySearch.toLowerCase()))
-
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)' }}>
       <Sidebar />
@@ -631,6 +650,7 @@ export default function GuestsPage() {
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
                 <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
               <button onClick={() => setSelectedGuest(null)} className='guest-close-btn' style={{ display: 'none', position: 'fixed', top: 12, right: 12, width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 18, cursor: 'pointer', zIndex: 51, alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>✕</button>
+              {isMobile && <button onClick={() => setSelectedGuest(null)} style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999, width: 44, height: 44, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}>×</button>}
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -803,10 +823,10 @@ export default function GuestsPage() {
         {guestViewMode === 'history' && (
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }} className='guest-split'>
             {/* Archived guest list — document/table style */}
-            <div style={{ width: selectedArchived ? 320 : '100%', maxWidth: selectedArchived ? 320 : 'none', borderRight: selectedArchived ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', flexShrink: 0, background: 'var(--color-surface)' }}>
+            <div style={{ width: (selectedArchived || selectedHistoryGuest) ? 320 : '100%', maxWidth: (selectedArchived || selectedHistoryGuest) ? 320 : 'none', borderRight: (selectedArchived || selectedHistoryGuest) ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', flexShrink: 0, background: 'var(--color-surface)' }}>
               {archivedLoading ? (
                 <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading history...</p>
-              ) : filteredArchived.length === 0 ? (
+              ) : filteredCheckedOut.length === 0 ? (
                 <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
                   <p style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>{historySearch ? 'No matches' : 'No checked-out guests yet'}</p>
@@ -820,22 +840,26 @@ export default function GuestsPage() {
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last visit</span>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Signals</span>
                   </div>
-                  {filteredArchived.map(ag => {
-                    const lovesRecs = ag.records.filter(r => r.loves_horse)
-                    const doesntWorkRecs = ag.records.filter(r => r.doesnt_work)
-                    const goodRecs = ag.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse)
-                    const uniqueHorses = ag.records.map(r => r.horse_name).filter((n, i, a) => a.indexOf(n) === i)
-                    const isSelected = selectedArchived?.guest_name === ag.guest_name
+                  {filteredCheckedOut.map(g => {
+                    const ag = archivedGuests.find(a => a.guest_name === g.name)
+                    const lovesRecs = ag?.records.filter(r => r.loves_horse) || []
+                    const doesntWorkRecs = ag?.records.filter(r => r.doesnt_work) || []
+                    const goodRecs = ag?.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse) || []
+                    const uniqueHorses = ag?.records.map(r => r.horse_name).filter((n, i, a) => a.indexOf(n) === i) || []
+                    const isSelected = selectedHistoryGuest?.id === g.id
                     return (
-                      <div key={ag.guest_name} onClick={() => setSelectedArchived(isSelected ? null : ag)}
+                      <div key={g.id} onClick={() => {
+                        if (isSelected) { setSelectedArchived(null); setSelectedHistoryGuest(null) }
+                        else { setSelectedArchived(ag || null); setSelectedHistoryGuest(g) }
+                      }}
                         style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '9px 14px', borderBottom: '1px solid var(--color-border)', background: isSelected ? 'var(--color-accent-bg)' : 'transparent', borderLeft: `3px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`, cursor: 'pointer' }}>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ag.guest_name}</div>
+                          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {uniqueHorses.slice(0, 3).join(', ')}{uniqueHorses.length > 3 ? ` +${uniqueHorses.length - 3}` : ''}
                           </div>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', paddingTop: 2 }}>{ag.checkout_date.slice(0, 10)}</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', paddingTop: 2 }}>{(g.checked_out_at || '').slice(0, 10)}</div>
                         <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start', paddingTop: 2, justifyContent: 'flex-end' }}>
                           {lovesRecs.length > 0 && <span title={`Loves: ${lovesRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 12 }}>❤️</span>}
                           {goodRecs.length > 0 && <span title={`Good match: ${goodRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 700 }}>✓</span>}
@@ -849,9 +873,10 @@ export default function GuestsPage() {
             </div>
 
             {/* Archived guest detail — document style */}
-            {selectedArchived && (
+            {(selectedArchived || selectedHistoryGuest) && (
               <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', minWidth: 0, background: 'var(--color-bg)' }}>
-                <button onClick={() => setSelectedArchived(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 14, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back</button>
+                <button onClick={() => { setSelectedArchived(null); setSelectedHistoryGuest(null) }} className='guest-back-btn' style={{ display: 'none', marginBottom: 14, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back</button>
+                {selectedArchived ? (
                 <div style={{ maxWidth: 580 }}>
                   {/* Document header */}
                   <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid var(--color-border)' }}>
@@ -908,6 +933,15 @@ export default function GuestsPage() {
                     </tbody>
                   </table>
                 </div>
+                ) : (
+                <div style={{ maxWidth: 580 }}>
+                  <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid var(--color-border)' }}>
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>{selectedHistoryGuest!.name}</h2>
+                    <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 4 }}>Checked out {(selectedHistoryGuest!.checked_out_at || '').slice(0, 10)}</p>
+                    <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 8 }}>No ride records found for this visit.</p>
+                  </div>
+                </div>
+                )}
               </div>
             )}
           </div>
