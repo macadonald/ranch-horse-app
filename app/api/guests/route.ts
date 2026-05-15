@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from('guests')
-      .select(`id, name, room_number, check_in_date, check_out_date, age, weight, height, riding_level, notes, horse_request, gender, overestimates_level, checked_out, checked_out_at, repeat_guest, created_at, horse_assignments (*)`)
+      .select(`*, horse_assignments (*)`)
 
     if (error) throw error
 
