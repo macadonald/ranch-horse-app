@@ -163,18 +163,23 @@ function formatMonth(ym: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
 }
 
+const BADGE_STYLE: React.CSSProperties = {
+  fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600,
+  flexShrink: 0, whiteSpace: 'nowrap' as const, display: 'inline-block',
+}
+
 function ShoeTypeBadge({ shoeType }: { shoeType: string }) {
   if (shoeType === 'regular') {
-    return <span style={{ fontSize: 10, color: 'var(--color-text-muted)', flexShrink: 0 }}>Reg</span>
+    return <span style={{ ...BADGE_STYLE, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' }}>Reg</span>
   }
+  const config = SHOE_TYPE_COLORS[shoeType]
   const label = SHOE_TYPES.find(t => t.key === shoeType)?.label ?? shoeType
-  const isPlastics = shoeType === 'plastics'
   return (
     <span style={{
-      fontSize: 11, padding: '1px 6px', borderRadius: 999, fontWeight: 700, flexShrink: 0,
-      background: isPlastics ? '#ede9fe' : '#fef3c7',
-      color: isPlastics ? '#7c3aed' : '#92400e',
-      border: `1px solid ${isPlastics ? '#c4b5fd' : '#fcd34d'}`,
+      ...BADGE_STYLE,
+      background: config?.bg ?? '#fef3c7',
+      color: config?.color ?? '#92400e',
+      border: `1px solid ${config?.border ?? '#fcd34d'}`,
     }}>
       {label}
     </span>
@@ -1355,13 +1360,17 @@ export default function ShoesPage() {
             .analytics-trends-grid { grid-template-columns: 1fr !important; }
           }
           @media (max-width: 640px) {
-            .need-row { padding: 4px 6px !important; margin-bottom: 3px !important; min-height: unset !important; }
-            .need-row > div:first-child { gap: 3px !important; }
-            .need-row > div:first-child > input { font-size: 12px !important; }
-            .need-row > div:first-child > span:first-child { font-size: 12px !important; }
-            .need-row > div:nth-child(2) { gap: 3px !important; margin-top: 2px !important; }
-            .need-row > div:nth-child(2) > span { font-size: 10px !important; }
-            .need-row > input { font-size: 10px !important; margin-top: 2px !important; }
+            .need-row { padding: 8px 12px !important; margin-bottom: 4px !important; min-height: unset !important; }
+            .need-row > div:first-child { gap: 6px !important; }
+            .need-row > div:first-child > input {
+              font-size: 14px !important; font-weight: 400 !important;
+            }
+            .need-row > div:first-child > span:first-child { font-size: 14px !important; }
+            .need-row > div:nth-child(2) { gap: 6px !important; margin-top: 3px !important; }
+            .need-row > div:nth-child(2) > span[style] { font-size: 10px !important; padding: 1px 6px !important; border-radius: 999px !important; }
+            .need-row > div:nth-child(2) > span:last-child { font-size: 10px !important; }
+            .need-row > div:nth-child(2) > select { font-size: 10px !important; padding: 1px 4px !important; }
+            .need-row > input { font-size: 11px !important; margin-top: 3px !important; }
           }
         ` }} />
       </main>
