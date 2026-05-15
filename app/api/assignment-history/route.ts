@@ -68,11 +68,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ isReturning: (data?.length ?? 0) > 0, records: data || [] })
   }
 
-  // Bulk fetch since a date (for AssignAll draft disclaimers + History view)
+  // Bulk fetch since a date (for AssignAll draft disclaimers)
   if (since) {
     const { data, error } = await supabase
       .from('assignment_history')
-      .select('*')
+      .select('guest_name, horse_name, assigned_date, match_quality, doesnt_work, loves_horse')
       .gte('assigned_date', since)
       .order('assigned_date', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
