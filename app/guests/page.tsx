@@ -27,6 +27,8 @@ type Guest = {
   check_out_date: string; age: number; weight: number; height: string
   riding_level: string; notes: string; horse_request: string; gender: string
   overestimates_level?: boolean
+  checked_out?: boolean
+  checked_out_at?: string
   horse_assignments?: Assignment[]
 }
 
@@ -74,7 +76,10 @@ function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { valu
   function handleInput(v: string) {
     onChange(v)
     if (v.length >= 2) {
-      const matches = horses.filter(n => n.toLowerCase().includes(v.toLowerCase())).slice(0, 6)
+      const matches = horses
+        .filter(n => n.toLowerCase().includes(v.toLowerCase()))
+        .sort((a, b) => a.length - b.length || a.localeCompare(b))
+        .slice(0, 6)
       setSuggestions(matches); setShow(matches.length > 0)
     } else { setShow(false) }
   }
@@ -239,7 +244,7 @@ export default function GuestsPage() {
     await fetchGuestHistory(selectedGuest.id)
   }
 
-  const activeGuests = guests.filter(g => !g.check_out_date || g.check_out_date >= today)
+  const activeGuests = guests.filter(g => !g.checked_out && (!g.check_out_date || g.check_out_date >= today))
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
@@ -392,7 +397,10 @@ export default function GuestsPage() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ archive_guest_name: guest.name })
     })
-    await fetch(`/api/guests?id=${guest.id}`, { method: 'DELETE' })
+    await fetch('/api/guests', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: guest.id, checked_out: true, checked_out_at: new Date().toISOString() })
+    })
     if (selectedGuest?.id === guest.id) { setSelectedGuest(null); setGuestHistory([]) }
     await fetchGuests()
   }
@@ -551,7 +559,7 @@ export default function GuestsPage() {
               <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); fetchArchivedGuests() }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input
               placeholder={guestViewMode === 'history' ? 'Search past guests...' : 'Search name or room...'}
               value={guestViewMode === 'history' ? historySearch : search}
@@ -622,6 +630,7 @@ export default function GuestsPage() {
             {selectedGuest && (
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
                 <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
+              <button onClick={() => setSelectedGuest(null)} className='guest-close-btn' style={{ display: 'none', position: 'fixed', top: 12, right: 12, width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 18, cursor: 'pointer', zIndex: 51, alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>✕</button>
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -911,7 +920,10 @@ export default function GuestsPage() {
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
             .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; }
             .guest-back-btn { display: flex !important; }
-            .guest-header { padding-left: 12px !important; padding-right: 12px !important; }
+            .guest-close-btn { display: flex !important; }
+            .guest-header { padding-left: 12px !important; padding-right: 12px !important; flex-wrap: wrap !important; }
+            .guest-actions { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-end !important; padding-right: 0 !important; }
+            .guest-actions > input[type=text], .guest-actions > input:not([type]) { flex: 1 !important; min-width: 80px !important; width: auto !important; }
           }
         ` }} />
       </main>
@@ -957,12 +969,17 @@ export default function GuestsPage() {
   )
 }
 
+type RepeatHistoryRecord = { horse_name: string; assigned_date: string; doesnt_work: boolean; loves_horse: boolean; riding_level?: string; assignment_type: string }
+
 function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => void; onSaved: () => void; horseNames?: string[] }) {
-  const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' as 'yes' | 'no', repeat_guest_notes: '' })
+  const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' as 'yes' | 'no' })
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [count, setCount] = useState(0)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string; loves: boolean } | null>(null)
+  const [repeatHistory, setRepeatHistory] = useState<RepeatHistoryRecord[] | null>(null)
+  const [repeatHistoryLoading, setRepeatHistoryLoading] = useState(false)
 
   async function checkReturning(name: string) {
     if (!name || name.length < 3) { setReturningInfo(null); return }
@@ -976,14 +993,41 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
     } catch { setReturningInfo(null) }
   }
 
+  async function loadRepeatHistory(name: string) {
+    if (!name || name.length < 3) { setRepeatHistory(null); return }
+    setRepeatHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/assignment-history?check_returning=${encodeURIComponent(name)}`).then(r => r.json())
+      if (res.records?.length > 0) {
+        setRepeatHistory(res.records)
+      } else {
+        setRepeatHistory([])
+      }
+    } catch { setRepeatHistory([]) } finally { setRepeatHistoryLoading(false) }
+  }
+
+  function handleRepeatGuestToggle(val: 'yes' | 'no') {
+    setForm(prev => ({ ...prev, repeat_guest: val }))
+    if (val === 'yes' && form.name.length >= 3) {
+      loadRepeatHistory(form.name)
+    } else if (val === 'no') {
+      setRepeatHistory(null)
+    }
+  }
+
   async function save(addAnother: boolean) {
     if (!form.name || !form.riding_level) return
     setSaving(true)
+    setSaveError(null)
     try {
-      await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null, repeat_guest: form.repeat_guest === 'yes', repeat_guest_notes: form.repeat_guest_notes || null }) })
+      const res = await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null, repeat_guest: form.repeat_guest === 'yes' }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Save failed')
       onSaved()
-      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no', repeat_guest_notes: '' })); setTimeout(() => setLastSaved(null), 2000) }
+      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setRepeatHistory(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' })); setTimeout(() => setLastSaved(null), 2000) }
       else { onClose() }
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save guest — check your connection and try again')
     } finally { setSaving(false) }
   }
 
@@ -997,6 +1041,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
         </div>
         {lastSaved && <div style={{ background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: 'var(--color-success)', fontWeight: 500 }}>✓ {lastSaved} saved — enter next guest</div>}
+        {saveError && <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>⚠ {saveError}</div>}
         {returningInfo && (
           <div style={{ background: returningInfo.loves ? '#fff1f2' : '#ede9fe', border: `1px solid ${returningInfo.loves ? '#fda4af' : '#c4b5fd'}`, borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: returningInfo.loves ? '#9f1239' : '#6d28d9', fontWeight: 500 }}>
             {returningInfo.loves ? '❤️' : '🔄'} Returning guest! {returningInfo.loves ? `Loves ${returningInfo.lastHorse}` : `Last rode ${returningInfo.lastHorse}`} on {returningInfo.lastDate}
@@ -1005,7 +1050,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Full Name *</label>
-            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => checkReturning(form.name)} autoFocus />
+            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => { checkReturning(form.name); if (form.repeat_guest === 'yes') loadRepeatHistory(form.name) }} autoFocus />
           </div>
           <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} /></div>
           <div><label>Gender</label><select value={form.gender} onChange={f('gender')}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
@@ -1023,7 +1068,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
                 <button
                   key={val}
                   type="button"
-                  onClick={() => setForm(prev => ({ ...prev, repeat_guest: val }))}
+                  onClick={() => handleRepeatGuestToggle(val)}
                   style={{ padding: '5px 14px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontWeight: form.repeat_guest === val ? 600 : 400, border: `1px solid ${form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-border)'}`, background: form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-surface)', color: form.repeat_guest === val ? '#fff' : 'var(--color-text-2)' }}
                 >
                   {val === 'yes' ? 'Yes' : 'No'}
@@ -1031,13 +1076,24 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
               ))}
             </div>
             {form.repeat_guest === 'yes' && (
-              <textarea
-                rows={2}
-                placeholder="Previous visit notes (optional)"
-                value={form.repeat_guest_notes}
-                onChange={e => setForm(prev => ({ ...prev, repeat_guest_notes: e.target.value }))}
-                style={{ marginTop: 8, resize: 'vertical', width: '100%' }}
-              />
+              <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Previous visit records</p>
+                {repeatHistoryLoading && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Looking up history...</p>}
+                {!repeatHistoryLoading && repeatHistory === null && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Enter the guest&apos;s name above to look up history</p>}
+                {!repeatHistoryLoading && repeatHistory !== null && repeatHistory.length === 0 && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>No previous visit records found</p>}
+                {!repeatHistoryLoading && repeatHistory && repeatHistory.length > 0 && (
+                  <div>
+                    {repeatHistory.map((rec, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: i < repeatHistory.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>🐴 {rec.horse_name}</span>
+                        {rec.loves_horse && <span style={{ fontSize: 11, color: '#e11d48', fontWeight: 600 }}>❤️</span>}
+                        {rec.doesnt_work && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600 }}>✗ Didn&apos;t work</span>}
+                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 'auto' }}>{rec.assigned_date}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
           <div style={{ gridColumn: '1/-1' }}>

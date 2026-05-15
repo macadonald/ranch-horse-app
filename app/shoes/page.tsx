@@ -1355,8 +1355,13 @@ export default function ShoesPage() {
             .analytics-trends-grid { grid-template-columns: 1fr !important; }
           }
           @media (max-width: 640px) {
-            .need-row { padding: 6px 8px !important; }
-            .need-row .horse-name { font-size: 11px !important; }
+            .need-row { padding: 4px 6px !important; margin-bottom: 3px !important; min-height: unset !important; }
+            .need-row > div:first-child { gap: 3px !important; }
+            .need-row > div:first-child > input { font-size: 12px !important; }
+            .need-row > div:first-child > span:first-child { font-size: 12px !important; }
+            .need-row > div:nth-child(2) { gap: 3px !important; margin-top: 2px !important; }
+            .need-row > div:nth-child(2) > span { font-size: 10px !important; }
+            .need-row > input { font-size: 10px !important; margin-top: 2px !important; }
           }
         ` }} />
       </main>
