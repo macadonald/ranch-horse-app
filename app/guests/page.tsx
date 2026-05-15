@@ -193,8 +193,27 @@ export default function GuestsPage() {
   async function fetchArchivedGuests() {
     setArchivedLoading(true)
     try {
-      const res = await fetch('/api/assignment-history?archived=true').then(r => r.json())
-      setArchivedGuests(res.guests || [])
+      // Source of truth: checked_out boolean, sorted by checked_out_at desc
+      const checkedOutGuests = guests
+        .filter(g => g.checked_out)
+        .sort((a, b) => (b.checked_out_at || '').localeCompare(a.checked_out_at || ''))
+
+      if (checkedOutGuests.length === 0) { setArchivedGuests([]); return }
+
+      // Fetch archived assignment_history records for ride signals + detail view
+      const histRes = await fetch('/api/assignment-history?archived=true').then(r => r.json())
+      const historyByName: Record<string, HistoryRecord[]> = {}
+      for (const item of histRes.guests || []) {
+        historyByName[(item.guest_name as string).toLowerCase()] = item.records || []
+      }
+
+      const summaries: ArchivedGuestSummary[] = checkedOutGuests.map(g => ({
+        guest_name: g.name,
+        checkout_date: g.checked_out_at || '',
+        records: historyByName[g.name.toLowerCase()] || [],
+      }))
+
+      setArchivedGuests(summaries)
     } catch {} finally { setArchivedLoading(false) }
   }
 
@@ -244,7 +263,7 @@ export default function GuestsPage() {
     await fetchGuestHistory(selectedGuest.id)
   }
 
-  const activeGuests = guests.filter(g => !g.checked_out && (!g.check_out_date || g.check_out_date >= today))
+  const activeGuests = guests.filter(g => !g.checked_out)
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
@@ -263,13 +282,12 @@ export default function GuestsPage() {
   async function toggleOverestimatesLevel() {
     if (!selectedGuest) return
     const newVal = !selectedGuest.overestimates_level
-    // Optimistic update
     setSelectedGuest(prev => prev ? { ...prev, overestimates_level: newVal } : null)
     setGuests(prev => prev.map(g => g.id === selectedGuest.id ? { ...g, overestimates_level: newVal } : g))
     await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, overestimates_level: newVal }) })
-    await fetchGuests()
-    const updated = { ...selectedGuest, overestimates_level: newVal }
-    await runMatch(updated as Guest, dismissedHorses)
+    // Do NOT call fetchGuests() here — it would overwrite the optimistic update with
+    // whatever the API returns, which may be stale if the DB write hasn't propagated.
+    await runMatch({ ...selectedGuest, overestimates_level: newVal } as Guest, dismissedHorses)
   }
 
   async function openGuest(guest: Guest) {
@@ -626,11 +644,32 @@ export default function GuestsPage() {
                 )}
             </div>
 
+            {/* Mobile close button — outside the scrollable panel so position:fixed works correctly */}
+            {selectedGuest && (
+              <button
+                onClick={() => setSelectedGuest(null)}
+                className='guest-close-btn'
+                style={{
+                  display: 'none',
+                  position: 'fixed', top: 16, right: 16,
+                  zIndex: 9999,
+                  width: 44, height: 44,
+                  borderRadius: '50%',
+                  background: 'rgba(0,0,0,0.6)',
+                  color: '#fff',
+                  fontSize: 20,
+                  alignItems: 'center', justifyContent: 'center',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+                aria-label="Close profile"
+              >✕</button>
+            )}
+
             {/* Guest detail panel */}
             {selectedGuest && (
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
                 <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
-              <button onClick={() => setSelectedGuest(null)} className='guest-close-btn' style={{ display: 'none', position: 'fixed', top: 12, right: 12, width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 18, cursor: 'pointer', zIndex: 51, alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>✕</button>
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
