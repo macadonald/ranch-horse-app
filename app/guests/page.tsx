@@ -259,7 +259,6 @@ export default function GuestsPage() {
   })()
   const activeGuests = guests.filter(g =>
     !g.checked_out &&
-    g.check_in_date >= cutoffDate &&
     (!g.check_out_date || g.check_out_date >= today)
   )
   const checkedOutGuests = guests
