@@ -244,7 +244,7 @@ export default function GuestsPage() {
     await fetchGuestHistory(selectedGuest.id)
   }
 
-  const activeGuests = guests.filter(g => !g.checked_out && (!g.check_out_date || g.check_out_date >= today))
+  const activeGuests = guests.filter(g => !g.checked_out)
   const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
