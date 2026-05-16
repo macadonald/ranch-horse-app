@@ -553,7 +553,7 @@ export default function GuestsPage() {
         {assignmentConfirmation && <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000 }}>{assignmentConfirmation}</div>}
 
         {/* Header */}
-        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)', paddingBottom: 16, paddingLeft: 24, paddingRight: 24, position: 'sticky', top: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Guests</h1>
@@ -634,19 +634,28 @@ export default function GuestsPage() {
 
             {/* Guest detail panel */}
             {selectedGuest && (
-              <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
+              <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', paddingTop: isMobile ? 80 : 20, paddingRight: 20, paddingBottom: 20, paddingLeft: 20, minWidth: 0, position: 'relative' }} className='guest-profile-panel'>
                 <button
-                  onClick={() => setSelectedGuest(null)}
+                  onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14,
-                    padding: '7px 14px', borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)', background: 'var(--color-surface)',
-                    fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)',
-                    position: 'sticky', top: 0, zIndex: 5,
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    background: 'var(--color-bg-2)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text-1)',
+                    fontSize: 16,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10,
+                    flexShrink: 0,
                   }}
-                >
-                  ← Back to guests
-                </button>
+                >✕</button>
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>

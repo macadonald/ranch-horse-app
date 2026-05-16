@@ -238,6 +238,7 @@ function HorseAutocomplete({ value, onChange, placeholder, extraNames = [] }: { 
 function NeedRow({
   need, onUpdate, onRemove, onToggleDrugger, onViewProfile,
   markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving, markDoneError,
+  farrierNames,
 }: {
   need: ShoeNeed
   onUpdate: (id: string, field: string, value: string) => void
@@ -251,6 +252,7 @@ function NeedRow({
   onMarkDone: (need: ShoeNeed) => void
   saving: boolean
   markDoneError: string | null
+  farrierNames: string[]
 }) {
   const [horseName, setHorseName] = useState(need.horse_name)
   const [workDoneSelection, setWorkDoneSelection] = useState('')
@@ -407,6 +409,26 @@ function NeedRow({
             </div>
             <div>
               <label>Farrier Name</label>
+              {farrierNames.length > 0 && (
+                <div style={{ display: 'flex', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
+                  {farrierNames.map(name => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setDoneForm({ ...doneForm, farrier_name: name })}
+                      style={{
+                        padding: '3px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
+                        border: `1px solid ${doneForm.farrier_name === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                        background: doneForm.farrier_name === name ? 'var(--color-accent)' : 'var(--color-surface)',
+                        color: doneForm.farrier_name === name ? '#fff' : 'var(--color-text-2)',
+                        fontWeight: doneForm.farrier_name === name ? 600 : 400,
+                      }}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <input value={doneForm.farrier_name} onChange={e => setDoneForm({ ...doneForm, farrier_name: e.target.value })} placeholder="e.g. John Smith" />
             </div>
           </div>
@@ -425,18 +447,30 @@ function NeedRow({
               ⚠ {markDoneError}
             </div>
           )}
-          <button
-            onClick={() => onMarkDone(need)}
-            disabled={saving || !doneForm.visit_date || !doneForm.farrier_name}
-            style={{
-              padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: 'none',
-              background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600,
-              cursor: saving || !doneForm.visit_date || !doneForm.farrier_name ? 'not-allowed' : 'pointer',
-              opacity: saving || !doneForm.visit_date || !doneForm.farrier_name ? 0.5 : 1,
-            }}
-          >
-            {saving ? 'Saving...' : 'Save & Remove from list'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { setMarkingDone(null); setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' }) }}
+              style={{
+                padding: '7px 14px', borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)', background: 'var(--color-bg)',
+                color: 'var(--color-text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onMarkDone(need)}
+              disabled={saving || !doneForm.visit_date || !doneForm.farrier_name}
+              style={{
+                padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: 'none',
+                background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600,
+                cursor: saving || !doneForm.visit_date || !doneForm.farrier_name ? 'not-allowed' : 'pointer',
+                opacity: saving || !doneForm.visit_date || !doneForm.farrier_name ? 0.5 : 1,
+              }}
+            >
+              {saving ? 'Saving...' : 'Save & Remove from list'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -950,6 +984,7 @@ export default function ShoesPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const needsHorseNames = useMemo(() => new Set(needs.map(n => n.horse_name)), [needs])
+  const farrierNames = useMemo(() => Array.from(new Set(visits.map(v => v.farrier_name).filter(Boolean))), [visits])
 
   const filteredNeeds = useMemo(() => {
     if (typeFilter === 'all') return needs
@@ -1257,6 +1292,7 @@ export default function ShoesPage() {
                 onMarkDone={markDone}
                 saving={savingDone}
                 markDoneError={markDoneError}
+                farrierNames={farrierNames}
               />
             ))}
           </div>
@@ -1432,7 +1468,7 @@ export default function ShoesPage() {
           onSaved={handleVisitSaved}
           needs={needs}
           extraNames={otherAnimalNames}
-          pastFarrierNames={Array.from(new Set(visits.map(v => v.farrier_name))).slice(0, 5)}
+          pastFarrierNames={Array.from(new Set(visits.map(v => v.farrier_name).filter(Boolean)))}
         />
       )}
     </div>
