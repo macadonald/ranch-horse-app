@@ -636,19 +636,36 @@ export default function GuestsPage() {
             {selectedGuest && (
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
                 {isMobile && (
-                  <button
-                    onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      padding: '12px 16px', background: 'none', border: 'none',
-                      fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                      color: 'var(--color-text-2)', marginBottom: 4, width: '100%',
-                    }}
-                  >
-                    ← Back to guests
-                  </button>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '52px 16px 12px 16px',
+                    background: 'var(--color-bg)',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10,
+                  }}>
+                    <button
+                      onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: 'var(--color-text-1)',
+                        background: 'var(--color-bg-2)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 20,
+                        padding: '6px 14px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ← Back to guests
+                    </button>
+                  </div>
                 )}
-                <div style={{ maxWidth: 680 }}>
+                <div style={{ maxWidth: 680, margin: isMobile ? '0 12px' : undefined }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
