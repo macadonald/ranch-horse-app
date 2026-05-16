@@ -635,6 +635,19 @@ export default function GuestsPage() {
             {/* Guest detail panel */}
             {selectedGuest && (
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
+                {isMobile && (
+                  <button
+                    onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '12px 16px', background: 'none', border: 'none',
+                      fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                      color: 'var(--color-text-2)', marginBottom: 4, width: '100%',
+                    }}
+                  >
+                    ← Back to guests
+                  </button>
+                )}
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -651,7 +664,7 @@ export default function GuestsPage() {
                         {checkoutSoon(selectedGuest) && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
                         <button onClick={() => checkOutGuest(selectedGuest)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)', cursor: 'pointer', fontWeight: 600 }}>Check Out</button>
                         <button onClick={() => deleteGuest(selectedGuest.id)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove guest</button>
-                        <button onClick={() => { setSelectedGuest(null); setGuestHistory([]) }} title="Close" style={{ fontSize: 14, lineHeight: 1, background: 'none', border: '1px solid var(--color-border)', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '3px 8px', borderRadius: 'var(--radius-sm)' }}>✕</button>
+                        {!isMobile && <button onClick={() => { setSelectedGuest(null); setGuestHistory([]) }} title="Close" style={{ fontSize: 14, lineHeight: 1, background: 'none', border: '1px solid var(--color-border)', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '3px 8px', borderRadius: 'var(--radius-sm)' }}>✕</button>}
                       </div>
                     </div>
                     <div style={{ marginBottom: 10 }}>
@@ -973,7 +986,7 @@ export default function GuestsPage() {
             .guest-main { overflow-y: auto !important; display: block !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-y !important; }
             .guest-split { flex-direction: column !important; height: auto !important; flex: initial !important; min-height: initial !important; }
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; overflow-y: visible !important; }
-            .guest-profile-panel { background: var(--color-bg) !important; overflow-y: visible !important; padding: 12px !important; }
+            .guest-profile-panel { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; z-index: 200 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 0 !important; -webkit-overflow-scrolling: touch !important; }
             .guest-header { padding-left: 12px !important; padding-right: 12px !important; padding-top: max(12px, env(safe-area-inset-top)) !important; flex-wrap: wrap !important; }
             .guest-actions { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-end !important; padding-right: 0 !important; }
             .guest-actions > input[type=text], .guest-actions > input:not([type]) { flex: 1 !important; min-width: 80px !important; width: auto !important; }
