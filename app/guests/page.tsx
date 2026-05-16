@@ -26,7 +26,6 @@ type Guest = {
   id: string; name: string; room_number: string; check_in_date: string
   check_out_date: string; age: number; weight: number; height: string
   riding_level: string; notes: string; horse_request: string; gender: string
-  overestimates_level?: boolean
   checked_out?: boolean
   checked_out_at?: string
   horse_assignments?: Assignment[]
@@ -280,17 +279,6 @@ export default function GuestsPage() {
         await runMatch(updated as Guest, dismissedHorses)
       }
     } catch (err) { console.error(err) }
-  }
-
-  async function toggleOverestimatesLevel() {
-    if (!selectedGuest) return
-    const newVal = !selectedGuest.overestimates_level
-    // Optimistic update
-    setSelectedGuest(prev => prev ? { ...prev, overestimates_level: newVal } : null)
-    setGuests(prev => prev.map(g => g.id === selectedGuest.id ? { ...g, overestimates_level: newVal } : g))
-    await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, overestimates_level: newVal }) })
-    const updated = { ...selectedGuest, overestimates_level: newVal }
-    await runMatch(updated as Guest, dismissedHorses)
   }
 
   async function openGuest(guest: Guest) {
@@ -559,13 +547,13 @@ export default function GuestsPage() {
   incompatibleHorsesMap.forEach(v => incompatibleHorses.push(v))
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)' }}>
+    <div style={{ display: 'flex', height: '100dvh', background: 'var(--color-bg)' }}>
       <Sidebar />
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }} className='guest-main'>
         {assignmentConfirmation && <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000 }}>{assignmentConfirmation}</div>}
 
         {/* Header */}
-        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '16px 24px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Guests</h1>
@@ -647,15 +635,18 @@ export default function GuestsPage() {
             {/* Guest detail panel */}
             {selectedGuest && (
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
-                <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
-              <div className="guest-desktop-close" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
                 <button
                   onClick={() => setSelectedGuest(null)}
-                  style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, color: 'var(--color-text-2)', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5 }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14,
+                    padding: '7px 14px', borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)',
+                    position: 'sticky', top: 0, zIndex: 5,
+                  }}
                 >
-                  ✕ Close
+                  ← Back to guests
                 </button>
-              </div>
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -670,9 +661,6 @@ export default function GuestsPage() {
                       </div>
                       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                         {checkoutSoon(selectedGuest) && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
-                        <button onClick={toggleOverestimatesLevel} title="Flag if guest overstates their riding ability" style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, border: '1px solid', background: selectedGuest.overestimates_level ? '#fef3c7' : 'var(--color-bg)', color: selectedGuest.overestimates_level ? '#92400e' : 'var(--color-text-3)', borderColor: selectedGuest.overestimates_level ? '#fcd34d' : 'var(--color-border)', cursor: 'pointer', fontWeight: selectedGuest.overestimates_level ? 600 : 400 }}>
-                          {selectedGuest.overestimates_level ? '⚠ Overestimates level' : 'Overestimates?'}
-                        </button>
                         <button onClick={() => checkOutGuest(selectedGuest)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)', cursor: 'pointer', fontWeight: 600 }}>Check Out</button>
                         <button onClick={() => deleteGuest(selectedGuest.id)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove guest</button>
                       </div>
@@ -763,7 +751,6 @@ export default function GuestsPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <div>
                         <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Horse Matches</h3>
-                        {selectedGuest.overestimates_level && <p style={{ fontSize: 11, color: '#92400e', marginTop: 2 }}>⚠ Matching at adjusted level (overestimates)</p>}
                       </div>
                       <button onClick={() => runMatch(selectedGuest, dismissedHorses)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-2)', cursor: 'pointer' }}>Refresh all</button>
                     </div>
@@ -998,9 +985,7 @@ export default function GuestsPage() {
             .guest-split { flex-direction: column !important; height: auto !important; flex: initial !important; min-height: initial !important; }
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; overflow-y: visible !important; }
             .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-y !important; }
-            .guest-back-btn { display: flex !important; }
-            .guest-desktop-close { display: none !important; }
-            .guest-header { padding-left: 12px !important; padding-right: 12px !important; flex-wrap: wrap !important; }
+            .guest-header { padding-left: 12px !important; padding-right: 12px !important; padding-top: max(12px, env(safe-area-inset-top)) !important; flex-wrap: wrap !important; }
             .guest-actions { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-end !important; padding-right: 0 !important; }
             .guest-actions > input[type=text], .guest-actions > input:not([type]) { flex: 1 !important; min-width: 80px !important; width: auto !important; }
           }

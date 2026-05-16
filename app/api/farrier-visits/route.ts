@@ -46,3 +46,15 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ visit })
 }
+
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'No id' }, { status: 400 })
+  // Delete associated horse records first
+  const { error: horsesError } = await supabase.from('farrier_visit_horses').delete().eq('visit_id', id)
+  if (horsesError) return NextResponse.json({ error: horsesError.message }, { status: 500 })
+  const { error: visitError } = await supabase.from('farrier_visits').delete().eq('id', id)
+  if (visitError) return NextResponse.json({ error: visitError.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}

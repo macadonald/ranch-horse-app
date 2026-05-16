@@ -237,7 +237,7 @@ function HorseAutocomplete({ value, onChange, placeholder, extraNames = [] }: { 
 
 function NeedRow({
   need, onUpdate, onRemove, onToggleDrugger, onViewProfile,
-  markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving,
+  markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving, markDoneError,
 }: {
   need: ShoeNeed
   onUpdate: (id: string, field: string, value: string) => void
@@ -250,12 +250,11 @@ function NeedRow({
   setDoneForm: (f: DoneForm) => void
   onMarkDone: (need: ShoeNeed) => void
   saving: boolean
+  markDoneError: string | null
 }) {
   const [horseName, setHorseName] = useState(need.horse_name)
-  const [notes, setNotes] = useState(need.notes || '')
   const [workDoneSelection, setWorkDoneSelection] = useState('')
   useEffect(() => { setHorseName(need.horse_name) }, [need.horse_name])
-  useEffect(() => { setNotes(need.notes || '') }, [need.notes])
 
   const isExpanded = markingDone === need.id
 
@@ -362,21 +361,6 @@ function NeedRow({
         <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Added {created}</span>
       </div>
 
-      {/* Row 3: notes */}
-      <input
-        value={notes}
-        onChange={e => setNotes(e.target.value)}
-        onBlur={() => { if (notes !== (need.notes || '')) onUpdate(need.id, 'notes', notes) }}
-        onClick={e => e.stopPropagation()}
-        onFocus={e => e.stopPropagation()}
-        placeholder="add a note..."
-        style={{
-          display: 'block', width: '100%', marginTop: 3, fontSize: 11, color: 'var(--color-text-3)',
-          background: 'transparent', border: 'none', outline: 'none',
-          padding: '0 2px', fontFamily: 'inherit', cursor: 'text', boxSizing: 'border-box',
-        }}
-      />
-
       {/* Expanded: record visit */}
       {isExpanded && (
         <div
@@ -436,6 +420,11 @@ function NeedRow({
             <label>Notes for this visit</label>
             <input value={doneForm.notes} onChange={e => setDoneForm({ ...doneForm, notes: e.target.value })} placeholder="Optional..." />
           </div>
+          {markDoneError && (
+            <div style={{ fontSize: 12, color: 'var(--color-danger)', background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-sm)', padding: '7px 10px', marginBottom: 10 }}>
+              ⚠ {markDoneError}
+            </div>
+          )}
           <button
             onClick={() => onMarkDone(need)}
             disabled={saving || !doneForm.visit_date || !doneForm.farrier_name}
@@ -931,6 +920,9 @@ export default function ShoesPage() {
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState('all')
   const [profileNeed, setProfileNeed] = useState<ShoeNeed | null>(null)
+  const [markDoneError, setMarkDoneError] = useState<string | null>(null)
+  const [selectedFarrier, setSelectedFarrier] = useState<string | null>(null)
+  const [deletingVisitId, setDeletingVisitId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -1068,6 +1060,7 @@ export default function ShoesPage() {
     if (!doneForm.visit_date || !doneForm.farrier_name) return
     if (savingDoneRef.current) return
     savingDoneRef.current = true
+    setMarkDoneError(null)
     setSavingDone(true)
     try {
       const visitRes = await fetch('/api/farrier-visits', {
@@ -1090,10 +1083,20 @@ export default function ShoesPage() {
       setDoneForm({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' })
       await fetchData()
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save — check your connection'
+      setMarkDoneError(msg)
       console.error(err)
     } finally {
       savingDoneRef.current = false
       setSavingDone(false)
+    }
+  }
+
+  async function deleteVisit(id: string) {
+    const res = await fetch(`/api/farrier-visits?id=${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setVisits(prev => prev.filter(v => v.id !== id))
+      setDeletingVisitId(null)
     }
   }
 
@@ -1253,6 +1256,7 @@ export default function ShoesPage() {
                 setDoneForm={setDoneForm}
                 onMarkDone={markDone}
                 saving={savingDone}
+                markDoneError={markDoneError}
               />
             ))}
           </div>
@@ -1321,11 +1325,24 @@ export default function ShoesPage() {
                     <div style={{ fontWeight: 700, fontSize: 14 }}>
                       {new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Farrier: {visit.farrier_name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+                      Farrier: <button onClick={() => setSelectedFarrier(visit.farrier_name)} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: 0, textDecoration: 'underline' }}>{visit.farrier_name}</button>
+                    </div>
                   </div>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600, border: '1px solid var(--color-info-border)' }}>
-                    {visit.farrier_visit_horses.length} horse{visit.farrier_visit_horses.length !== 1 ? 's' : ''}
-                  </span>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600, border: '1px solid var(--color-info-border)' }}>
+                      {visit.farrier_visit_horses.length} horse{visit.farrier_visit_horses.length !== 1 ? 's' : ''}
+                    </span>
+                    {deletingVisitId === visit.id ? (
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Delete?</span>
+                        <button onClick={() => deleteVisit(visit.id)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
+                        <button onClick={() => setDeletingVisitId(null)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-3)', cursor: 'pointer' }}>No</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setDeletingVisitId(visit.id)} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer' }} title="Delete this visit">✕</button>
+                    )}
+                  </div>
                 </div>
                 {visit.farrier_visit_horses.map(h => (
                   <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', marginBottom: 5, border: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
@@ -1370,6 +1387,37 @@ export default function ShoesPage() {
         ` }} />
       </main>
 
+      {selectedFarrier && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={() => setSelectedFarrier(null)}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 520, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div>
+                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>{selectedFarrier}</h2>
+                <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 3 }}>
+                  {visits.filter(v => v.farrier_name === selectedFarrier).length} visit{visits.filter(v => v.farrier_name === selectedFarrier).length !== 1 ? 's' : ''} on record
+                </p>
+              </div>
+              <button onClick={() => setSelectedFarrier(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
+            </div>
+            {visits.filter(v => v.farrier_name === selectedFarrier).map(v => (
+              <div key={v.id} style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
+                  {new Date(v.visit_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                </div>
+                {v.farrier_visit_horses.map(h => (
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid var(--color-border)' }}>
+                    <span style={{ fontSize: 13 }}>🐴</span>
+                    <span style={{ fontWeight: 600, fontSize: 12, flex: 1 }}>{h.horse_name}</span>
+                    <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>{WORK_LABELS[h.work_done] || h.work_done}</span>
+                    {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {profileNeed && (
         <HorseProfileModal
           need={profileNeed}
@@ -1384,17 +1432,19 @@ export default function ShoesPage() {
           onSaved={handleVisitSaved}
           needs={needs}
           extraNames={otherAnimalNames}
+          pastFarrierNames={Array.from(new Set(visits.map(v => v.farrier_name))).slice(0, 5)}
         />
       )}
     </div>
   )
 }
 
-function LogVisitModal({ onClose, onSaved, needs, extraNames = [] }: {
+function LogVisitModal({ onClose, onSaved, needs, extraNames = [], pastFarrierNames = [] }: {
   onClose: () => void
   onSaved: (msg: string) => void
   needs: ShoeNeed[]
   extraNames?: string[]
+  pastFarrierNames?: string[]
 }) {
   const today = new Date().toISOString().split('T')[0]
   const [visitDate, setVisitDate] = useState(today)
@@ -1500,6 +1550,26 @@ function LogVisitModal({ onClose, onSaved, needs, extraNames = [] }: {
           </div>
           <div>
             <label>Farrier Name</label>
+            {pastFarrierNames.length > 0 && (
+              <div style={{ display: 'flex', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
+                {pastFarrierNames.map(name => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setFarrierName(name)}
+                    style={{
+                      padding: '3px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
+                      border: `1px solid ${farrierName === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                      background: farrierName === name ? 'var(--color-accent)' : 'var(--color-surface)',
+                      color: farrierName === name ? '#fff' : 'var(--color-text-2)',
+                      fontWeight: farrierName === name ? 600 : 400,
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
             <input value={farrierName} onChange={e => setFarrierName(e.target.value)} placeholder="e.g. John Smith" autoFocus />
           </div>
         </div>

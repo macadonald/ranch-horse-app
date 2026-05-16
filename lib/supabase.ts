@@ -18,7 +18,6 @@ export type Guest = {
   notes: string
   horse_request: string
   created_at: string
-  overestimates_level: boolean
   repeat_guest: boolean
   checked_out: boolean
   checked_out_at: string | null
