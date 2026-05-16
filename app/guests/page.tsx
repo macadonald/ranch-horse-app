@@ -586,7 +586,7 @@ export default function GuestsPage() {
         {guestViewMode === 'active' && (
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }} className='guest-split'>
             {/* Guest list */}
-            <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0, display: (isMobile && !!selectedGuest) ? 'none' : undefined }}>
+            <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
               {loading ? <p style={{ padding: 20, color: 'var(--color-text-3)', textAlign: 'center', fontSize: 13 }}>Loading...</p>
                 : filteredGuests.length === 0 ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>◎</div><p style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>No guests yet</p><p style={{ fontSize: 12, marginTop: 4 }}>Click + Add Guest to start</p></div>
                 : (
@@ -632,40 +632,83 @@ export default function GuestsPage() {
                 )}
             </div>
 
+            {/* Mobile backdrop */}
+            {selectedGuest && isMobile && (
+              <div
+                onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
+                style={{
+                  position: 'fixed',
+                  top: '110px',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0, 0, 0, 0.45)',
+                  zIndex: 150,
+                }}
+              />
+            )}
+
             {/* Guest detail panel */}
             {selectedGuest && (
-              <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
+              <div
+                ref={detailPanelRef}
+                className={isMobile ? undefined : 'guest-profile-panel'}
+                style={isMobile ? {
+                  position: 'fixed',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: '92vh',
+                  background: 'var(--color-bg)',
+                  borderRadius: '20px 20px 0 0',
+                  zIndex: 200,
+                  overflowY: 'auto',
+                  boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
+                } : {
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: 20,
+                  minWidth: 0,
+                }}
+              >
+                {/* Mobile: sheet header with drag handle, guest name, close */}
                 {isMobile && (
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '52px 16px 12px 16px',
-                    background: 'var(--color-bg)',
+                    justifyContent: 'space-between',
+                    padding: '16px 16px 8px 16px',
+                    borderBottom: '1px solid var(--color-border)',
                     position: 'sticky',
                     top: 0,
+                    background: 'var(--color-bg)',
                     zIndex: 10,
+                    borderRadius: '20px 20px 0 0',
                   }}>
+                    <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)' }} />
+                    <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-1)', paddingTop: 8 }}>
+                      {selectedGuest.name}
+                    </span>
                     <button
                       onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: 'var(--color-text-1)',
+                        width: 32, height: 32,
+                        borderRadius: '50%',
                         background: 'var(--color-bg-2)',
                         border: '1px solid var(--color-border)',
-                        borderRadius: 20,
-                        padding: '6px 14px',
+                        color: 'var(--color-text-2)',
+                        fontSize: 16,
                         cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        paddingTop: 8,
                       }}
-                    >
-                      ← Back to guests
-                    </button>
+                    >✕</button>
                   </div>
                 )}
-                <div style={{ maxWidth: 680, margin: isMobile ? '0 12px' : undefined }}>
+                <div style={{ maxWidth: isMobile ? undefined : 680, padding: isMobile ? '12px 16px 32px 16px' : undefined }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
