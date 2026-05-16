@@ -182,7 +182,7 @@ export default function GuestsPage() {
 
   useEffect(() => { fetchGuests() }, [fetchGuests])
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
-  useEffect(() => { detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id])
+  useEffect(() => { if (!isMobile) detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id, isMobile])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
     check()
@@ -633,7 +633,7 @@ export default function GuestsPage() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', flexShrink: 0, marginLeft: 6 }}>
                               {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
                               {isReturning && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd', whiteSpace: 'nowrap' }}>Returning</span>}
-                              {guest.overestimates_level && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d', whiteSpace: 'nowrap' }}>Overestimates</span>}
+
                               {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
                             </div>
                           </div>
@@ -648,8 +648,14 @@ export default function GuestsPage() {
             {selectedGuest && (
               <div ref={detailPanelRef} style={{ flex: 1, overflowY: 'auto', padding: 20, minWidth: 0 }} className='guest-profile-panel'>
                 <button onClick={() => setSelectedGuest(null)} className='guest-back-btn' style={{ display: 'none', marginBottom: 12, padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back to guests</button>
-              <button onClick={() => setSelectedGuest(null)} className='guest-close-btn' style={{ display: 'none', position: 'fixed', top: 12, right: 12, width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 18, cursor: 'pointer', zIndex: 51, alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>✕</button>
-              {isMobile && <button onClick={() => setSelectedGuest(null)} style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999, width: 44, height: 44, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}>×</button>}
+              <div className="guest-desktop-close" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <button
+                  onClick={() => setSelectedGuest(null)}
+                  style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, color: 'var(--color-text-2)', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  ✕ Close
+                </button>
+              </div>
                 <div style={{ maxWidth: 680 }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -934,11 +940,51 @@ export default function GuestsPage() {
                 </div>
                 ) : (
                 <div style={{ maxWidth: 580 }}>
+                  {/* Header */}
                   <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid var(--color-border)' }}>
                     <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>{selectedHistoryGuest!.name}</h2>
-                    <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 4 }}>Checked out {(selectedHistoryGuest!.checked_out_at || '').slice(0, 10)}</p>
-                    <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 8 }}>No ride records found for this visit.</p>
+                    <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 4 }}>
+                      Checked out {(selectedHistoryGuest!.checked_out_at || '').slice(0, 10)}
+                    </p>
                   </div>
+                  {/* Guest details grid — read-only */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                    {[
+                      { label: 'Weight', value: selectedHistoryGuest!.weight ? `${selectedHistoryGuest!.weight} lbs` : '—' },
+                      { label: 'Height', value: selectedHistoryGuest!.height || '—' },
+                      { label: 'Level', value: LEVEL_LABELS[selectedHistoryGuest!.riding_level] || selectedHistoryGuest!.riding_level || '—' },
+                      { label: 'Gender', value: selectedHistoryGuest!.gender || '—' },
+                      { label: 'Room', value: selectedHistoryGuest!.room_number || '—' },
+                      { label: 'Check-in', value: selectedHistoryGuest!.check_in_date || '—' },
+                    ].map(field => (
+                      <div key={field.label} style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', border: '1px solid var(--color-border)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{field.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{field.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedHistoryGuest!.notes && (
+                    <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', border: '1px solid var(--color-border)', marginBottom: 16 }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Notes</div>
+                      <div style={{ fontSize: 13 }}>{selectedHistoryGuest!.notes}</div>
+                    </div>
+                  )}
+                  {/* Horse assignments from horse_assignments table */}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Horse Assignments</div>
+                  {(() => {
+                    const assignments = (selectedHistoryGuest!.horse_assignments || []).filter(a => a.horse_name && a.horse_name !== '—')
+                    if (assignments.length === 0) return (
+                      <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No ride records found</p>
+                    )
+                    return assignments.map((a, i) => (
+                      <div key={a.id || i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 6 }}>
+                        <span style={{ fontSize: 16 }}>🐴</span>
+                        <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{a.horse_name}</span>
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', fontWeight: 600, border: '1px solid var(--color-success-border)', textTransform: 'capitalize' }}>{a.assignment_type}</span>
+                        {a.incompatible && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600, border: '1px solid #fca5a5' }}>Didn't work</span>}
+                      </div>
+                    ))
+                  })()}
                 </div>
                 )}
               </div>
@@ -948,12 +994,12 @@ export default function GuestsPage() {
 
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
-            .guest-main { overflow: auto !important; display: block !important; }
+            .guest-main { overflow-y: auto !important; display: block !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-y !important; }
             .guest-split { flex-direction: column !important; height: auto !important; flex: initial !important; min-height: initial !important; }
-            .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; }
-            .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; }
+            .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; overflow-y: visible !important; }
+            .guest-profile-panel { position: fixed !important; inset: 0 !important; z-index: 50 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 16px !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-y !important; }
             .guest-back-btn { display: flex !important; }
-            .guest-close-btn { display: flex !important; }
+            .guest-desktop-close { display: none !important; }
             .guest-header { padding-left: 12px !important; padding-right: 12px !important; flex-wrap: wrap !important; }
             .guest-actions { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-end !important; padding-right: 0 !important; }
             .guest-actions > input[type=text], .guest-actions > input:not([type]) { flex: 1 !important; min-width: 80px !important; width: auto !important; }

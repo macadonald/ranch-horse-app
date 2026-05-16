@@ -925,6 +925,7 @@ export default function ShoesPage() {
   const [markingDone, setMarkingDone] = useState<string | null>(null)
   const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' })
   const [savingDone, setSavingDone] = useState(false)
+  const savingDoneRef = useRef<boolean>(false)
   const [historySearch, setHistorySearch] = useState('')
   const [showLogVisit, setShowLogVisit] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
@@ -1065,6 +1066,8 @@ export default function ShoesPage() {
 
   async function markDone(need: ShoeNeed) {
     if (!doneForm.visit_date || !doneForm.farrier_name) return
+    if (savingDoneRef.current) return
+    savingDoneRef.current = true
     setSavingDone(true)
     try {
       const visitRes = await fetch('/api/farrier-visits', {
@@ -1089,6 +1092,7 @@ export default function ShoesPage() {
     } catch (err) {
       console.error(err)
     } finally {
+      savingDoneRef.current = false
       setSavingDone(false)
     }
   }
@@ -1355,13 +1359,13 @@ export default function ShoesPage() {
             .analytics-trends-grid { grid-template-columns: 1fr !important; }
           }
           @media (max-width: 640px) {
-            .need-row { padding: 4px 6px !important; margin-bottom: 3px !important; min-height: unset !important; }
-            .need-row > div:first-child { gap: 3px !important; }
-            .need-row > div:first-child > input { font-size: 12px !important; }
-            .need-row > div:first-child > span:first-child { font-size: 12px !important; }
-            .need-row > div:nth-child(2) { gap: 3px !important; margin-top: 2px !important; }
-            .need-row > div:nth-child(2) > span { font-size: 10px !important; }
-            .need-row > input { font-size: 10px !important; margin-top: 2px !important; }
+            .need-row { padding: 8px 10px !important; margin-bottom: 5px !important; }
+            .need-row > div:first-child { gap: 6px !important; }
+            .need-row > div:first-child > input { font-size: 13px !important; font-weight: 500 !important; }
+            .need-row > div:nth-child(2) { gap: 6px !important; margin-top: 4px !important; }
+            .need-row > div:nth-child(2) > span { font-size: 11px !important; padding: 2px 8px !important; border-radius: 999px !important; font-weight: 600 !important; }
+            .need-row > div:nth-child(2) > select { font-size: 11px !important; padding: 2px 8px !important; border-radius: 999px !important; font-weight: 600 !important; width: auto !important; }
+            .need-row > input { font-size: 11px !important; margin-top: 3px !important; }
           }
         ` }} />
       </main>
