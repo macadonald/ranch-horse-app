@@ -167,7 +167,8 @@ export default function GuestsPage() {
         fetch('/api/horses').then(r => r.json()),
         fetch('/api/assignment-history?all_returning=true').then(r => r.json()),
       ])
-      setGuests(guestRes.guests || [])
+      const allGuests: Guest[] = guestRes.guests || []
+      setGuests(allGuests)
       setDbHorses(horsesRes.horses || [])
       setReturningGuestNames(new Set((returningRes.names || []).map((n: string) => n.toLowerCase())))
       const newLovesMap: Record<string, string> = {}
@@ -175,6 +176,21 @@ export default function GuestsPage() {
         newLovesMap[(item.guest_name as string).toLowerCase()] = item.horse_name
       }
       setLovesMap(newLovesMap)
+
+      // Auto-checkout guests whose check_out_date is in the past
+      const tucsonToday = getTucsonToday()
+      const overdue = allGuests.filter(g => g.check_out_date && g.check_out_date < tucsonToday && !g.checked_out)
+      if (overdue.length > 0) {
+        await Promise.all(overdue.map(g =>
+          fetch('/api/guests', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: g.id, checked_out: true, checked_out_at: new Date().toISOString() }),
+          })
+        ))
+        const refreshed = await fetch('/api/guests').then(r => r.json())
+        setGuests(refreshed.guests || [])
+      }
     }
     catch (err) { console.error(err) } finally { setLoading(false) }
   }, [])
