@@ -632,22 +632,6 @@ export default function GuestsPage() {
                 )}
             </div>
 
-            {/* Mobile backdrop */}
-            {selectedGuest && isMobile && (
-              <div
-                onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
-                style={{
-                  position: 'fixed',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: 'rgba(0, 0, 0, 0.4)',
-                  zIndex: 149,
-                }}
-              />
-            )}
-
             {/* Guest detail panel */}
             {selectedGuest && (
               <div
@@ -655,15 +639,13 @@ export default function GuestsPage() {
                 className={isMobile ? undefined : 'guest-profile-panel'}
                 style={isMobile ? {
                   position: 'fixed',
+                  top: 0,
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  height: '92vh',
-                  background: 'transparent',
                   zIndex: 200,
+                  background: 'var(--color-bg)',
                   overflowY: 'auto',
-                  display: 'flex',
-                  flexDirection: 'column',
                 } : {
                   flex: 1,
                   overflowY: 'auto',
@@ -671,20 +653,33 @@ export default function GuestsPage() {
                   minWidth: 0,
                 }}
               >
-                <div style={{ maxWidth: isMobile ? undefined : 680, padding: isMobile ? '0 0 32px 0' : undefined, background: isMobile ? 'var(--color-bg)' : undefined, borderRadius: isMobile ? '20px 20px 0 0' : undefined, flex: isMobile ? 1 : undefined }}>
-                  {/* Mobile: nav buttons row inside white card */}
-                  {isMobile && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 16px 8px 16px' }}>
-                      <button
-                        onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
-                        style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', background: 'var(--color-bg-2)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '6px 14px', cursor: 'pointer' }}
-                      >← Guests</button>
-                      <button
-                        onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
-                        style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--color-bg-2)', border: '1px solid var(--color-border)', color: 'var(--color-text-1)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >✕</button>
-                    </div>
-                  )}
+                {/* Mobile: sticky header */}
+                {isMobile && (
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingTop: 56,
+                    paddingBottom: 12,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                    background: 'var(--color-bg)',
+                    borderBottom: '1px solid var(--color-border)',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10,
+                  }}>
+                    <button
+                      onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
+                      style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', background: 'var(--color-bg-2)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '6px 14px', cursor: 'pointer' }}
+                    >← Guests</button>
+                    <button
+                      onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
+                      style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--color-bg-2)', border: '1px solid var(--color-border)', color: 'var(--color-text-1)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >✕</button>
+                  </div>
+                )}
+                <div style={{ maxWidth: isMobile ? undefined : 680, padding: isMobile ? '12px 16px 32px 16px' : undefined }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
