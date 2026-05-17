@@ -659,11 +659,11 @@ export default function GuestsPage() {
                   right: 0,
                   bottom: 0,
                   height: '92vh',
-                  background: 'var(--color-bg)',
-                  borderRadius: '20px 20px 0 0',
+                  background: 'transparent',
                   zIndex: 200,
                   overflowY: 'auto',
-                  boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
+                  display: 'flex',
+                  flexDirection: 'column',
                 } : {
                   flex: 1,
                   overflowY: 'auto',
@@ -671,44 +671,51 @@ export default function GuestsPage() {
                   minWidth: 0,
                 }}
               >
-                {/* Mobile: sheet header with drag handle, guest name, close */}
+                {/* Mobile: floating header above white card */}
                 {isMobile && (
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '52px 16px 12px 16px',
-                    borderBottom: '1px solid var(--color-border)',
-                    position: 'sticky',
-                    top: 0,
-                    background: 'var(--color-bg)',
-                    zIndex: 10,
-                    borderRadius: '20px 20px 0 0',
+                    paddingTop: 52,
+                    paddingBottom: 8,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                    background: 'transparent',
+                    flexShrink: 0,
                   }}>
-                    <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)' }} />
-                    <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-1)', paddingTop: 8 }}>
-                      {selectedGuest.name}
-                    </span>
                     <button
                       onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
                       style={{
-                        width: 32, height: 32,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: 'white',
+                        background: 'rgba(0,0,0,0.35)',
+                        border: 'none',
+                        borderRadius: 20,
+                        padding: '6px 14px',
+                        cursor: 'pointer',
+                      }}
+                    >← Guests</button>
+                    <button
+                      onClick={() => { setSelectedGuest(null); setGuestHistory([]) }}
+                      style={{
+                        width: 32,
+                        height: 32,
                         borderRadius: '50%',
-                        background: 'var(--color-bg-2)',
-                        border: '1px solid var(--color-border)',
-                        color: 'var(--color-text-2)',
+                        background: 'rgba(0,0,0,0.35)',
+                        border: 'none',
+                        color: 'white',
                         fontSize: 16,
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        flexShrink: 0,
-                        paddingTop: 8,
                       }}
                     >✕</button>
                   </div>
                 )}
-                <div style={{ maxWidth: isMobile ? undefined : 680, padding: isMobile ? '12px 16px 32px 16px' : undefined }}>
+                <div style={{ maxWidth: isMobile ? undefined : 680, padding: isMobile ? '12px 16px 32px 16px' : undefined, background: isMobile ? 'var(--color-bg)' : undefined, borderRadius: isMobile ? '20px 20px 0 0' : undefined, flex: isMobile ? 1 : undefined }}>
                   {/* Profile card */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
