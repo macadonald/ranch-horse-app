@@ -359,6 +359,13 @@ export default function GuestsPage() {
 
   async function removeAssignment(id: string) { try { await fetch(`/api/assignments?id=${id}`, { method: 'DELETE' }); await fetchGuests() } catch (err) { console.error(err) } }
 
+  async function updateAssignmentType(assignmentId: string, currentType: string) {
+    const cycle = ['primary', 'secondary', 'additional']
+    const nextType = cycle[(cycle.indexOf(currentType) + 1) % cycle.length]
+    await fetch('/api/assignments', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: assignmentId, assignment_type: nextType }) })
+    await fetchGuests()
+  }
+
   async function markIncompatible(horseName: string, assignmentId: string, reason?: string) {
     if (!selectedGuest) return
     try {
@@ -608,7 +615,8 @@ export default function GuestsPage() {
                 : (
                   <div style={{ display: guestGridView ? 'grid' : 'block', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: guestGridView ? 8 : undefined }}>
                     {filteredGuests.map(guest => {
-                      const primary = guest.horse_assignments?.find(a => a.assignment_type === 'primary' && a.status === 'active' && !a.incompatible)
+                      const _activeAssigns = guest.horse_assignments?.filter(a => a.status === 'active' && !a.incompatible) ?? []
+                      const primary = _activeAssigns.find(a => a.assignment_type === 'primary') ?? _activeAssigns.find(a => a.assignment_type === 'secondary') ?? _activeAssigns[0]
                       const isReturning = returningGuestNames.has(guest.name.toLowerCase())
                       const lovesHorse = lovesMap[guest.name.toLowerCase()]
                       if (guestGridView) {
@@ -758,7 +766,7 @@ export default function GuestsPage() {
                             <span style={{ fontSize: 16 }}>🐴</span>
                             <div style={{ flex: 1 }}>
                               <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
-                              <span style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: i === 0 ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: i === 0 ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>{a.assignment_type}</span>
+                              <button onClick={() => updateAssignmentType(a.id, a.assignment_type)} title="Tap to cycle: primary → secondary → additional" style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600, cursor: 'pointer', border: 'none' }}>{a.assignment_type} ↻</button>
                             </div>
                             {/* Loves this horse toggle — always shown for any active assignment */}
                             <button onClick={() => setLovesHorse(a.horse_name, isLoved)} title={isLoved ? 'Remove loves signal' : 'Mark as loves this horse'} style={{ fontSize: 15, background: isLoved ? '#fda4af' : 'var(--color-bg)', border: '1px solid', borderColor: isLoved ? '#fb7185' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 7px', lineHeight: 1.3 }}>❤️</button>
