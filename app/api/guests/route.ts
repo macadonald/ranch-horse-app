@@ -9,11 +9,12 @@ export async function GET() {
 
     if (error) throw error
 
-    // Sort by room number numerically
+    // Sort by room number numerically, then by created_at ascending for same room
     const sorted = (data || []).sort((a, b) => {
       const aNum = parseInt(a.room_number) || 0
       const bNum = parseInt(b.room_number) || 0
-      return aNum - bNum
+      if (aNum !== bNum) return aNum - bNum
+      return (a.created_at || '').localeCompare(b.created_at || '')
     })
 
     return NextResponse.json({ guests: sorted })
