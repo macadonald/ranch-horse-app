@@ -156,6 +156,7 @@ export default function GuestsPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [guestGridView, setGuestGridView] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('guestGridView') === 'grid' : false)
   const detailPanelRef = useRef<HTMLDivElement>(null)
+  const matchAbortRef = useRef<AbortController | null>(null)
 
   const today = getTucsonToday()
   const tomorrowStr = getTucsonTomorrow()
@@ -304,9 +305,12 @@ export default function GuestsPage() {
 
   async function runMatch(guest: Guest, dismissed: string[]) {
     if (!guest.age || !guest.weight || !guest.height || !guest.riding_level) return
+    matchAbortRef.current?.abort()
+    const abort = new AbortController()
+    matchAbortRef.current = abort
     setMatchLoading(true); setMatches([])
     try {
-      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: `${guest.notes || ''}${guest.horse_request ? ' Horse request: ' + guest.horse_request : ''}`, guestId: guest.id, dismissedHorses: dismissed }) })
+      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: `${guest.notes || ''}${guest.horse_request ? ' Horse request: ' + guest.horse_request : ''}`, guestId: guest.id, dismissedHorses: dismissed }), signal: abort.signal })
       if (!res.body) { const data = await res.json(); if (data.matches) setMatches(data.matches); return }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
       while (true) {
@@ -318,7 +322,7 @@ export default function GuestsPage() {
           try { const parsed = JSON.parse(line.slice(6)); if (parsed.type === 'match') setMatches(prev => [...prev, parsed.match]) } catch {}
         }
       }
-    } catch (err) { console.error(err) } finally { setMatchLoading(false) }
+    } catch (err) { if ((err as Error).name !== 'AbortError') console.error(err) } finally { if (!abort.signal.aborted) setMatchLoading(false) }
   }
 
   async function dismissHorse(name: string) {
