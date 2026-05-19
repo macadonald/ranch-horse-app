@@ -20,6 +20,7 @@ const LEVEL_LABELS: Record<string, string> = {
 type Assignment = {
   id: string; horse_name: string; assignment_type: string; status: string
   incompatible: boolean; requested_by_guest: boolean; reason: string
+  loves_horse?: boolean
 }
 
 type Guest = {
@@ -231,11 +232,22 @@ export default function GuestsPage() {
     } catch {}
   }
 
-  async function setLovesHorse(horseName: string, currentLoves: boolean) {
+  async function setLovesHorse(assignmentId: string, horseName: string, currentLoves: boolean) {
     if (!selectedGuest) return
+    const newLoves = !currentLoves
+    // Optimistic update — toggle immediately so the button responds without waiting for the DB round-trip
+    setGuests(prev => prev.map(g => g.id === selectedGuest.id ? {
+      ...g,
+      horse_assignments: g.horse_assignments?.map(ha => ha.id === assignmentId ? { ...ha, loves_horse: newLoves } : ha)
+    } : g))
+    // Write to horse_assignments so the value comes back with the guest on next load
+    await fetch('/api/assignments', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: assignmentId, loves_horse: newLoves })
+    })
+    // Also write to assignment_history for long-term memory across stays
     let histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
     if (!histRec) {
-      // No history record yet — create one so the loves signal has somewhere to live
       try {
         const res = await fetch('/api/assignment-history', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -243,14 +255,15 @@ export default function GuestsPage() {
         })
         const data = await res.json()
         histRec = data.record
-      } catch { return }
+      } catch {}
     }
-    if (!histRec) return
-    await fetch('/api/assignment-history', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: histRec.id, loves_horse: !currentLoves })
-    })
-    await Promise.all([fetchGuestHistory(selectedGuest.id), fetchGuests()])
+    if (histRec) {
+      await fetch('/api/assignment-history', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: histRec.id, loves_horse: newLoves })
+      })
+    }
+    await fetchGuestHistory(selectedGuest.id)
   }
 
   async function clearDoesntWork(horseName: string, assignmentId: string) {
@@ -764,7 +777,7 @@ export default function GuestsPage() {
                     {activeAssignments.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>None assigned yet</p>
                       : activeAssignments.map((a, i) => {
                         const histRec = guestHistory.find(h => h.horse_name === a.horse_name && !h.doesnt_work)
-                        const isLoved = histRec?.loves_horse ?? false
+                        const isLoved = a.loves_horse ?? histRec?.loves_horse ?? false
                         return (
                           <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: `1px solid ${isLoved ? '#fda4af' : 'var(--color-border)'}`, marginBottom: 7, background: isLoved ? '#fff1f2' : 'var(--color-bg)' }}>
                             <span style={{ fontSize: 16 }}>🐴</span>
@@ -773,7 +786,7 @@ export default function GuestsPage() {
                               <button onClick={() => updateAssignmentType(a.id, a.assignment_type)} title="Tap to cycle: primary → secondary → additional" style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600, cursor: 'pointer', border: 'none' }}>{a.assignment_type} ↻</button>
                             </div>
                             {/* Loves this horse toggle — always shown for any active assignment */}
-                            <button onClick={() => setLovesHorse(a.horse_name, isLoved)} title={isLoved ? 'Remove loves signal' : 'Mark as loves this horse'} style={{ fontSize: 15, background: isLoved ? '#fda4af' : 'var(--color-bg)', border: '1px solid', borderColor: isLoved ? '#fb7185' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 7px', lineHeight: 1.3 }}>❤️</button>
+                            <button onClick={() => setLovesHorse(a.id, a.horse_name, isLoved)} title={isLoved ? 'Remove loves signal' : 'Mark as loves this horse'} style={{ fontSize: 15, background: isLoved ? '#fda4af' : 'var(--color-bg)', border: '1px solid', borderColor: isLoved ? '#fb7185' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 7px', lineHeight: 1.3 }}>❤️</button>
                             <button onClick={() => setDoesntWorkTarget({ horseName: a.horse_name, assignmentId: a.id })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn&apos;t work</button>
                             <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
                           </div>
