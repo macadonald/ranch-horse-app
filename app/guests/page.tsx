@@ -801,7 +801,7 @@ export default function GuestsPage() {
                           {incompatibleHorses.map(a => (
                             <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
                               {a.horse_name}{a.reason ? ` — ${a.reason}` : ''}
-                              <button onClick={() => clearDoesntWork(a.horse_name, a.id)} title="Clear this signal" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: '0 1px', lineHeight: 1, opacity: 0.7 }}>✕</button>
+                              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} title="Clear this signal" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                             </span>
                           ))}
                         </div>
