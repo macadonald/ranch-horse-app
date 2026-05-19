@@ -779,7 +779,7 @@ export default function GuestsPage() {
                         const histRec = guestHistory.find(h => h.horse_name === a.horse_name && !h.doesnt_work)
                         const isLoved = a.loves_horse ?? histRec?.loves_horse ?? false
                         return (
-                          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: `1px solid ${isLoved ? '#fda4af' : 'var(--color-border)'}`, marginBottom: 7, background: isLoved ? '#fff1f2' : 'var(--color-bg)' }}>
+                          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 7, background: 'var(--color-bg)' }}>
                             <span style={{ fontSize: 16 }}>🐴</span>
                             <div style={{ flex: 1 }}>
                               <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
