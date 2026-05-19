@@ -150,6 +150,7 @@ export default function GuestsPage() {
   // Active / History view toggle
   const [guestViewMode, setGuestViewMode] = useState<'active' | 'history'>('active')
   const [historySearch, setHistorySearch] = useState('')
+  const [currentHistoryPage, setCurrentHistoryPage] = useState(1)
   const [archivedGuests, setArchivedGuests] = useState<ArchivedGuestSummary[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
   const [selectedArchived, setSelectedArchived] = useState<ArchivedGuestSummary | null>(null)
@@ -296,6 +297,9 @@ export default function GuestsPage() {
   const filteredCheckedOut = checkedOutGuests.filter(g =>
     !historySearch || g.name?.toLowerCase().includes(historySearch.toLowerCase())
   )
+  const HISTORY_PAGE_SIZE = 50
+  const historyTotalPages = Math.ceil(filteredCheckedOut.length / HISTORY_PAGE_SIZE)
+  const pagedCheckedOut = filteredCheckedOut.slice((currentHistoryPage - 1) * HISTORY_PAGE_SIZE, currentHistoryPage * HISTORY_PAGE_SIZE)
   const filteredGuests = activeGuests.filter(g => {
     const q = search.toLowerCase()
     if (g.name?.toLowerCase().includes(q) || g.room_number?.toLowerCase().includes(q)) return true
@@ -606,8 +610,8 @@ export default function GuestsPage() {
             </div>
             {/* Active / History toggle */}
             <div style={{ display: 'flex', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', overflow: 'hidden', flexShrink: 0 }}>
-              <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
-              <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); fetchArchivedGuests() }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
+              <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
+              <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); fetchArchivedGuests(); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
             </div>
           </div>
           <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -905,13 +909,14 @@ export default function GuestsPage() {
                 </div>
               ) : (
                 <>
-                  {/* Column header row */}
+                  {/* Count + column header row */}
+                  <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--color-border)', fontSize: 11, color: 'var(--color-text-3)' }}>{filteredCheckedOut.length} total guests</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '7px 14px', borderBottom: '2px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-surface)', zIndex: 1 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Guest</span>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last visit</span>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Signals</span>
                   </div>
-                  {filteredCheckedOut.map(g => {
+                  {pagedCheckedOut.map(g => {
                     const ag = archivedGuests.find(a => a.guest_name === g.name)
                     const lovesRecs = ag?.records.filter(r => r.loves_horse) || []
                     const doesntWorkRecs = ag?.records.filter(r => r.doesnt_work) || []
@@ -939,6 +944,13 @@ export default function GuestsPage() {
                       </div>
                     )
                   })}
+                  {filteredCheckedOut.length > HISTORY_PAGE_SIZE && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '2px solid var(--color-border)' }}>
+                      <button onClick={() => setCurrentHistoryPage(p => Math.max(1, p - 1))} disabled={currentHistoryPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: currentHistoryPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: currentHistoryPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {currentHistoryPage} of {historyTotalPages}</span>
+                      <button onClick={() => setCurrentHistoryPage(p => Math.min(historyTotalPages, p + 1))} disabled={currentHistoryPage === historyTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: currentHistoryPage === historyTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: currentHistoryPage === historyTotalPages ? 'default' : 'pointer' }}>Next →</button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
