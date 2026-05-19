@@ -296,7 +296,12 @@ export default function GuestsPage() {
   const filteredCheckedOut = checkedOutGuests.filter(g =>
     !historySearch || g.name?.toLowerCase().includes(historySearch.toLowerCase())
   )
-  const filteredGuests = activeGuests.filter(g => g.name?.toLowerCase().includes(search.toLowerCase()) || g.room_number?.toLowerCase().includes(search.toLowerCase()))
+  const filteredGuests = activeGuests.filter(g => {
+    const q = search.toLowerCase()
+    if (g.name?.toLowerCase().includes(q) || g.room_number?.toLowerCase().includes(q)) return true
+    const activeHorse = g.horse_assignments?.find(a => a.status === 'active' && !a.incompatible)
+    return !!activeHorse?.horse_name?.toLowerCase().includes(q)
+  })
   const checkoutSoon = (g: Guest) => g.check_out_date === today || g.check_out_date === tomorrowStr
 
   async function updateGuestField(field: string, value: string) {
