@@ -321,7 +321,7 @@ export default function GuestsPage() {
   }
 
   async function openGuest(guest: Guest) {
-    setSelectedGuest(guest); setMatches([]); setDismissedHorses([]); setManualHorse(''); setAssignmentConfirmation(null)
+    setSelectedGuest(guest); setMatches([]); setDismissedHorses([]); setManualHorse(''); setManualType('primary'); setAssignmentConfirmation(null)
     await Promise.all([runMatch(guest, []), fetchGuestHistory(guest.id)])
   }
 
@@ -375,7 +375,6 @@ export default function GuestsPage() {
     if (!selectedGuest) return
     setAssigningHorse(horseName); setAssignmentConfirmation(null)
     try {
-      console.log('[assignHorse] assignment_type being sent:', type)
       await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: selectedGuest.id, horse_name: horseName, assignment_type: type, status: 'active', incompatible: false, requested_by_guest: false }) })
       await logHistory(selectedGuest.name, selectedGuest.id, horseName, type, 'manual')
       setAssignmentConfirmation(`✓ ${horseName} assigned to ${selectedGuest.name} as ${type} horse`)
