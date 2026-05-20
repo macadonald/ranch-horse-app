@@ -1268,7 +1268,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
             <HorseAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={horseNames} />
           </div>
         </div>
-        <div style={{ marginTop: 18, display: 'flex', gap: 9 }}>
+        <div style={{ display: 'flex', gap: 9, position: 'sticky', bottom: 0, background: 'var(--color-surface)', padding: '12px 16px', borderTop: '1px solid var(--color-border)', zIndex: 10, marginLeft: -22, marginRight: -22, marginBottom: -22 }}>
           <button onClick={() => save(false)} disabled={saving || !form.name || !form.riding_level} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Save Guest'}</button>
           <button onClick={() => save(true)} disabled={saving || !form.name || !form.riding_level} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--color-text-2)' }}>Save + Add Another</button>
         </div>
