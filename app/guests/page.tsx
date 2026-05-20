@@ -1214,7 +1214,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
             {returningInfo.loves ? '❤️' : '🔄'} Returning guest! {returningInfo.loves ? `Loves ${returningInfo.lastHorse}` : `Last rode ${returningInfo.lastHorse}`} on {returningInfo.lastDate}
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, paddingBottom: 80 }}>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Full Name *</label>
             <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => { checkReturning(form.name); if (form.repeat_guest === 'yes') loadRepeatHistory(form.name) }} autoFocus />
