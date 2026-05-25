@@ -1334,7 +1334,7 @@ export default function ShoesPage() {
 
           {/* Section 3 — Shoe History */}
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+            <div id="shoe-history-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Shoe History</h2>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
@@ -1416,9 +1416,9 @@ export default function ShoesPage() {
                 })}
                 {filteredVisits.length > HISTORY_PAGE_SIZE && (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
-                    <button type="button" onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+                    <button type="button" onClick={() => { setHistoryPage(p => Math.max(1, p - 1)); document.getElementById('shoe-history-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={historyPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
                     <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {historyPage} of {historyTotalPages}</span>
-                    <button type="button" onClick={() => setHistoryPage(p => Math.min(historyTotalPages, p + 1))} disabled={historyPage === historyTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === historyTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === historyTotalPages ? 'default' : 'pointer' }}>Next →</button>
+                    <button type="button" onClick={() => { setHistoryPage(p => Math.min(historyTotalPages, p + 1)); document.getElementById('shoe-history-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={historyPage === historyTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === historyTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === historyTotalPages ? 'default' : 'pointer' }}>Next →</button>
                   </div>
                 )}
               </>
