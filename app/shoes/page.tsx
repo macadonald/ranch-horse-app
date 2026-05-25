@@ -1367,9 +1367,13 @@ export default function ShoesPage() {
                   const isExpanded = expandedVisitIds.has(visit.id)
                   const dateStr = new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                   const horses = visit.farrier_visit_horses
-                  const horseLabel = horses.length <= 3
-                    ? horses.map(h => h.horse_name).join(', ')
-                    : horses.slice(0, 2).map(h => h.horse_name).join(', ') + ` +${horses.length - 2} more`
+                  const horseToken = (h: typeof horses[0]) => {
+                    const work = WORK_LABELS[h.work_done] || h.work_done
+                    return work ? `${h.horse_name} — ${work}` : h.horse_name
+                  }
+                  const horseLabel = horses.length <= 2
+                    ? horses.map(horseToken).join(' · ')
+                    : horses.slice(0, 2).map(horseToken).join(' · ') + ` +${horses.length - 2} more`
                   const toggleExpand = () => setExpandedVisitIds(prev => { const next = new Set(prev); isExpanded ? next.delete(visit.id) : next.add(visit.id); return next })
                   return (
                     <div key={visit.id} style={{ marginBottom: 4, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', overflow: 'hidden' }}>
