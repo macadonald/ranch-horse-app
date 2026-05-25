@@ -72,6 +72,7 @@ type ShoeNeed = {
   what_needed: string
   shoe_type: string
   is_drugger: boolean
+  priority: boolean
   notes: string | null
   created_at: string
 }
@@ -236,7 +237,7 @@ function HorseAutocomplete({ value, onChange, placeholder, extraNames = [] }: { 
 }
 
 function NeedRow({
-  need, onUpdate, onRemove, onToggleDrugger, onViewProfile,
+  need, onUpdate, onRemove, onToggleDrugger, onTogglePriority, onViewProfile,
   markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving, markDoneError,
   farrierNames,
 }: {
@@ -244,6 +245,7 @@ function NeedRow({
   onUpdate: (id: string, field: string, value: string) => void
   onRemove: (id: string) => void
   onToggleDrugger: (id: string, currentValue: boolean) => void
+  onTogglePriority: (id: string, currentValue: boolean) => void
   onViewProfile: (need: ShoeNeed) => void
   markingDone: string | null
   setMarkingDone: (id: string | null) => void
@@ -288,8 +290,19 @@ function NeedRow({
       className="need-row"
       style={{ padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', marginBottom: 5, cursor: 'pointer' }}
     >
-      {/* Row 1: emoji + editable name + drugger + done + remove */}
+      {/* Row 1: star + emoji + editable name + drugger + done + remove */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <button
+          onClick={e => { e.stopPropagation(); onTogglePriority(need.id, need.priority) }}
+          title={need.priority ? 'Remove priority' : 'Mark as priority'}
+          style={{
+            background: 'none', border: 'none', fontSize: 16, cursor: 'pointer',
+            flexShrink: 0, padding: '0 1px', lineHeight: 1,
+            color: need.priority ? '#f59e0b' : 'var(--color-text-muted)',
+          }}
+        >
+          {need.priority ? '★' : '☆'}
+        </button>
         <span style={{ fontSize: 14, flexShrink: 0 }}>🐴</span>
         <input
           value={horseName}
@@ -1097,6 +1110,16 @@ export default function ShoesPage() {
     })
   }
 
+  async function togglePriority(id: string, currentValue: boolean) {
+    const priority = !currentValue
+    setNeeds(prev => prev.map(n => n.id === id ? { ...n, priority } : n))
+    await fetch('/api/shoe-needs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, priority }),
+    })
+  }
+
   async function markDone(need: ShoeNeed) {
     if (!doneForm.visit_date || !doneForm.farrier_name) return
     if (savingDoneRef.current) return
@@ -1283,24 +1306,41 @@ export default function ShoesPage() {
                   {needs.length > 0 ? 'No horses match this filter' : 'No horses currently need shoeing'}
                 </p>
               </div>
-            ) : filteredNeeds.map(need => (
-              <NeedRow
-                key={need.id}
-                need={need}
-                onUpdate={updateNeed}
-                onRemove={removeNeed}
-                onToggleDrugger={toggleDrugger}
-                onViewProfile={setProfileNeed}
-                markingDone={markingDone}
-                setMarkingDone={setMarkingDone}
-                doneForm={doneForm}
-                setDoneForm={setDoneForm}
-                onMarkDone={markDone}
-                saving={savingDone}
-                markDoneError={markDoneError}
-                farrierNames={farrierNames}
-              />
-            ))}
+            ) : (() => {
+              const priorityNeeds = filteredNeeds.filter(n => n.priority)
+              const normalNeeds = filteredNeeds.filter(n => !n.priority)
+              const rowProps = (need: ShoeNeed) => ({
+                key: need.id,
+                need,
+                onUpdate: updateNeed,
+                onRemove: removeNeed,
+                onToggleDrugger: toggleDrugger,
+                onTogglePriority: togglePriority,
+                onViewProfile: setProfileNeed,
+                markingDone,
+                setMarkingDone,
+                doneForm,
+                setDoneForm,
+                onMarkDone: markDone,
+                saving: savingDone,
+                markDoneError,
+                farrierNames,
+              })
+              return (
+                <>
+                  {priorityNeeds.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>★ Priority</div>
+                      {priorityNeeds.map(need => <NeedRow {...rowProps(need)} />)}
+                      {normalNeeds.length > 0 && (
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, marginTop: 10 }}>All Horses</div>
+                      )}
+                    </>
+                  )}
+                  {normalNeeds.map(need => <NeedRow {...rowProps(need)} />)}
+                </>
+              )
+            })()}
           </div>
 
           {/* Section 2 — Suggestions */}
