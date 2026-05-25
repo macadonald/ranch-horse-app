@@ -618,7 +618,7 @@ export default function GuestsPage() {
             <input
               placeholder={guestViewMode === 'history' ? 'Search past guests...' : 'Search name or room...'}
               value={guestViewMode === 'history' ? historySearch : search}
-              onChange={e => guestViewMode === 'history' ? setHistorySearch(e.target.value) : setSearch(e.target.value)}
+              onChange={e => guestViewMode === 'history' ? (setHistorySearch(e.target.value), setCurrentHistoryPage(1)) : setSearch(e.target.value)}
               style={{ fontSize: 13, width: 200 }}
             />
             {guestViewMode === 'active' && <>
