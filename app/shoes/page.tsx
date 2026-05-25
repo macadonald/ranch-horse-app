@@ -1033,7 +1033,7 @@ export default function ShoesPage() {
     )
   }, [visits, historySearch])
 
-  const HISTORY_PAGE_SIZE = 25
+  const HISTORY_PAGE_SIZE = 20
   const historyTotalPages = Math.max(1, Math.ceil(filteredVisits.length / HISTORY_PAGE_SIZE))
   const pagedVisits = filteredVisits.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
 
