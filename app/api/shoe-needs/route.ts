@@ -7,7 +7,9 @@ export async function GET() {
     .select('*')
     .order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ needs: data || [] })
+  // Normalize priority to boolean — guards against null (pre-migration rows) or missing column
+  const needs = (data || []).map((n: any) => ({ ...n, priority: n.priority ?? false }))
+  return NextResponse.json({ needs })
 }
 
 export async function POST(req: NextRequest) {
@@ -16,13 +18,26 @@ export async function POST(req: NextRequest) {
   if (!horse_name || !what_needed) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
+
+  // If is_drugger not explicitly provided, read from horses table so the flag persists
+  // across remove/re-add cycles. Ignore errors — column may not exist yet.
+  let resolvedDrugger = is_drugger ?? false
+  if (!is_drugger) {
+    const { data: horseRow } = await supabase
+      .from('horses')
+      .select('is_drugger')
+      .eq('name', horse_name)
+      .maybeSingle()
+    if (horseRow?.is_drugger) resolvedDrugger = true
+  }
+
   const { data, error } = await supabase
     .from('shoe_needs')
     .insert({
       horse_name,
       what_needed,
       shoe_type: shoe_type || 'regular',
-      is_drugger: is_drugger || false,
+      is_drugger: resolvedDrugger,
       notes: notes || null,
     })
     .select()
@@ -54,6 +69,17 @@ export async function PUT(req: NextRequest) {
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Sync is_drugger back to the horses table so it survives remove/re-add cycles.
+  // Requires: ALTER TABLE horses ADD COLUMN IF NOT EXISTS is_drugger boolean DEFAULT false;
+  // Errors are intentionally ignored — column may not exist yet.
+  if ('is_drugger' in fields && data?.horse_name) {
+    await supabase
+      .from('horses')
+      .update({ is_drugger: fields.is_drugger })
+      .eq('name', data.horse_name)
+  }
+
   return NextResponse.json({ need: data })
 }
 
