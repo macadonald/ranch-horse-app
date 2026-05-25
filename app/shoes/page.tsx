@@ -950,6 +950,8 @@ export default function ShoesPage() {
   const [savingDone, setSavingDone] = useState(false)
   const savingDoneRef = useRef<boolean>(false)
   const [historySearch, setHistorySearch] = useState('')
+  const [historyPage, setHistoryPage] = useState(1)
+  const [expandedVisitIds, setExpandedVisitIds] = useState<Set<string>>(new Set())
   const [showLogVisit, setShowLogVisit] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState('all')
@@ -1030,6 +1032,10 @@ export default function ShoesPage() {
       v.farrier_visit_horses.some(h => h.horse_name.toLowerCase().includes(q))
     )
   }, [visits, historySearch])
+
+  const HISTORY_PAGE_SIZE = 25
+  const historyTotalPages = Math.max(1, Math.ceil(filteredVisits.length / HISTORY_PAGE_SIZE))
+  const pagedVisits = filteredVisits.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
 
   const overdue = suggestions.filter(s => s.weeks >= 10)
   const gettingClose = suggestions.filter(s => s.weeks >= 8 && s.weeks < 10)
@@ -1334,7 +1340,7 @@ export default function ShoesPage() {
                 <input
                   placeholder="Search horse or farrier..."
                   value={historySearch}
-                  onChange={e => setHistorySearch(e.target.value)}
+                  onChange={e => { setHistorySearch(e.target.value); setHistoryPage(1) }}
                   style={{ fontSize: 13, width: 200 }}
                 />
                 <button
@@ -1354,47 +1360,60 @@ export default function ShoesPage() {
                   {historySearch ? 'No results matching your search' : 'No shoe history yet — mark horses done or log a visit to start building a record'}
                 </p>
               </div>
-            ) : filteredVisits.map(visit => (
-              <div key={visit.id} style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>
-                      {new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
-                      Farrier: <button onClick={() => setSelectedFarrier(visit.farrier_name)} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: 0, textDecoration: 'underline' }}>{visit.farrier_name}</button>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600, border: '1px solid var(--color-info-border)' }}>
-                      {visit.farrier_visit_horses.length} horse{visit.farrier_visit_horses.length !== 1 ? 's' : ''}
-                    </span>
-                    {deletingVisitId === visit.id ? (
-                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Delete?</span>
-                        <button onClick={() => deleteVisit(visit.id)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
-                        <button onClick={() => setDeletingVisitId(null)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-3)', cursor: 'pointer' }}>No</button>
+            ) : (
+              <>
+                <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>{filteredVisits.length} total visit{filteredVisits.length !== 1 ? 's' : ''}</p>
+                {pagedVisits.map(visit => {
+                  const isExpanded = expandedVisitIds.has(visit.id)
+                  const dateStr = new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  return (
+                    <div key={visit.id} style={{ marginBottom: 4, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', overflow: 'hidden' }}>
+                      {/* Collapsed row */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer' }} onClick={() => setExpandedVisitIds(prev => { const next = new Set(prev); isExpanded ? next.delete(visit.id) : next.add(visit.id); return next })}>
+                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 52 }}>{dateStr}</span>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{visit.farrier_name}</span>
+                        <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600, border: '1px solid var(--color-info-border)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          {visit.farrier_visit_horses.length} horse{visit.farrier_visit_horses.length !== 1 ? 's' : ''}
+                        </span>
+                        {deletingVisitId === visit.id ? (
+                          <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Delete?</span>
+                            <button onClick={() => deleteVisit(visit.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
+                            <button onClick={() => setDeletingVisitId(null)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-3)', cursor: 'pointer' }}>No</button>
+                          </div>
+                        ) : (
+                          <button onClick={e => { e.stopPropagation(); setDeletingVisitId(visit.id) }} title="Delete this visit" style={{ fontSize: 13, padding: '2px 5px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>🗑</button>
+                        )}
+                        <span style={{ fontSize: 14, color: 'var(--color-text-3)', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>›</span>
                       </div>
-                    ) : (
-                      <button onClick={() => setDeletingVisitId(visit.id)} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer' }} title="Delete this visit">✕</button>
-                    )}
+                      {/* Expanded detail */}
+                      {isExpanded && (
+                        <div style={{ borderTop: '1px solid var(--color-border)', padding: '10px 12px', background: 'var(--color-surface)' }}>
+                          {visit.farrier_visit_horses.map(h => (
+                            <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 13 }}>🐴</span>
+                              <span style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 80 }}>{h.horse_name}</span>
+                              <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>{WORK_LABELS[h.work_done] || h.work_done}</span>
+                              {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
+                              {h.shoe_size && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>sz {h.shoe_size}</span>}
+                              {h.placement && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{h.placement}</span>}
+                              {h.notes && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{h.notes}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {filteredVisits.length > HISTORY_PAGE_SIZE && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
+                    <button onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {historyPage} of {historyTotalPages}</span>
+                    <button onClick={() => setHistoryPage(p => Math.min(historyTotalPages, p + 1))} disabled={historyPage === historyTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === historyTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === historyTotalPages ? 'default' : 'pointer' }}>Next →</button>
                   </div>
-                </div>
-                {visit.farrier_visit_horses.map(h => (
-                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', marginBottom: 5, border: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 14 }}>🐴</span>
-                    <span style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 80 }}>{h.horse_name}</span>
-                    <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>
-                      {WORK_LABELS[h.work_done] || h.work_done}
-                    </span>
-                    {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
-                    {h.shoe_size && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>sz {h.shoe_size}</span>}
-                    {h.placement && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{h.placement}</span>}
-                    {h.notes && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{h.notes}</span>}
-                  </div>
-                ))}
-              </div>
-            ))}
+                )}
+              </>
+            )}
           </div>
 
           {/* Section 4 — Analytics */}
