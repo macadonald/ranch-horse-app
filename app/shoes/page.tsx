@@ -1366,25 +1366,30 @@ export default function ShoesPage() {
                 {pagedVisits.map(visit => {
                   const isExpanded = expandedVisitIds.has(visit.id)
                   const dateStr = new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  const horses = visit.farrier_visit_horses
+                  const horseLabel = horses.length <= 3
+                    ? horses.map(h => h.horse_name).join(', ')
+                    : horses.slice(0, 2).map(h => h.horse_name).join(', ') + ` +${horses.length - 2} more`
+                  const toggleExpand = () => setExpandedVisitIds(prev => { const next = new Set(prev); isExpanded ? next.delete(visit.id) : next.add(visit.id); return next })
                   return (
                     <div key={visit.id} style={{ marginBottom: 4, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', overflow: 'hidden' }}>
                       {/* Collapsed row */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer' }} onClick={() => setExpandedVisitIds(prev => { const next = new Set(prev); isExpanded ? next.delete(visit.id) : next.add(visit.id); return next })}>
-                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 52 }}>{dateStr}</span>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{visit.farrier_name}</span>
-                        <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600, border: '1px solid var(--color-info-border)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          {visit.farrier_visit_horses.length} horse{visit.farrier_visit_horses.length !== 1 ? 's' : ''}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer' }} onClick={toggleExpand}>
+                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 52, flexShrink: 0 }}>{dateStr}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{horseLabel}</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{visit.farrier_name}</div>
+                        </div>
+                        <span style={{ fontSize: 14, color: 'var(--color-text-3)', flexShrink: 0, display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>›</span>
                         {deletingVisitId === visit.id ? (
                           <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                             <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Delete?</span>
-                            <button onClick={() => deleteVisit(visit.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
-                            <button onClick={() => setDeletingVisitId(null)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-3)', cursor: 'pointer' }}>No</button>
+                            <button type="button" onClick={() => deleteVisit(visit.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
+                            <button type="button" onClick={() => setDeletingVisitId(null)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-3)', cursor: 'pointer' }}>No</button>
                           </div>
                         ) : (
-                          <button onClick={e => { e.stopPropagation(); setDeletingVisitId(visit.id) }} title="Delete this visit" style={{ fontSize: 13, padding: '2px 5px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>🗑</button>
+                          <button type="button" onClick={e => { e.stopPropagation(); setDeletingVisitId(visit.id) }} title="Delete this visit" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>✕</button>
                         )}
-                        <span style={{ fontSize: 14, color: 'var(--color-text-3)', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>›</span>
                       </div>
                       {/* Expanded detail */}
                       {isExpanded && (
@@ -1407,9 +1412,9 @@ export default function ShoesPage() {
                 })}
                 {filteredVisits.length > HISTORY_PAGE_SIZE && (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
-                    <button onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+                    <button type="button" onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
                     <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {historyPage} of {historyTotalPages}</span>
-                    <button onClick={() => setHistoryPage(p => Math.min(historyTotalPages, p + 1))} disabled={historyPage === historyTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === historyTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === historyTotalPages ? 'default' : 'pointer' }}>Next →</button>
+                    <button type="button" onClick={() => setHistoryPage(p => Math.min(historyTotalPages, p + 1))} disabled={historyPage === historyTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: historyPage === historyTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: historyPage === historyTotalPages ? 'default' : 'pointer' }}>Next →</button>
                   </div>
                 )}
               </>
