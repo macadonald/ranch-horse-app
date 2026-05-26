@@ -19,16 +19,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  // If is_drugger not explicitly provided, read from horses table so the flag persists
-  // across remove/re-add cycles. Ignore errors — column may not exist yet.
+  // If is_drugger not explicitly provided, read from horses and other_animals tables so
+  // the flag persists across remove/re-add cycles. Errors ignored — column may not exist yet.
   let resolvedDrugger = is_drugger ?? false
   if (!is_drugger) {
-    const { data: horseRow } = await supabase
-      .from('horses')
-      .select('is_drugger')
-      .eq('name', horse_name)
-      .maybeSingle()
-    if (horseRow?.is_drugger) resolvedDrugger = true
+    const [{ data: horseRow }, { data: otherRow }] = await Promise.all([
+      supabase.from('horses').select('is_drugger').eq('name', horse_name).maybeSingle(),
+      supabase.from('other_animals').select('is_drugger').eq('name', horse_name).maybeSingle(),
+    ])
+    if (horseRow?.is_drugger || otherRow?.is_drugger) resolvedDrugger = true
   }
 
   const { data, error } = await supabase
@@ -70,14 +69,16 @@ export async function PUT(req: NextRequest) {
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Sync is_drugger back to the horses table so it survives remove/re-add cycles.
-  // Requires: ALTER TABLE horses ADD COLUMN IF NOT EXISTS is_drugger boolean DEFAULT false;
-  // Errors are intentionally ignored — column may not exist yet.
+  // Sync is_drugger to both horses and other_animals tables so it survives remove/re-add
+  // cycles regardless of which table the animal lives in. Errors ignored — columns may not
+  // exist yet. Requires migrations:
+  //   ALTER TABLE horses ADD COLUMN IF NOT EXISTS is_drugger boolean DEFAULT false;
+  //   ALTER TABLE other_animals ADD COLUMN IF NOT EXISTS is_drugger boolean DEFAULT false;
   if ('is_drugger' in fields && data?.horse_name) {
-    await supabase
-      .from('horses')
-      .update({ is_drugger: fields.is_drugger })
-      .eq('name', data.horse_name)
+    await Promise.all([
+      supabase.from('horses').update({ is_drugger: fields.is_drugger }).eq('name', data.horse_name),
+      supabase.from('other_animals').update({ is_drugger: fields.is_drugger }).eq('name', data.horse_name),
+    ])
   }
 
   return NextResponse.json({ need: data })
