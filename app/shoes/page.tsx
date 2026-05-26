@@ -55,12 +55,10 @@ const SHOE_TYPE_COLORS: Record<string, { bg: string; border: string; color: stri
 }
 
 const FILTER_CHIPS = [
-  { key: 'all',            label: 'All' },
-  { key: 'regular',        label: 'Regular' },
-  { key: 'drugger',        label: 'Drugger' },
-  { key: 'non_drugger',    label: 'Non-drugger' },
-  { key: 'needs_done_soon',label: 'Needs done soon' },
-  { key: 'overdue',        label: 'Overdue' },
+  { key: 'all',         label: 'All' },
+  { key: 'drugger',     label: 'Drugger' },
+  { key: 'non_drugger', label: 'Non-drugger' },
+  { key: 'priority',    label: '★ Priority' },
 ]
 
 type ShoeNeed = {
@@ -1002,21 +1000,9 @@ export default function ShoesPage() {
     if (typeFilter === 'all') return needs
     if (typeFilter === 'drugger') return needs.filter(n => !!n.is_drugger)
     if (typeFilter === 'non_drugger') return needs.filter(n => !n.is_drugger)
-    if (typeFilter === 'needs_done_soon' || typeFilter === 'overdue') {
-      const MS_PER_DAY = 24 * 60 * 60 * 1000
-      const TWO_WEEKS_MS = 14 * MS_PER_DAY
-      const now = Date.now()
-      return needs.filter(n => {
-        const lastDate = horseLastVisitDate(n.horse_name, visits)
-        if (!lastDate) return false
-        const avgDays = horseAvgIntervalDays(n.horse_name, visits)
-        const nextExpectedMs = new Date(lastDate + 'T12:00:00').getTime() + avgDays * MS_PER_DAY
-        if (typeFilter === 'overdue') return now > nextExpectedMs
-        return nextExpectedMs > now && nextExpectedMs - now <= TWO_WEEKS_MS
-      })
-    }
-    return needs.filter(n => (n.shoe_type || 'regular') === typeFilter)
-  }, [needs, visits, typeFilter])
+    if (typeFilter === 'priority') return needs.filter(n => !!n.priority)
+    return needs
+  }, [needs, typeFilter])
 
   const suggestions = useMemo(() => {
     const lastShodMap: Record<string, { date: string; weeks: number }> = {}
