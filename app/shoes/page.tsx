@@ -57,9 +57,6 @@ const SHOE_TYPE_COLORS: Record<string, { bg: string; border: string; color: stri
 const FILTER_CHIPS = [
   { key: 'all',            label: 'All' },
   { key: 'regular',        label: 'Regular' },
-  { key: 'nb',             label: 'NB' },
-  { key: 'nb_pad',         label: 'NB+Pad' },
-  { key: 'plastics',       label: 'Plastics' },
   { key: 'drugger',        label: 'Drugger' },
   { key: 'non_drugger',    label: 'Non-drugger' },
   { key: 'needs_done_soon',label: 'Needs done soon' },
