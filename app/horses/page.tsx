@@ -831,6 +831,56 @@ function OtherAnimalModal({ animal, onClose, onSaved }: {
   )
 }
 
+// ─── TrainingAnimalListRow / TrainingAnimalCard (read-only) ──────────────────
+
+function TrainingAnimalListRow({ animal }: { animal: OtherAnimal }) {
+  return (
+    <div
+      className="horse-list-row"
+      style={{ padding: '7px 14px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{animal.name}</span>
+        {animal.age != null && (
+          <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{animal.age} yrs</span>
+        )}
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontWeight: 600 }}>
+          In Training
+        </span>
+      </div>
+      {animal.notes && (
+        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          {animal.notes}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TrainingAnimalCard({ animal }: { animal: OtherAnimal }) {
+  return (
+    <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>{animal.name}</div>
+          {animal.age != null && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>{animal.age} yrs</div>
+          )}
+        </div>
+        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontWeight: 600, flexShrink: 0 }}>
+          In Training
+        </span>
+      </div>
+      {animal.notes && (
+        <p style={{ fontSize: 11, color: 'var(--color-text-2)', lineHeight: 1.5, margin: '4px 0 0', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
+          {animal.notes}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ─── OtherAnimalCard ──────────────────────────────────────────────────────────
 
 function OtherAnimalCard({ animal, onEdit, onDelete, onPromote }: {
@@ -918,6 +968,7 @@ export default function HorsesPage() {
 
   useEffect(() => { fetchHorses() }, [fetchHorses])
   useEffect(() => { if (view === 'other') fetchAnimals() }, [view, fetchAnimals])
+  useEffect(() => { if (filter === 'in_training') fetchAnimals() }, [filter, fetchAnimals])
 
   async function toggleActive(horse: DbHorse) {
     setDbHorses(prev => prev.map(h => h.id === horse.id ? { ...h, is_active: !h.is_active } : h))
@@ -1034,6 +1085,7 @@ export default function HorsesPage() {
 
   const activeCount = dbHorses.filter(h => h.is_active && !hasBlockingFlag(h, today)).length
   const grouped = OTHER_GROUPS.map(g => ({ group: g, items: animals.filter(a => a.group_name === g) })).filter(g => g.items.length > 0)
+  const trainingAnimals = filter === 'in_training' ? animals.filter(a => a.group_name === 'In Training') : []
 
   function openEdit(horse: DbHorse) {
     setEditingHorse(horse); setEditMode('edit'); setShowEditModal(true)
@@ -1139,7 +1191,7 @@ export default function HorsesPage() {
           <div style={{ padding: displayMode === 'list' ? '16px 24px' : 24 }}>
             {horsesLoading ? (
               <p style={{ textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13, padding: 40 }}>Loading horses...</p>
-            ) : filteredHorses.length === 0 ? (
+            ) : filteredHorses.length === 0 && trainingAnimals.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>◈</div>
                 <p style={{ fontSize: 13 }}>{search || filter !== 'all' ? 'No horses match your filters' : 'No horses yet — click + Add Horse to seed from roster'}</p>
@@ -1153,31 +1205,59 @@ export default function HorsesPage() {
                 )}
               </div>
             ) : displayMode === 'list' ? (
-              <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-                {filteredHorses.map(horse => (
-                  <HorseListRow
-                    key={horse.id}
-                    horse={horse}
-                    today={today}
-                    onSelect={() => openEdit(horse)}
-                    onToggleActive={() => toggleActive(horse)}
-                    onEdit={() => openEdit(horse)}
-                  />
-                ))}
-              </div>
+              <>
+                {filteredHorses.length > 0 && (
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                    {filteredHorses.map(horse => (
+                      <HorseListRow
+                        key={horse.id}
+                        horse={horse}
+                        today={today}
+                        onSelect={() => openEdit(horse)}
+                        onToggleActive={() => toggleActive(horse)}
+                        onEdit={() => openEdit(horse)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {trainingAnimals.length > 0 && (
+                  <div style={{ marginTop: filteredHorses.length > 0 ? 20 : 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                      In Training — Not in guest string · {trainingAnimals.length}
+                    </div>
+                    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                      {trainingAnimals.map(a => <TrainingAnimalListRow key={a.id} animal={a} />)}
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
-                {filteredHorses.map(horse => (
-                  <HorseCard
-                    key={horse.id}
-                    horse={horse}
-                    today={today}
-                    onSelect={() => openEdit(horse)}
-                    onToggleActive={() => toggleActive(horse)}
-                    onEdit={() => openEdit(horse)}
-                  />
-                ))}
-              </div>
+              <>
+                {filteredHorses.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+                    {filteredHorses.map(horse => (
+                      <HorseCard
+                        key={horse.id}
+                        horse={horse}
+                        today={today}
+                        onSelect={() => openEdit(horse)}
+                        onToggleActive={() => toggleActive(horse)}
+                        onEdit={() => openEdit(horse)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {trainingAnimals.length > 0 && (
+                  <div style={{ marginTop: filteredHorses.length > 0 ? 20 : 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                      In Training — Not in guest string · {trainingAnimals.length}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+                      {trainingAnimals.map(a => <TrainingAnimalCard key={a.id} animal={a} />)}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
