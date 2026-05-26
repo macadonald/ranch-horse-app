@@ -255,7 +255,14 @@ export default function BoardPage() {
     if (key === 'all') { setActiveFilters(new Set()); return }
     setActiveFilters(prev => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key); else next.add(key)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+        // Free is mutually exclusive with Assigned and Double
+        if (key === 'free') { next.delete('assigned'); next.delete('double') }
+        if (key === 'assigned' || key === 'double') next.delete('free')
+      }
       return next
     })
   }
@@ -333,8 +340,6 @@ export default function BoardPage() {
     { key: 'free', label: 'Free' },
     { key: 'assigned', label: 'Assigned' },
     { key: 'double', label: 'Double' },
-    { key: 'unavailable', label: 'Unavailable' },
-    { key: 'shoes', label: 'Shoes' },
     { key: 'today', label: 'Out today' },
     { key: 'tomorrow', label: 'Out tmrw' },
     { key: 'B', label: 'B' },
@@ -342,6 +347,8 @@ export default function BoardPage() {
     { key: 'I', label: 'I' },
     { key: 'AI', label: 'AI' },
     { key: 'A', label: 'A' },
+    { key: 'shoes', label: 'Shoes' },
+    { key: 'unavailable', label: 'Unavailable' },
   ]
 
   return (
