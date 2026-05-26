@@ -342,9 +342,6 @@ export default function BoardPage() {
     { key: 'I', label: 'I' },
     { key: 'AI', label: 'AI' },
     { key: 'A', label: 'A' },
-    { key: 'light', label: 'Small' },
-    { key: 'medium', label: 'Medium' },
-    { key: 'heavy', label: 'Large' },
   ]
 
   return (
