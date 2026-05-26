@@ -77,15 +77,13 @@ const STATUS_META: Record<BlockingType, { label: string; color: string; bg: stri
 }
 
 const FILTER_CHIPS = [
-  { key: 'all',          label: 'All' },
-  { key: 'active',       label: 'Active' },
-  { key: 'inactive',     label: 'Inactive' },
-  { key: 'lame',         label: 'Lame' },
-  { key: 'injured',      label: 'Injured' },
-  { key: 'shoes',        label: 'Missing Shoes' },
-  { key: 'day_off',      label: 'Day Off' },
-  { key: 'in_training',  label: 'In Training' },
-  { key: 'retired_flag', label: 'Retired' },
+  { key: 'all',         label: 'All' },
+  { key: 'active',      label: 'Active' },
+  { key: 'inactive',    label: 'Inactive' },
+  { key: 'lame',        label: 'Lame' },
+  { key: 'injured',     label: 'Injured' },
+  { key: 'shoes',       label: 'Missing Shoes' },
+  { key: 'in_training', label: 'In Training' },
 ]
 
 // ─── FlagNotesModal ───────────────────────────────────────────────────────────
