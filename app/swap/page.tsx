@@ -166,16 +166,16 @@ export default function SwapPage() {
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--color-border)' }}>Rider Details</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                 <div><label>Age</label><input type="number" placeholder="e.g. 42" value={age} onChange={e => setAge(e.target.value)} /></div>
-                <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={weight} onChange={e => setWeight(e.target.value)} /></div>
-                <div style={{ gridColumn: '1/-1' }}><label>Height</label><input type="text" placeholder="e.g. 5'9" value={height} onChange={e => setHeight(e.target.value)} /></div>
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label>Gender</label>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  {['Male', 'Female'].map(g => (
-                    <button key={g} onClick={() => setGender(gender === g ? '' : g)} style={{ flex: 1, padding: '9px', borderRadius: 'var(--radius-sm)', border: gender === g ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border)', background: gender === g ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: gender === g ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 14, fontWeight: gender === g ? 600 : 400, cursor: 'pointer' }}>{g}</button>
-                  ))}
+                <div>
+                  <label>Gender</label>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    {['Male', 'Female'].map(g => (
+                      <button key={g} onClick={() => setGender(gender === g ? '' : g)} style={{ flex: 1, padding: '9px', borderRadius: 'var(--radius-sm)', border: gender === g ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border)', background: gender === g ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: gender === g ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 14, fontWeight: gender === g ? 600 : 400, cursor: 'pointer' }}>{g}</button>
+                    ))}
+                  </div>
                 </div>
+                <div><label>Height</label><input type="text" placeholder="e.g. 5'9&quot;" value={height} onChange={e => setHeight(e.target.value)} /></div>
+                <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={weight} onChange={e => setWeight(e.target.value)} /></div>
               </div>
               <div style={{ marginBottom: 14 }}>
                 <label>Notes</label>
