@@ -287,11 +287,11 @@ export default function BoardPage() {
       if (!matchesLevel) return false
     }
 
-    // Date filters: OR logic — horse must match at least one selected date
-    const wantsToday = activeFilters.has('today')
-    const wantsTomorrow = activeFilters.has('tomorrow')
-    if (wantsToday || wantsTomorrow) {
-      if (!((wantsToday && outToday) || (wantsTomorrow && outTomorrow))) return false
+    // Out today/tomorrow: OR logic — horse must match at least one selected date
+    const selectedDates = Array.from(activeFilters).filter(f => f === 'today' || f === 'tomorrow')
+    if (selectedDates.length > 0) {
+      const matchesDate = selectedDates.some(f => f === 'today' ? outToday : outTomorrow)
+      if (!matchesDate) return false
     }
 
     // All other filters: AND logic
