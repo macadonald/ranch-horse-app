@@ -82,7 +82,7 @@ const FILTER_CHIPS = [
   { key: 'inactive',    label: 'Inactive' },
   { key: 'lame',        label: 'Lame' },
   { key: 'injured',     label: 'Injured' },
-  { key: 'shoes',       label: 'Missing Shoes' },
+  { key: 'shoes',       label: 'Shoes' },
   { key: 'in_training', label: 'In Training' },
 ]
 
