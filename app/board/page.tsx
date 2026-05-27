@@ -263,7 +263,7 @@ export default function BoardPage() {
         next.add(key)
         // Level filters are single-select: deselect any other level
         if (LEVEL_FILTERS.has(key)) {
-          for (const l of LEVEL_FILTERS) { if (l !== key) next.delete(l) }
+          ;['B', 'AB', 'I', 'AI', 'A'].forEach(l => { if (l !== key) next.delete(l) })
         }
         // Mutual exclusivity: Free cannot coexist with Assigned or Double
         if (key === 'free') {
