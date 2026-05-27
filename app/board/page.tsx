@@ -274,22 +274,7 @@ export default function BoardPage() {
     const shoe = shoeMap[horse.name]
     const outToday = assignments.some(a => a.check_out_date === today)
     const outTomorrow = assignments.some(a => a.check_out_date === tomorrow)
-
-    const LEVEL_KEYS = new Set(['B', 'AB', 'I', 'AI', 'A'])
-    const selectedLevels = Array.from(activeFilters).filter(f => LEVEL_KEYS.has(f))
-
-    // Level filters: OR logic — horse must match at least one selected level
-    if (selectedLevels.length > 0) {
-      const matchesLevel = selectedLevels.some(f => {
-        if (f === 'I' || f === 'AI') return horse.level === f || horse.level === 'I/AI'
-        return horse.level === f
-      })
-      if (!matchesLevel) return false
-    }
-
-    // All other filters: AND logic
     for (const f of Array.from(activeFilters)) {
-      if (LEVEL_KEYS.has(f)) continue
       if (f === 'free' && section !== 'free') return false
       if (f === 'assigned' && section !== 'assigned') return false
       if (f === 'double' && !isDouble) return false
@@ -297,6 +282,11 @@ export default function BoardPage() {
       if (f === 'shoes' && !shoe) return false
       if (f === 'today' && !outToday) return false
       if (f === 'tomorrow' && !outTomorrow) return false
+      if (f === 'B' && horse.level !== 'B') return false
+      if (f === 'AB' && horse.level !== 'AB') return false
+      if (f === 'I' && horse.level !== 'I' && horse.level !== 'I/AI') return false
+      if (f === 'AI' && horse.level !== 'AI' && horse.level !== 'I/AI') return false
+      if (f === 'A' && horse.level !== 'A') return false
       if (f === 'light' && horse.size !== 'small') return false
       if (f === 'medium' && horse.size !== 'medium') return false
       if (f === 'heavy' && horse.size !== 'large' && horse.size !== 'draft') return false
