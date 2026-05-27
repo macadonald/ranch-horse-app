@@ -255,7 +255,18 @@ export default function BoardPage() {
     if (key === 'all') { setActiveFilters(new Set()); return }
     setActiveFilters(prev => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key); else next.add(key)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+        // Mutual exclusivity: Free cannot coexist with Assigned or Double
+        if (key === 'free') {
+          next.delete('assigned')
+          next.delete('double')
+        } else if (key === 'assigned' || key === 'double') {
+          next.delete('free')
+        }
+      }
       return next
     })
   }
@@ -267,23 +278,36 @@ export default function BoardPage() {
     const shoe = shoeMap[horse.name]
     const outToday = assignments.some(a => a.check_out_date === today)
     const outTomorrow = assignments.some(a => a.check_out_date === tomorrow)
-    for (const f of Array.from(activeFilters)) {
-      if (f === 'free' && section !== 'free') return false
-      if (f === 'assigned' && section !== 'assigned') return false
-      if (f === 'double' && !isDouble) return false
-      if (f === 'unavailable' && section !== 'unavailable') return false
-      if (f === 'shoes' && !shoe) return false
-      if (f === 'today' && !outToday) return false
-      if (f === 'tomorrow' && !outTomorrow) return false
-      if (f === 'B' && horse.level !== 'B') return false
-      if (f === 'AB' && horse.level !== 'AB') return false
-      if (f === 'I' && horse.level !== 'I' && horse.level !== 'I/AI') return false
-      if (f === 'AI' && horse.level !== 'AI' && horse.level !== 'I/AI') return false
-      if (f === 'A' && horse.level !== 'A') return false
-      if (f === 'light' && horse.size !== 'small') return false
-      if (f === 'medium' && horse.size !== 'medium') return false
-      if (f === 'heavy' && horse.size !== 'large' && horse.size !== 'draft') return false
+
+    // Non-level, non-date filters (AND logic)
+    if (activeFilters.has('free') && section !== 'free') return false
+    if (activeFilters.has('assigned') && section !== 'assigned') return false
+    if (activeFilters.has('double') && !isDouble) return false
+    if (activeFilters.has('unavailable') && section !== 'unavailable') return false
+    if (activeFilters.has('shoes') && !shoe) return false
+
+    // Out Today / Out Tomorrow: OR logic when both selected, AND logic individually
+    if (activeFilters.has('today') && activeFilters.has('tomorrow')) {
+      if (!outToday && !outTomorrow) return false
+    } else {
+      if (activeFilters.has('today') && !outToday) return false
+      if (activeFilters.has('tomorrow') && !outTomorrow) return false
     }
+
+    // Level filters: OR logic when multiple levels selected
+    const levelFilters = ['B', 'AB', 'I', 'AI', 'A'].filter(l => activeFilters.has(l))
+    if (levelFilters.length > 0) {
+      const matchesAnyLevel = levelFilters.some(f => {
+        if (f === 'B') return horse.level === 'B'
+        if (f === 'AB') return horse.level === 'AB'
+        if (f === 'I') return horse.level === 'I' || horse.level === 'I/AI'
+        if (f === 'AI') return horse.level === 'AI' || horse.level === 'I/AI'
+        if (f === 'A') return horse.level === 'A'
+        return false
+      })
+      if (!matchesAnyLevel) return false
+    }
+
     return true
   }
 
@@ -333,18 +357,15 @@ export default function BoardPage() {
     { key: 'free', label: 'Free' },
     { key: 'assigned', label: 'Assigned' },
     { key: 'double', label: 'Double' },
-    { key: 'unavailable', label: 'Unavailable' },
-    { key: 'shoes', label: 'Shoes' },
     { key: 'today', label: 'Out today' },
     { key: 'tomorrow', label: 'Out tmrw' },
-    { key: 'B', label: 'Beginner' },
-    { key: 'AB', label: 'Adv Beg' },
-    { key: 'I', label: 'Intermediate' },
-    { key: 'AI', label: 'Adv Int' },
-    { key: 'A', label: 'Advanced' },
-    { key: 'light', label: 'Small' },
-    { key: 'medium', label: 'Medium' },
-    { key: 'heavy', label: 'Large' },
+    { key: 'B', label: 'B' },
+    { key: 'AB', label: 'AB' },
+    { key: 'I', label: 'I' },
+    { key: 'AI', label: 'AI' },
+    { key: 'A', label: 'A' },
+    { key: 'shoes', label: 'Shoes' },
+    { key: 'unavailable', label: 'Unavailable' },
   ]
 
   return (
