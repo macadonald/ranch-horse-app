@@ -287,15 +287,22 @@ export default function BoardPage() {
       if (!matchesLevel) return false
     }
 
+    // Date filters: OR logic — horse must match at least one selected date
+    const wantsToday = activeFilters.has('today')
+    const wantsTomorrow = activeFilters.has('tomorrow')
+    if (wantsToday || wantsTomorrow) {
+      if (!((wantsToday && outToday) || (wantsTomorrow && outTomorrow))) return false
+    }
+
+    // All other filters: AND logic
     for (const f of Array.from(activeFilters)) {
       if (LEVEL_KEYS.has(f)) continue
+      if (f === 'today' || f === 'tomorrow') continue
       if (f === 'free' && section !== 'free') return false
       if (f === 'assigned' && section !== 'assigned') return false
       if (f === 'double' && !isDouble) return false
       if (f === 'unavailable' && section !== 'unavailable') return false
       if (f === 'shoes' && !shoe) return false
-      if (f === 'today' && !outToday && !(activeFilters.has('tomorrow') && outTomorrow)) return false
-      if (f === 'tomorrow' && !outTomorrow && !(activeFilters.has('today') && outToday)) return false
       if (f === 'light' && horse.size !== 'small') return false
       if (f === 'medium' && horse.size !== 'medium') return false
       if (f === 'heavy' && horse.size !== 'large' && horse.size !== 'draft') return false
