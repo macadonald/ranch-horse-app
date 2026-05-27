@@ -272,8 +272,8 @@ export default function BoardPage() {
     const assignments = assignmentMap[horse.name] || []
     const isDouble = assignments.length >= 2
     const shoe = shoeMap[horse.name]
-    const outToday = assignments.some(a => a.check_out_date === today)
-    const outTomorrow = assignments.some(a => a.check_out_date === tomorrow)
+    const outToday = assignments.some(a => a.check_out_date === today) || assignments.some(a => guests.find(g => g.id === a.guest_id)?.check_out_date === today)
+    const outTomorrow = assignments.some(a => a.check_out_date === tomorrow) || assignments.some(a => guests.find(g => g.id === a.guest_id)?.check_out_date === tomorrow)
     for (const f of Array.from(activeFilters)) {
       if (f === 'free' && section !== 'free') return false
       if (f === 'assigned' && section !== 'assigned') return false
