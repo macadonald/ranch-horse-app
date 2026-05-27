@@ -251,6 +251,8 @@ export default function BoardPage() {
   const statDouble = assignedHorses.filter(h => (assignmentMap[h.name]?.length ?? 0) >= 2).length
   const statUnavailable = inactiveHorses.length
 
+  const LEVEL_FILTERS = new Set(['B', 'AB', 'I', 'AI', 'A'])
+
   function toggleFilter(key: string) {
     if (key === 'all') { setActiveFilters(new Set()); return }
     setActiveFilters(prev => {
@@ -259,6 +261,10 @@ export default function BoardPage() {
         next.delete(key)
       } else {
         next.add(key)
+        // Level filters are single-select: deselect any other level
+        if (LEVEL_FILTERS.has(key)) {
+          for (const l of LEVEL_FILTERS) { if (l !== key) next.delete(l) }
+        }
         // Mutual exclusivity: Free cannot coexist with Assigned or Double
         if (key === 'free') {
           next.delete('assigned')
