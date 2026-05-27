@@ -59,7 +59,7 @@ export async function DELETE(req: NextRequest) {
 // Get all active assignments to know which horses are taken
 export async function GET() {
   try {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleString('en-CA', { timeZone: 'America/Phoenix' }).split(',')[0]
 
     const { data, error } = await supabase
       .from('horse_assignments')
