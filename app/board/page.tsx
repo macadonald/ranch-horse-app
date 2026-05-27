@@ -337,11 +337,14 @@ export default function BoardPage() {
     { key: 'shoes', label: 'Shoes' },
     { key: 'today', label: 'Out today' },
     { key: 'tomorrow', label: 'Out tmrw' },
-    { key: 'B', label: 'B' },
-    { key: 'AB', label: 'AB' },
-    { key: 'I', label: 'I' },
-    { key: 'AI', label: 'AI' },
-    { key: 'A', label: 'A' },
+    { key: 'B', label: 'Beginner' },
+    { key: 'AB', label: 'Adv Beg' },
+    { key: 'I', label: 'Intermediate' },
+    { key: 'AI', label: 'Adv Int' },
+    { key: 'A', label: 'Advanced' },
+    { key: 'light', label: 'Small' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'heavy', label: 'Large' },
   ]
 
   return (
