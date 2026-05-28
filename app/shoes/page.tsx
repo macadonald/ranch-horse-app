@@ -32,6 +32,7 @@ const SHOE_TYPES = [
   { key: 'regular',  label: 'Regular' },
   { key: 'nb',       label: 'NB' },
   { key: 'nb_pad',   label: 'NB+Pad' },
+  { key: 'pad',      label: 'Pad' },
   { key: 'plastics', label: 'Plastics' },
 ]
 
@@ -51,6 +52,7 @@ const SHOE_TYPE_COLORS: Record<string, { bg: string; border: string; color: stri
   regular:  { bg: '#f3f4f6', border: '#d1d5db', color: '#374151', label: 'Regular' },
   nb:       { bg: '#fef3c7', border: '#fcd34d', color: '#92400e', label: 'NB' },
   nb_pad:   { bg: '#fed7aa', border: '#fb923c', color: '#7c2d12', label: 'NB+Pad' },
+  pad:      { bg: '#dcfce7', border: '#86efac', color: '#166534', label: 'Pad' },
   plastics: { bg: '#ede9fe', border: '#c4b5fd', color: '#7c3aed', label: 'Plastics' },
 }
 
