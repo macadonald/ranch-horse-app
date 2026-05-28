@@ -88,7 +88,7 @@ function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { valu
       <input placeholder={placeholder || 'Horse name...'} value={value} onChange={e => handleInput(e.target.value)} onBlur={() => setTimeout(() => setShow(false), 150)} style={{ width: '100%', fontSize: 13 }} />
       {show && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
-          {suggestions.map(name => <div key={name} onMouseDown={() => { onChange(name); setShow(false) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>🐴 {name}</div>)}
+          {suggestions.map(name => <div key={name} onMouseDown={e => { e.preventDefault(); onChange(name); setShow(false) }} onTouchEnd={e => { e.preventDefault(); onChange(name); setShow(false) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>🐴 {name}</div>)}
         </div>
       )}
     </div>
