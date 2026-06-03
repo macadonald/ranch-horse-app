@@ -174,7 +174,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
 }) {
   const isNew = mode === 'new'
   const isPromote = mode === 'promote'
-  const nameEditable = isNew || isPromote
+  const nameEditable = isNew || isPromote || mode === 'edit'
 
   const [inEditMode, setInEditMode] = useState(isNew || isPromote)
   const [form, setForm] = useState<EditHorseForm>({
