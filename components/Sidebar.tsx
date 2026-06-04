@@ -4,12 +4,13 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 
 const NAV = [
-  { href: '/swap',   label: 'Horse Swap',       icon: '\u21c4' },
-  { href: '/guests', label: 'Guests',            icon: '\u25ce' },
-  { href: '/board',  label: 'Assignment Board',  icon: '\u25a6' },
-  { href: '/horses', label: 'Horse Roster',      icon: '\u25c8' },
-  { href: '/shoes',  label: 'Shoes',             icon: '\u2229' },
-  { href: '/health', label: 'Horse Health',      icon: '\u2665' },
+  { href: '/swap',      label: 'Horse Swap',       icon: '\u21c4' },
+  { href: '/guests',    label: 'Guests',            icon: '\u25ce' },
+  { href: '/board',     label: 'Assignment Board',  icon: '\u25a6' },
+  { href: '/horses',    label: 'Horse Roster',      icon: '\u25c8' },
+  { href: '/shoes',     label: 'Shoes',             icon: '\u2229' },
+  { href: '/health',    label: 'Horse Health',      icon: '\u2665' },
+  { href: '/analytics', label: 'Analytics',         icon: '\u25b3' },
 ]
 
 export default function Sidebar() {
