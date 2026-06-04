@@ -283,6 +283,59 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 48px' }}>
       <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Correlations</h2>
 
+      {/* ── 4. Best Match Finder ── */}
+      <div style={SEC_STYLE}>
+        <SectionHeader title="Best Match Finder" />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          <select value={matchWeight} onChange={e => setMatchWeight(e.target.value)} style={selectStyle}>
+            <option value=''>Any weight</option>
+            {WT_BUCKETS.map(b => <option key={b.label} value={b.label}>{b.label} lbs</option>)}
+          </select>
+          <select value={matchLevel} onChange={e => setMatchLevel(e.target.value)} style={selectStyle}>
+            <option value=''>Any level</option>
+            {LEVELS.map(l => <option key={l} value={l}>{LEVEL_LABELS[l]}</option>)}
+          </select>
+          <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={selectStyle}>
+            <option value=''>Any gender</option>
+            <option value='female'>Female</option>
+            <option value='male'>Male</option>
+          </select>
+        </div>
+
+        {!matchResults ? (
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Select at least one filter above to find matches.</p>
+        ) : matchResults.top3.length === 0 ? (
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>No data for this combination yet.</p>
+        ) : (
+          <>
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
+              Based on {matchResults.totalAssignments} historical assignment{matchResults.totalAssignments !== 1 ? 's' : ''}
+            </p>
+            {matchResults.top3.map((h, i) => (
+              <div key={h.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < matchResults.top3.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                <span style={{ fontSize: 16, color: 'var(--color-text-3)', width: 20, flexShrink: 0 }}>
+                  {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{h.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
+                    {h.total} assignment{h.total !== 1 ? 's' : ''} · {h.successPct}% success
+                  </div>
+                </div>
+                <span style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                  background: h.successPct >= 90 ? '#f0fdf4' : h.successPct >= 75 ? 'var(--color-bg)' : '#fff7ed',
+                  color:      h.successPct >= 90 ? '#15803d' : h.successPct >= 75 ? 'var(--color-text-2)' : '#c2410c',
+                  border: `1px solid ${h.successPct >= 90 ? '#86efac' : h.successPct >= 75 ? 'var(--color-border)' : '#fed7aa'}`,
+                }}>
+                  {h.success} ✓
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
       {/* ── 1. Weight × Reassignment ── */}
       <div style={SEC_STYLE}>
         <SectionHeader title="Weight × Reassignment Rate" />
@@ -387,59 +440,6 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
             )}
           </div>
         ))}
-      </div>
-
-      {/* ── 4. Best Match Finder ── */}
-      <div style={SEC_STYLE}>
-        <SectionHeader title="Best Match Finder" />
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-          <select value={matchWeight} onChange={e => setMatchWeight(e.target.value)} style={selectStyle}>
-            <option value=''>Any weight</option>
-            {WT_BUCKETS.map(b => <option key={b.label} value={b.label}>{b.label} lbs</option>)}
-          </select>
-          <select value={matchLevel} onChange={e => setMatchLevel(e.target.value)} style={selectStyle}>
-            <option value=''>Any level</option>
-            {LEVELS.map(l => <option key={l} value={l}>{LEVEL_LABELS[l]}</option>)}
-          </select>
-          <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={selectStyle}>
-            <option value=''>Any gender</option>
-            <option value='female'>Female</option>
-            <option value='male'>Male</option>
-          </select>
-        </div>
-
-        {!matchResults ? (
-          <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Select at least one filter above to find matches.</p>
-        ) : matchResults.top3.length === 0 ? (
-          <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>No data for this combination yet.</p>
-        ) : (
-          <>
-            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
-              Based on {matchResults.totalAssignments} historical assignment{matchResults.totalAssignments !== 1 ? 's' : ''}
-            </p>
-            {matchResults.top3.map((h, i) => (
-              <div key={h.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < matchResults.top3.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
-                <span style={{ fontSize: 16, color: 'var(--color-text-3)', width: 20, flexShrink: 0 }}>
-                  {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{h.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
-                    {h.total} assignment{h.total !== 1 ? 's' : ''} · {h.successPct}% success
-                  </div>
-                </div>
-                <span style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
-                  background: h.successPct >= 90 ? '#f0fdf4' : h.successPct >= 75 ? 'var(--color-bg)' : '#fff7ed',
-                  color:      h.successPct >= 90 ? '#15803d' : h.successPct >= 75 ? 'var(--color-text-2)' : '#c2410c',
-                  border: `1px solid ${h.successPct >= 90 ? '#86efac' : h.successPct >= 75 ? 'var(--color-border)' : '#fed7aa'}`,
-                }}>
-                  {h.success} ✓
-                </span>
-              </div>
-            ))}
-          </>
-        )}
       </div>
 
       {/* ── 5. Guest Profile Shifts ── */}
