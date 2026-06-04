@@ -951,6 +951,7 @@ export default function ShoesPage() {
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
   const [otherAnimalNames, setOtherAnimalNames] = useState<string[]>([])
+  const [horseDbNames, setHorseDbNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string } | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
@@ -972,20 +973,23 @@ export default function ShoesPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [needsRes, visitsRes, healthRes, otherRes] = await Promise.all([
+      const [needsRes, visitsRes, healthRes, otherRes, horsesRes] = await Promise.all([
         fetch('/api/shoe-needs'),
         fetch('/api/farrier-visits'),
         fetch('/api/health'),
         fetch('/api/other-animals'),
+        fetch('/api/horses'),
       ])
       const needsData = await needsRes.json()
       const visitsData = await visitsRes.json()
       const healthData = await healthRes.json()
       const otherData = await otherRes.json()
+      const horsesData = await horsesRes.json()
       setNeeds(needsData.needs || [])
       setVisits(visitsData.visits || [])
       setHealthIssues(healthData.issues || [])
       setOtherAnimalNames((otherData.animals || []).map((a: { name: string }) => a.name))
+      setHorseDbNames((horsesData.horses || []).map((h: { name: string }) => h.name))
     } catch (err) {
       console.error(err)
     } finally {
@@ -1218,7 +1222,7 @@ export default function ShoesPage() {
                       setAddForm(f => f ? { ...f, horse_name: v, shoe_type: shoeType } : f)
                       setAddError(null)
                     }}
-                    extraNames={otherAnimalNames}
+                    extraNames={[...horseDbNames, ...otherAnimalNames]}
                   />
                   <select
                     value={addForm.what_needed}
@@ -1520,7 +1524,7 @@ export default function ShoesPage() {
           onClose={() => setShowLogVisit(false)}
           onSaved={handleVisitSaved}
           needs={needs}
-          extraNames={otherAnimalNames}
+          extraNames={[...horseDbNames, ...otherAnimalNames]}
           pastFarrierNames={Array.from(new Set(visits.map(v => v.farrier_name).filter(Boolean)))}
         />
       )}
