@@ -1097,6 +1097,7 @@ export default function GuestsPage() {
             .guest-header { padding-left: 12px !important; padding-right: 12px !important; padding-top: max(12px, env(safe-area-inset-top)) !important; flex-wrap: wrap !important; }
             .guest-actions { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-end !important; padding-right: 0 !important; }
             .guest-actions > input[type=text], .guest-actions > input:not([type]) { flex: 1 !important; min-width: 80px !important; width: auto !important; }
+            .add-guest-modal input, .add-guest-modal select, .add-guest-modal textarea { min-height: 44px !important; }
           }
         ` }} />
       </main>
@@ -1207,8 +1208,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const f = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm(prev => ({ ...prev, [field]: e.target.value }))
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
-      <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="add-guest-modal" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>Add Guest {count > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>({count} added)</span>}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
@@ -1223,17 +1224,17 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, paddingBottom: 80 }}>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Full Name *</label>
-            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => { checkReturning(form.name); if (form.repeat_guest === 'yes') loadRepeatHistory(form.name) }} autoFocus />
+            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => { checkReturning(form.name); if (form.repeat_guest === 'yes') loadRepeatHistory(form.name) }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} autoFocus />
           </div>
-          <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} /></div>
-          <div><label>Gender</label><select value={form.gender} onChange={f('gender')}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
-          <div><label>Riding Level *</label><select value={form.riding_level} onChange={f('riding_level')}><option value="">Select...</option>{LEVELS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select></div>
-          <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} /></div>
-          <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} /></div>
-          <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} /></div>
-          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} /></div>
-          <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} /></div>
-          <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} style={{ resize: 'vertical' }} /></div>
+          <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div><label>Gender</label><select value={form.gender} onChange={f('gender')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+          <div><label>Riding Level *</label><select value={form.riding_level} onChange={f('riding_level')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}><option value="">Select...</option>{LEVELS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select></div>
+          <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ resize: 'vertical' }} /></div>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Repeat guest?</label>
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -1269,7 +1270,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
               </div>
             )}
           </div>
-          <div style={{ gridColumn: '1/-1' }}>
+          <div style={{ gridColumn: '1/-1' }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
             <label>Horse Request</label>
             <HorseAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={horseNames} />
           </div>
