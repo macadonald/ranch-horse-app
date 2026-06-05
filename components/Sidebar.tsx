@@ -36,8 +36,8 @@ export default function Sidebar() {
         style={{ width: 230, flexShrink: 0, background: 'var(--color-sidebar)', display: 'flex', flexDirection: 'column', height: '100vh', position: 'sticky', top: 0 }}
       >
         <div style={{ padding: '24px 20px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: '#f5ede0', fontWeight: 700, letterSpacing: '0.01em', lineHeight: 1.2 }}>Ranch Horse</div>
-          <div style={{ fontSize: 11, color: 'rgba(245,237,224,0.45)', marginTop: 4, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Assignment System</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: '#f5ede0', fontWeight: 700, letterSpacing: '0.01em', lineHeight: 1.2 }}>HerdAI</div>
+          <div style={{ fontSize: 11, color: 'rgba(245,237,224,0.45)', marginTop: 4, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Know Your Herd</div>
         </div>
 
         <nav style={{ padding: '12px 0', flex: 1 }}>
