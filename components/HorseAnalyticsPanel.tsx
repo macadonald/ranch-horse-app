@@ -7,7 +7,7 @@ import { DbHorse, LEVEL_LABELS } from '@/lib/horses'
 export type GuestRider = {
   id: string; name: string
   weight: number | null; age: number | null
-  gender: string; riding_level: string; check_out_date: string
+  gender: string; riding_level: string; check_out_date: string; check_in_date?: string
   horse_assignments?: { horse_name: string; incompatible: boolean; reason: string | null; status: string }[]
 }
 
@@ -240,6 +240,22 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
     .filter(s => s.doesntWorkGuests.size >= 3)
     .sort((a, b) => b.doesntWorkGuests.size - a.doesntWorkGuests.size)
 
+  const cutoff60 = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+    .toLocaleDateString('en-CA', { timeZone: 'America/Phoenix' })
+  const counts60: Record<string, number> = {}
+  guests.forEach(g => {
+    if (!g.check_in_date || g.check_in_date < cutoff60) return
+    ;(g.horse_assignments || []).forEach(a => {
+      if (!statsMap[a.horse_name]) return
+      counts60[a.horse_name] = (counts60[a.horse_name] || 0) + 1
+    })
+  })
+  const top10Last60 = Object.entries(counts60)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }))
+  const max60 = top10Last60[0]?.count || 1
+
   function topOf(arr: string[]): string {
     const c: Record<string, number> = {}
     arr.forEach(v => { c[v] = (c[v] || 0) + 1 })
@@ -344,7 +360,7 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
           </div>
 
           {/* ── Section 4: Flags to Watch ── */}
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 28 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Flags to Watch</div>
             {flaggedHorses.length === 0 ? (
               <div style={{ padding: '14px 16px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', fontSize: 12, color: 'var(--color-text-3)' }}>
@@ -372,6 +388,32 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
                 })}
               </div>
             )}
+          </div>
+
+          {/* ── Section 5: Top 10 · Last 60 Days ── */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Top 10 · Last 60 Days</div>
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+              {top10Last60.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--color-text-3)' }}>No assignments in the last 60 days</div>
+              ) : top10Last60.map((s, i) => {
+                const pct = Math.round((s.count / max60) * 100)
+                return (
+                  <div
+                    key={s.name}
+                    onClick={onSelectHorse ? () => onSelectHorse(statsMap[s.name]?.horse) : undefined}
+                    style={{ padding: '10px 14px', borderBottom: i < top10Last60.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: onSelectHorse ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <div style={{ width: 18, fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0, fontWeight: 600, textAlign: 'right' }}>{i + 1}</div>
+                    <div style={{ width: 110, fontWeight: 600, fontSize: 13, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    <div style={{ flex: 1, height: 8, background: 'var(--color-bg)', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: 'var(--color-accent)', borderRadius: 4 }} />
+                    </div>
+                    <div style={{ width: 28, fontSize: 12, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{s.count}</div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </>
       )}
