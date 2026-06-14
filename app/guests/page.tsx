@@ -18,6 +18,23 @@ const LEVEL_LABELS: Record<string, string> = {
   'AI': 'Adv Intermediate', 'A': 'Advanced',
 }
 
+// Normalises freeform height input to X'Y" on blur.
+// Handles: 6'5  6'5"  6-5  6 5  65  510  6'10
+function formatHeight(raw: string): string {
+  const s = raw.trim()
+  if (!s) return s
+  if (/^\d+'\d+"$/.test(s)) return s                         // already X'Y"
+  const withSep = s.match(/^(\d+)['\-\s]+(\d{1,2})"?$/)
+  if (withSep) return `${withSep[1]}'${withSep[2]}"`         // 6'5  6-5  6 5  6'10
+  const pure = s.match(/^(\d{2,3})$/)
+  if (pure) {
+    const n = pure[1]
+    if (n.length === 2) return `${n[0]}'${n[1]}"`            // 65 → 6'5"
+    if (n.length === 3) return `${n[0]}'${n.slice(1)}"`      // 510 → 5'10"
+  }
+  return s
+}
+
 type Assignment = {
   id: string; horse_name: string; assignment_type: string; status: string
   incompatible: boolean; requested_by_guest: boolean; reason: string
@@ -760,7 +777,7 @@ export default function GuestsPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
                       <EditableField label="Age" value={selectedGuest.age} onSave={v => updateGuestField('age', v)} type="number" />
                       <EditableField label="Weight (lbs)" value={selectedGuest.weight} onSave={v => updateGuestField('weight', v)} type="number" />
-                      <EditableField label="Height" value={selectedGuest.height} onSave={v => updateGuestField('height', v)} />
+                      <EditableField label="Height" value={selectedGuest.height} onSave={v => updateGuestField('height', formatHeight(v))} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
                       <EditableField label="Level" value={selectedGuest.riding_level} onSave={v => updateGuestField('riding_level', v)} options={LEVELS} />
@@ -1232,7 +1249,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
           <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
           <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
           <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
+          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} onBlur={e => setForm(prev => ({ ...prev, height: formatHeight(e.target.value) }))} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
           <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
           <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ resize: 'vertical' }} /></div>
           <div style={{ gridColumn: '1/-1' }}>
