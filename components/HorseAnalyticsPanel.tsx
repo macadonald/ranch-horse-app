@@ -154,6 +154,7 @@ export function HorseTrends({ horseName }: { horseName: string }) {
               <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 600, flexShrink: 0 }}>{g.riding_level}</span>
               {g.weight != null && <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{g.weight} lb</span>}
               {g.gender && <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{g.gender === 'Male' ? 'M' : g.gender === 'Female' ? 'F' : g.gender}</span>}
+              {g.age != null && <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{g.age}y</span>}
               {g.check_out_date && <span style={{ fontSize: 10, color: 'var(--color-text-3)', flexShrink: 0 }}>{g.check_out_date}</span>}
             </div>
           ))}
