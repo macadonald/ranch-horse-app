@@ -679,6 +679,7 @@ export default function GuestsPage() {
                               <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 600 }}>{guest.riding_level}</span>
                               {checkoutSoon(guest) && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600 }}>Out</span>}
                               {isReturning && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600 }}>↩</span>}
+                              {guest.repeat_guest && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1' }}>Repeat</span>}
                             </div>
                           </div>
                         )
@@ -694,7 +695,7 @@ export default function GuestsPage() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', flexShrink: 0, marginLeft: 6 }}>
                               {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
                               {isReturning && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd', whiteSpace: 'nowrap' }}>Returning</span>}
-
+                              {guest.repeat_guest && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1', whiteSpace: 'nowrap' }}>Repeat</span>}
                               {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
                             </div>
                           </div>
@@ -760,6 +761,9 @@ export default function GuestsPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           {returningGuestNames.has(selectedGuest.name.toLowerCase()) && (
                             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd' }}>🔄 Returning</span>
+                          )}
+                          {selectedGuest.repeat_guest && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1' }}>Repeat</span>
                           )}
                         </div>
                         <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>Tap any field to edit</p>
@@ -1260,6 +1264,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
                   key={val}
                   type="button"
                   onClick={() => handleRepeatGuestToggle(val)}
+                  onMouseDown={e => e.stopPropagation()}
+                  onTouchStart={e => e.stopPropagation()}
                   style={{ padding: '5px 14px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontWeight: form.repeat_guest === val ? 600 : 400, border: `1px solid ${form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-border)'}`, background: form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-surface)', color: form.repeat_guest === val ? '#fff' : 'var(--color-text-2)' }}
                 >
                   {val === 'yes' ? 'Yes' : 'No'}
@@ -1271,7 +1277,6 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
                 <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Previous visit records</p>
                 {repeatHistoryLoading && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Looking up history...</p>}
                 {!repeatHistoryLoading && repeatHistory === null && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Enter the guest&apos;s name above to look up history</p>}
-                {!repeatHistoryLoading && repeatHistory !== null && repeatHistory.length === 0 && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>No previous visit records found</p>}
                 {!repeatHistoryLoading && repeatHistory && repeatHistory.length > 0 && (
                   <div>
                     {repeatHistory.map((rec, i) => (
