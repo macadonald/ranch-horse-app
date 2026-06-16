@@ -47,6 +47,7 @@ type Guest = {
   riding_level: string; notes: string; horse_request: string; gender: string
   checked_out?: boolean
   checked_out_at?: string
+  repeat_guest?: boolean
   horse_assignments?: Assignment[]
 }
 
