@@ -693,6 +693,8 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
   // TODO: seasonal pattern analysis once 6+ months of data exists
 
   const [horseSort, setHorseSort] = useState<'name' | 'last_shod' | 'days_since' | 'overdue'>('overdue')
+  const [horseAnalyticsPage, setHorseAnalyticsPage] = useState(1)
+  const HORSE_ANALYTICS_PAGE_SIZE = 20
   const [timelineHorse, setTimelineHorse] = useState('')
   const [timelineFrom, setTimelineFrom] = useState('')
   const [timelineTo, setTimelineTo] = useState('')
@@ -762,6 +764,9 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
     return (a.daysUntilDue ?? 9999) - (b.daysUntilDue ?? 9999)
   }), [horseData, horseSort])
 
+  const horseTotalPages = Math.ceil(sortedHorses.length / HORSE_ANALYTICS_PAGE_SIZE)
+  const pagedHorses = sortedHorses.slice((horseAnalyticsPage - 1) * HORSE_ANALYTICS_PAGE_SIZE, horseAnalyticsPage * HORSE_ANALYTICS_PAGE_SIZE)
+
   const shoeDistribution = useMemo(() => {
     const c: Record<string, number> = {}
     allHorseNames.forEach(name => {
@@ -818,12 +823,12 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
       </div>
 
       {/* Per-horse breakdown */}
-      <section style={{ marginBottom: 24 }}>
+      <section id="horse-analytics-top" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)' }}>Per Horse ({totalHerd})</div>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {(['overdue', 'name', 'last_shod', 'days_since'] as const).map(s => (
-              <button key={s} onClick={() => setHorseSort(s)} style={{
+              <button key={s} onClick={() => { setHorseSort(s); setHorseAnalyticsPage(1) }} style={{
                 padding: '2px 8px', borderRadius: 999, fontSize: 11, cursor: 'pointer',
                 border: horseSort === s ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
                 background: horseSort === s ? 'var(--color-accent-bg)' : 'transparent',
@@ -835,7 +840,14 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
             ))}
           </div>
         </div>
-        {sortedHorses.map(h => <HorseAnalyticsRow key={h.name} horse={h} />)}
+        {pagedHorses.map(h => <HorseAnalyticsRow key={h.name} horse={h} />)}
+        {sortedHorses.length > HORSE_ANALYTICS_PAGE_SIZE && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
+            <button type="button" onClick={() => { setHorseAnalyticsPage(p => Math.max(1, p - 1)); document.getElementById('horse-analytics-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={horseAnalyticsPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: horseAnalyticsPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: horseAnalyticsPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+            <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {horseAnalyticsPage} of {horseTotalPages}</span>
+            <button type="button" onClick={() => { setHorseAnalyticsPage(p => Math.min(horseTotalPages, p + 1)); document.getElementById('horse-analytics-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={horseAnalyticsPage === horseTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: horseAnalyticsPage === horseTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: horseAnalyticsPage === horseTotalPages ? 'default' : 'pointer' }}>Next →</button>
+          </div>
+        )}
       </section>
 
       {/* Herd trends */}
