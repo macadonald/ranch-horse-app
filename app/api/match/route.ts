@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const today = getTucsonToday()
 
     // Parallel Supabase fetches
-    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, lameFlagsResult, guestResult, historyResult] = await Promise.all([
+    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, lameFlagsResult, guestResult, historyResult, patternResult] = await Promise.all([
       supabase.from('daily_rider_counts').select('rider_count').eq('date', today).single(),
       supabase.from('horse_assignments')
         .select('horse_name, assignment_type, guests(name, room_number, check_out_date)')
@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
       supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
       guestId ? supabase.from('guests').select('overestimates_level').eq('id', guestId).single() : Promise.resolve({ data: null }),
       guestId ? supabase.from('assignment_history').select('horse_name, match_quality, doesnt_work, loves_horse').eq('guest_id', guestId).gte('assigned_date', '2026-05-11') : Promise.resolve({ data: [] }),
+      // Pattern learning: all non-incompatible assignments with guest rider profiles
+      supabase.from('horse_assignments')
+        .select('horse_name, guests!inner(weight, riding_level, gender, age)')
+        .eq('incompatible', false),
     ])
 
     // Build set of flag-blocked horse names
@@ -149,6 +153,44 @@ export async function POST(req: NextRequest) {
       ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
       : ''
 
+    // Pattern learning: group historical assignments into rider profile buckets
+    // Weight in 20lb buckets, level exact, gender exact, age in 10-year buckets
+    // Excludes incompatible assignments (already filtered at query level)
+    // Excludes loves_horse and doesnt_work per spec — only structural profile matters
+    type PatternRow = { horse_name: string; weight: number; riding_level: string; gender: string; age: number | null }
+    const patternRows: PatternRow[] = (patternResult.data || []).map((a: any) => {
+      const g = Array.isArray(a.guests) ? a.guests[0] : a.guests
+      if (!g?.weight || !g?.riding_level) return null
+      return { horse_name: a.horse_name, weight: g.weight as number, riding_level: g.riding_level as string, gender: (g.gender as string) || '', age: g.age as number | null }
+    }).filter((r: PatternRow | null): r is PatternRow => r !== null)
+
+    const bucketMap: Record<string, Record<string, number>> = {}
+    for (const r of patternRows) {
+      const wBucket = Math.floor(r.weight / 20) * 20
+      const aBucket = r.age != null ? Math.floor(r.age / 10) * 10 : null
+      const key = `${wBucket}|${r.riding_level}|${r.gender || 'any'}|${aBucket ?? 'unk'}`
+      if (!bucketMap[key]) bucketMap[key] = {}
+      bucketMap[key][r.horse_name] = (bucketMap[key][r.horse_name] || 0) + 1
+    }
+
+    const guestWBucket = Math.floor(weightNum / 20) * 20
+    const guestABucket = Math.floor(ageNum / 10) * 10
+    const guestKey = `${guestWBucket}|${effectiveLevel}|${gender || 'any'}|${guestABucket}`
+    const bucketHorses = bucketMap[guestKey] || {}
+    const bucketTotal = Object.values(bucketHorses).reduce((s, c) => s + c, 0)
+
+    const eligibleNames = new Set(eligible.map((h: any) => h.name))
+    let patternNote = ''
+    if (bucketTotal >= 5) {
+      const topPairs = Object.entries(bucketHorses)
+        .filter(([name]) => eligibleNames.has(name))
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 6)
+      if (topPairs.length > 0) {
+        patternNote = `PATTERN DATA (${bucketTotal} historical assignments for guests ${guestWBucket}–${guestWBucket + 20}lbs, ${effectiveLevel} level, ${gender || 'unspecified'} gender, age ${guestABucket}–${guestABucket + 10}): Owner has historically paired this profile with: ${topPairs.map(([n, c]) => `${n} (${c}x)`).join(', ')}. Factor as a soft preference alongside other rules — do not override level/weight/safety constraints.`
+      }
+    }
+
     // Signal hierarchy: loves_horse > implicit thumbs up (stayed all week) > doesnt_work
     const lovesHorseNames = Object.entries(pastHorseMap).filter(([, v]) => v.loves_horse).map(([n]) => n)
     const goodMatchNames = Object.entries(pastHorseMap).filter(([, v]) => v.match_quality === 1 && !v.loves_horse && !v.doesnt_work).map(([n]) => n)
@@ -167,6 +209,7 @@ ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${ageWarning}
 ${overestimatesNote}
+${patternNote}
 ${lovesNote}
 ${goodMatchNote}
 ${doesntWorkNote}
