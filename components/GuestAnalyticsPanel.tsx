@@ -21,6 +21,7 @@ export type AnalyticsGuest = {
   check_in_date: string; check_out_date: string
   age: number; weight: number; gender: string; riding_level: string
   checked_out?: boolean
+  repeat_guest?: boolean
   horse_assignments?: AnalyticsAssignment[]
 }
 
@@ -130,6 +131,13 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
   const sortedWeeks = Object.entries(womCounts).sort(([, a], [, b]) => b - a).map(([w, c]) => ({ label: `Week ${w}`, count: c }))
   const maxDay = Math.max(...sortedDays.map(d => d.count), 1)
   const maxWom = Math.max(...sortedWeeks.map(w => w.count), 1)
+
+  // 6. Repeat vs new (all guests, active + checked-out)
+  const repeatCount = guests.filter(g => g.repeat_guest === true).length
+  const guestTotal  = guests.length
+  const newCount    = guestTotal - repeatCount
+  const repeatPct   = guestTotal > 0 ? Math.round((repeatCount / guestTotal) * 100) : 0
+  const newPct      = guestTotal > 0 ? 100 - repeatPct : 0
 
   // 5. Length of stay
   const stays: number[] = []
@@ -264,6 +272,40 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* 6. Repeat vs New */}
+      <div style={sec}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Repeat vs New Guests</div>
+        {guestTotal === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No guest data yet.</p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginBottom: 10, background: 'var(--color-border)' }}>
+              {repeatPct > 0 && <div style={{ width: `${repeatPct}%`, background: '#34d399' }} />}
+              {newPct > 0 && <div style={{ width: `${newPct}%`, background: '#93c5fd' }} />}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)', fontWeight: 600 }}>Repeat</span>
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}>{repeatCount}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{repeatPct}% of all guests</div>
+              </div>
+              <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#93c5fd', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)', fontWeight: 600 }}>New</span>
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}>{newCount}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{newPct}% of all guests</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8 }}>{guestTotal} total guests · active + checked out</div>
+          </>
         )}
       </div>
     </div>
