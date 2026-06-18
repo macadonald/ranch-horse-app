@@ -167,13 +167,14 @@ type EditHorseForm = {
   is_active: boolean; exclude_from_ai: boolean; rank_last: boolean; is_deceased: boolean
 }
 
-function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today }: {
+function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today, isViewer }: {
   horse: Partial<DbHorse> | null; mode: 'new' | 'edit' | 'promote'
   onSave: (form: EditHorseForm) => Promise<void>; onClose: () => void
   onFlagClick?: (flagType: BlockingType) => void
   onShoeClick?: (shoeType: 'fronts' | 'rears') => void
   onMarkFit?: () => void
   today?: string
+  isViewer?: boolean
 }) {
   const isNew = mode === 'new'
   const isPromote = mode === 'promote'
@@ -221,7 +222,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>{title}</h2>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {mode === 'edit' && !inEditMode && (
+            {mode === 'edit' && !inEditMode && !isViewer && (
               <button onClick={() => setInEditMode(true)} style={{ padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}>
                 Edit ✎
               </button>
@@ -264,7 +265,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
             )}
 
             {/* Quick actions */}
-            {(onShoeClick || onFlagClick || onMarkFit) && (
+            {!isViewer && (onShoeClick || onFlagClick || onMarkFit) && (
               <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, marginBottom: 4 }}>
                 <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 8 }}>Quick actions</p>
                 {onShoeClick && (
@@ -603,11 +604,12 @@ function HorseDetailPanel({ horse, today, onClose, onFlagClick, onMarkFit, onSho
 
 // ─── HorseListRow ─────────────────────────────────────────────────────────────
 
-function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit }: {
+function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit, isViewer }: {
   horse: DbHorse; today: string
   onSelect: () => void
   onToggleActive: () => void
   onEdit: () => void
+  isViewer?: boolean
 }) {
   const activeFlags = (horse.flags || []).filter(f =>
     BLOCKING_TYPES.includes(f.flag_type as BlockingType) &&
@@ -656,13 +658,15 @@ function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit }: {
           </span>
         )}
         {/* Active toggle */}
-        <button
-          onClick={e => { e.stopPropagation(); onToggleActive() }}
-          title={horse.is_active ? 'Mark inactive' : 'Mark active'}
-          style={{ width: 32, height: 18, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
-        >
-          <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 17 : 3, transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
-        </button>
+        {!isViewer && (
+          <button
+            onClick={e => { e.stopPropagation(); onToggleActive() }}
+            title={horse.is_active ? 'Mark inactive' : 'Mark active'}
+            style={{ width: 32, height: 18, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
+          >
+            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 17 : 3, transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+          </button>
+        )}
       </div>
       {/* Notes — truncated */}
       {horse.notes && (
@@ -676,11 +680,12 @@ function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit }: {
 
 // ─── HorseCard (cleaned up — no flag buttons) ─────────────────────────────────
 
-function HorseCard({ horse, today, onSelect, onToggleActive, onEdit }: {
+function HorseCard({ horse, today, onSelect, onToggleActive, onEdit, isViewer }: {
   horse: DbHorse; today: string
   onSelect: () => void
   onToggleActive: () => void
   onEdit: () => void
+  isViewer?: boolean
 }) {
   const activeFlags = (horse.flags || []).filter(f =>
     BLOCKING_TYPES.includes(f.flag_type as BlockingType) &&
@@ -715,13 +720,15 @@ function HorseCard({ horse, today, onSelect, onToggleActive, onEdit }: {
           <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600 }}>
             {horse.level}
           </span>
-          <button
-            onClick={e => { e.stopPropagation(); onToggleActive() }}
-            title={horse.is_active ? 'Mark inactive' : 'Mark active'}
-            style={{ width: 34, height: 19, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
-          >
-            <div style={{ width: 13, height: 13, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 18 : 3, transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-          </button>
+          {!isViewer && (
+            <button
+              onClick={e => { e.stopPropagation(); onToggleActive() }}
+              title={horse.is_active ? 'Mark inactive' : 'Mark active'}
+              style={{ width: 34, height: 19, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: horse.is_active ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}
+            >
+              <div style={{ width: 13, height: 13, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: horse.is_active ? 18 : 3, transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -752,14 +759,16 @@ function HorseCard({ horse, today, onSelect, onToggleActive, onEdit }: {
       )}
 
       {/* Footer */}
-      <div style={{ display: 'flex', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--color-border)' }}>
-        <button
-          onClick={e => { e.stopPropagation(); onEdit() }}
-          style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-2)' }}
-        >
-          Edit
-        </button>
-      </div>
+      {!isViewer && (
+        <div style={{ display: 'flex', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--color-border)' }}>
+          <button
+            onClick={e => { e.stopPropagation(); onEdit() }}
+            style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-2)' }}
+          >
+            Edit
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -891,8 +900,8 @@ function TrainingAnimalCard({ animal }: { animal: OtherAnimal }) {
 
 // ─── OtherAnimalCard ──────────────────────────────────────────────────────────
 
-function OtherAnimalCard({ animal, onEdit, onDelete, onPromote }: {
-  animal: OtherAnimal; onEdit: () => void; onDelete: () => void; onPromote: () => void
+function OtherAnimalCard({ animal, onEdit, onDelete, onPromote, isViewer }: {
+  animal: OtherAnimal; onEdit: () => void; onDelete: () => void; onPromote: () => void; isViewer?: boolean
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -906,7 +915,7 @@ function OtherAnimalCard({ animal, onEdit, onDelete, onPromote }: {
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700 }}>{animal.name}</div>
           {animal.age != null && <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>{animal.age} yr{animal.age !== 1 ? 's' : ''}</div>}
         </div>
-        {confirmDelete ? (
+        {!isViewer && (confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)' }}>Delete?</span>
             <button onClick={handleDelete} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
@@ -917,17 +926,19 @@ function OtherAnimalCard({ animal, onEdit, onDelete, onPromote }: {
             <button onClick={onEdit} style={{ width: 26, height: 26, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-3)', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✎</button>
             <button onClick={() => setConfirmDelete(true)} style={{ width: 26, height: 26, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           </div>
-        )}
+        ))}
       </div>
       {animal.notes && <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, borderTop: '1px solid var(--color-border)', paddingTop: 8, margin: 0 }}>{animal.notes}</p>}
-      <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 10 }}>
-        <button
-          onClick={onPromote}
-          style={{ fontSize: 11, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-accent-border)', background: 'var(--color-accent-bg)', color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}
-        >
-          + Promote to guest string
-        </button>
-      </div>
+      {!isViewer && (
+        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 10 }}>
+          <button
+            onClick={onPromote}
+            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-accent-border)', background: 'var(--color-accent-bg)', color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}
+          >
+            + Promote to guest string
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -1241,6 +1252,7 @@ export default function HorsesPage() {
                         onSelect={() => openEdit(horse)}
                         onToggleActive={() => toggleActive(horse)}
                         onEdit={() => openEdit(horse)}
+                        isViewer={isViewer}
                       />
                     ))}
                   </div>
@@ -1268,6 +1280,7 @@ export default function HorsesPage() {
                         onSelect={() => openEdit(horse)}
                         onToggleActive={() => toggleActive(horse)}
                         onEdit={() => openEdit(horse)}
+                        isViewer={isViewer}
                       />
                     ))}
                   </div>
@@ -1296,7 +1309,7 @@ export default function HorsesPage() {
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>◈</div>
                 <p style={{ fontSize: 13 }}>No horses added yet</p>
-                <button onClick={() => setShowOtherModal(true)} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Add the first one</button>
+                {!isViewer && <button onClick={() => setShowOtherModal(true)} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Add the first one</button>}
               </div>
             ) : (
               grouped.map(({ group, items }) => (
@@ -1309,6 +1322,7 @@ export default function HorsesPage() {
                       <OtherAnimalCard
                         key={animal.id}
                         animal={animal}
+                        isViewer={isViewer}
                         onEdit={() => setEditingAnimal(animal)}
                         onDelete={() => handleOtherDelete(animal)}
                         onPromote={() => {
@@ -1335,6 +1349,7 @@ export default function HorsesPage() {
           onSave={saveHorse}
           onClose={() => { setShowEditModal(false); setEditingHorse(null); setPromotingAnimal(null) }}
           today={today}
+          isViewer={isViewer}
           onFlagClick={editMode === 'edit' && editingHorse ? (type => { handleFlagClick(editingHorse as DbHorse, type) }) : undefined}
           onShoeClick={editMode === 'edit' && editingHorse ? (st => { handleShoeClick(editingHorse as DbHorse, st) }) : undefined}
           onMarkFit={editMode === 'edit' && editingHorse ? (() => { markFit(editingHorse as DbHorse) }) : undefined}
