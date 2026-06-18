@@ -17,19 +17,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setRole(null); setLoading(false); return }
+    async function fetchRole(userId: string) {
       const { data } = await supabase
         .from('profiles')
         .select('role')
-        .eq('id', user.id)
+        .eq('id', userId)
         .single()
       setRole((data?.role as Role) ?? 'viewer')
       setLoading(false)
     }
-    load()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => load())
+
+    // onAuthStateChange fires immediately with INITIAL_SESSION so no separate
+    // initial fetch is needed. Using the session from the callback avoids a
+    // second getUser() round-trip that can return null before the session
+    // stabilises and race this call to incorrectly set role → null (viewer).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!session?.user) {
+          setRole(null)
+          setLoading(false)
+          return
+        }
+        fetchRole(session.user.id)
+      }
+    )
+
     return () => subscription.unsubscribe()
   }, [supabase])
 
