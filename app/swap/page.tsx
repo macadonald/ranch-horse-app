@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { useRole } from '@/lib/auth-context'
+import { formatHeight } from '@/lib/format'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -176,7 +177,7 @@ export default function SwapPage() {
                     ))}
                   </div>
                 </div>
-                <div><label>Height</label><input type="text" placeholder="e.g. 5'9&quot;" value={height} onChange={e => setHeight(e.target.value)} /></div>
+                <div><label>Height</label><input type="text" placeholder="e.g. 5'9&quot;" value={height} onChange={e => setHeight(e.target.value)} onBlur={e => setHeight(formatHeight(e.target.value))} /></div>
                 <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={weight} onChange={e => setWeight(e.target.value)} /></div>
               </div>
               <div style={{ marginBottom: 14 }}>
