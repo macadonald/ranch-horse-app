@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
+import { useRole } from '@/lib/auth-context'
 import { HORSES } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
 import {
@@ -994,6 +995,7 @@ function applyFilter(issues: HorseHealthIssue[], filter: ActiveFilter): HorseHea
 }
 
 export default function HealthPage() {
+  const { isViewer } = useRole()
   const [issues, setIssues]                         = useState<HorseHealthIssue[]>([])
   const [supplements, setSupplements]               = useState<HorseSupplement[]>([])
   const [lameFlags, setLameFlags]                   = useState<LameFlag[]>([])
@@ -1198,9 +1200,9 @@ export default function HealthPage() {
                   : `${activeIssues.length} issue${activeIssues.length !== 1 ? 's' : ''}${activeSupplements.length > 0 ? ` · ${activeSupplements.length} supplement${activeSupplements.length !== 1 ? 's' : ''}` : ''}`}
               </p>
             </div>
-            <button onClick={() => setShowLogModal(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {!isViewer && <button onClick={() => setShowLogModal(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
               + Log issue
-            </button>
+            </button>}
           </div>
 
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>

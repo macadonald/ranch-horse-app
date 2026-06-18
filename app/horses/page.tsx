@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from '@/components/Sidebar'
+import { useRole } from '@/lib/auth-context'
 import { DbHorse, HorseSize, LEVEL_LABELS } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
 import { HorseTrends, HorseAnalyticsPanel } from '@/components/HorseAnalyticsPanel'
@@ -935,6 +936,7 @@ function OtherAnimalCard({ animal, onEdit, onDelete, onPromote }: {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function HorsesPage() {
+  const { isViewer } = useRole()
   const today = getTucsonToday()
 
   const [dbHorses, setDbHorses] = useState<DbHorse[]>([])
@@ -1126,15 +1128,15 @@ export default function HorsesPage() {
                   >
                     Analytics
                   </button>
-                  <button
+                  {!isViewer && <button
                     onClick={() => { setEditMode('new'); setEditingHorse(null); setShowEditModal(true) }}
                     style={{ padding: '7px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >
                     + Add Horse
-                  </button>
+                  </button>}
                 </>
               )}
-              {view === 'other' && (
+              {view === 'other' && !isViewer && (
                 <button
                   onClick={() => setShowOtherModal(true)}
                   style={{ padding: '7px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}

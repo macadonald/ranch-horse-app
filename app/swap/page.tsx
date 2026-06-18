@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
+import { useRole } from '@/lib/auth-context'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -19,6 +20,7 @@ interface Match {
 }
 
 export default function SwapPage() {
+  const { isViewer } = useRole()
   const [age, setAge] = useState('')
   const [weight, setWeight] = useState('')
   const [height, setHeight] = useState('')
@@ -151,8 +153,8 @@ export default function SwapPage() {
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>Horse Swap</h1>
           <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
             {doubleWarn && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600 }}>{ '⚡ ' + doubleWarn}</span>}
-            <input type="number" placeholder="Rider count" value={riderCountInput} onChange={e => setRiderCountInput(e.target.value)} style={{ width: 100, fontSize: 13 }} />
-            <button onClick={saveRiderCount} disabled={savingCount} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}>{savingCount ? '...' : 'Set'}</button>
+            {!isViewer && <input type="number" placeholder="Rider count" value={riderCountInput} onChange={e => setRiderCountInput(e.target.value)} style={{ width: 100, fontSize: 13 }} />}
+            {!isViewer && <button onClick={saveRiderCount} disabled={savingCount} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}>{savingCount ? '...' : 'Set'}</button>}
             {selectedHorse && <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-md)', padding: '5px 10px' }}>
               <span style={{ fontSize: 12, color: 'var(--color-success)', fontWeight: 600 }}>{'checkmark ' + selectedHorse}</span>
               <button onClick={handleReset} style={{ fontSize: 11, color: 'var(--color-text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>New rider</button>
@@ -219,11 +221,11 @@ export default function SwapPage() {
               <div>
                 {exactMatches.length > 0 && <>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Exact level matches</div>
-                  {exactMatches.map((m, i) => <MatchCard key={m.name} match={m} rank={i + 1} selected={selectedHorse === m.name} disabled={selectedHorse !== null && selectedHorse !== m.name} onSelect={() => setSelectedHorse(m.name)} onDismiss={() => dismissAndRefresh(m.name)} />)}
+                  {exactMatches.map((m, i) => <MatchCard key={m.name} match={m} rank={i + 1} selected={selectedHorse === m.name} disabled={selectedHorse !== null && selectedHorse !== m.name} onSelect={() => setSelectedHorse(m.name)} onDismiss={() => dismissAndRefresh(m.name)} isViewer={isViewer} />)}
                 </>}
                 {adjacentMatches.length > 0 && <>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, marginTop: exactMatches.length > 0 ? 20 : 0 }}>Adjacent level alternatives</div>
-                  {adjacentMatches.map((m, i) => <MatchCard key={m.name} match={m} rank={exactMatches.length + i + 1} selected={selectedHorse === m.name} disabled={selectedHorse !== null && selectedHorse !== m.name} onSelect={() => setSelectedHorse(m.name)} onDismiss={() => dismissAndRefresh(m.name)} adjacent />)}
+                  {adjacentMatches.map((m, i) => <MatchCard key={m.name} match={m} rank={exactMatches.length + i + 1} selected={selectedHorse === m.name} disabled={selectedHorse !== null && selectedHorse !== m.name} onSelect={() => setSelectedHorse(m.name)} onDismiss={() => dismissAndRefresh(m.name)} adjacent isViewer={isViewer} />)}
                 </>}
                 {matchStreaming && <p style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: '8px 0', fontStyle: 'italic' }}>Finding more matches...</p>}
               </div>
@@ -243,8 +245,8 @@ export default function SwapPage() {
   )
 }
 
-function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDismiss }: {
-  match: Match; rank: number; selected: boolean; disabled: boolean; adjacent?: boolean; onSelect: () => void; onDismiss: () => void
+function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDismiss, isViewer }: {
+  match: Match; rank: number; selected: boolean; disabled: boolean; adjacent?: boolean; onSelect: () => void; onDismiss: () => void; isViewer?: boolean
 }) {
   const isDouble = match.availability === 'double_assigned'
   const isCheckout = match.availability === 'checking_out_soon' || (match.warning || '').toLowerCase().includes('checking out soon')
@@ -285,7 +287,7 @@ function MatchCard({ match, rank, selected, disabled, adjacent, onSelect, onDism
         </div>
       )}
 
-      {!selected && !disabled && (
+      {!selected && !disabled && !isViewer && (
         <button onClick={onSelect} style={{ marginTop: 12, width: '100%', padding: '12px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
           Assign this horse
         </button>

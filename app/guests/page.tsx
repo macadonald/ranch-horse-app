@@ -4,6 +4,7 @@ import Sidebar from '@/components/Sidebar'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
 import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 import { GuestAnalyticsPanel } from '@/components/GuestAnalyticsPanel'
+import { useRole } from '@/lib/auth-context'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -114,11 +115,20 @@ function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { valu
   )
 }
 
-function EditableField({ label, value, onSave, type = 'text', options }: { label: string; value: string | number; onSave: (v: string) => void; type?: string; options?: { key: string; label: string }[] }) {
+function EditableField({ label, value, onSave, type = 'text', options, isViewer = false }: { label: string; value: string | number; onSave: (v: string) => void; type?: string; options?: { key: string; label: string }[]; isViewer?: boolean }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(value ?? ''))
   useEffect(() => { setDraft(String(value ?? '')) }, [value])
   function handleSave() { setEditing(false); if (String(draft) !== String(value)) onSave(draft) }
+  if (isViewer) {
+    const display = options ? (options.find(o => o.key === String(value))?.label ?? value) : value
+    return (
+      <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)' }}>
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>{display || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400, fontSize: 12 }}>—</span>}</div>
+      </div>
+    )
+  }
   return (
     <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: `1px solid ${editing ? 'var(--color-accent)' : 'var(--color-border)'}`, cursor: editing ? 'default' : 'pointer' }} onClick={() => !editing && setEditing(true)}>
       <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
@@ -142,6 +152,7 @@ function EditableField({ label, value, onSave, type = 'text', options }: { label
 
 
 export default function GuestsPage() {
+  const { isViewer } = useRole()
   const [guests, setGuests] = useState<Guest[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -646,9 +657,9 @@ export default function GuestsPage() {
               <button onClick={() => { const next = !guestGridView; setGuestGridView(next); localStorage.setItem('guestGridView', next ? 'grid' : 'list') }} style={{ padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 {guestGridView ? '≡ List' : '⊞ Grid'}
               </button>
-              <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>
+              {!isViewer && <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>}
               <button onClick={() => { setShowAnalytics(v => !v); setSelectedGuest(null) }} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: showAnalytics ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: showAnalytics ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Analytics</button>
-              <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>
+              {!isViewer && <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>}
             </>}
           </div>
         </div>
@@ -767,36 +778,36 @@ export default function GuestsPage() {
                             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1' }}>Repeat</span>
                           )}
                         </div>
-                        <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>Tap any field to edit</p>
+                        {!isViewer && <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>Tap any field to edit</p>}
                       </div>
                       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                         {checkoutSoon(selectedGuest) && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>⚠ Checkout {selectedGuest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
-                        <button onClick={() => checkOutGuest(selectedGuest)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)', cursor: 'pointer', fontWeight: 600 }}>Check Out</button>
-                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteGuest(selectedGuest.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); deleteGuest(selectedGuest.id); }} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove guest</button>
+                        {!isViewer && <button onClick={() => checkOutGuest(selectedGuest)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', color: 'var(--color-success)', cursor: 'pointer', fontWeight: 600 }}>Check Out</button>}
+                        {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteGuest(selectedGuest.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); deleteGuest(selectedGuest.id); }} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove guest</button>}
                         {!isMobile && <button onClick={() => { setSelectedGuest(null); setGuestHistory([]) }} title="Close" style={{ fontSize: 14, lineHeight: 1, background: 'none', border: '1px solid var(--color-border)', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '3px 8px', borderRadius: 'var(--radius-sm)' }}>✕</button>}
                       </div>
                     </div>
                     <div style={{ marginBottom: 10 }}>
-                      <EditableField label="Name" value={selectedGuest.name} onSave={v => updateGuestField('name', v)} />
+                      <EditableField label="Name" value={selectedGuest.name} onSave={v => updateGuestField('name', v)} isViewer={isViewer} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
-                      <EditableField label="Age" value={selectedGuest.age} onSave={v => updateGuestField('age', v)} type="number" />
-                      <EditableField label="Weight (lbs)" value={selectedGuest.weight} onSave={v => updateGuestField('weight', v)} type="number" />
-                      <EditableField label="Height" value={selectedGuest.height} onSave={v => updateGuestField('height', formatHeight(v))} />
+                      <EditableField label="Age" value={selectedGuest.age} onSave={v => updateGuestField('age', v)} type="number" isViewer={isViewer} />
+                      <EditableField label="Weight (lbs)" value={selectedGuest.weight} onSave={v => updateGuestField('weight', v)} type="number" isViewer={isViewer} />
+                      <EditableField label="Height" value={selectedGuest.height} onSave={v => updateGuestField('height', formatHeight(v))} isViewer={isViewer} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
-                      <EditableField label="Level" value={selectedGuest.riding_level} onSave={v => updateGuestField('riding_level', v)} options={LEVELS} />
-                      <EditableField label="Gender" value={selectedGuest.gender || ''} onSave={v => updateGuestField('gender', v)} options={[{ key: '', label: 'Not set' }, { key: 'Male', label: 'Male' }, { key: 'Female', label: 'Female' }]} />
-                      <EditableField label="Room" value={selectedGuest.room_number} onSave={v => updateGuestField('room_number', v)} />
+                      <EditableField label="Level" value={selectedGuest.riding_level} onSave={v => updateGuestField('riding_level', v)} options={LEVELS} isViewer={isViewer} />
+                      <EditableField label="Gender" value={selectedGuest.gender || ''} onSave={v => updateGuestField('gender', v)} options={[{ key: '', label: 'Not set' }, { key: 'Male', label: 'Male' }, { key: 'Female', label: 'Female' }]} isViewer={isViewer} />
+                      <EditableField label="Room" value={selectedGuest.room_number} onSave={v => updateGuestField('room_number', v)} isViewer={isViewer} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                      <EditableField label="Check-in Date" value={selectedGuest.check_in_date} onSave={v => updateGuestField('check_in_date', v)} type="date" />
-                      <EditableField label="Check-out Date" value={selectedGuest.check_out_date} onSave={v => updateGuestField('check_out_date', v)} type="date" />
+                      <EditableField label="Check-in Date" value={selectedGuest.check_in_date} onSave={v => updateGuestField('check_in_date', v)} type="date" isViewer={isViewer} />
+                      <EditableField label="Check-out Date" value={selectedGuest.check_out_date} onSave={v => updateGuestField('check_out_date', v)} type="date" isViewer={isViewer} />
                     </div>
-                    <div style={{ marginBottom: 8 }}><EditableField label="Notes" value={selectedGuest.notes || ''} onSave={v => updateGuestField('notes', v)} /></div>
+                    <div style={{ marginBottom: 8 }}><EditableField label="Notes" value={selectedGuest.notes || ''} onSave={v => updateGuestField('notes', v)} isViewer={isViewer} /></div>
                     <div style={{ position: 'relative' }}>
-                      <EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} />
-                      {selectedGuest.horse_request && (
+                      <EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} isViewer={isViewer} />
+                      {!isViewer && selectedGuest.horse_request && (
                         <button
                           onClick={() => assignHorse(selectedGuest.horse_request, activeAssignments.length === 0 ? 'primary' : 'secondary')}
                           disabled={assigningHorse === selectedGuest.horse_request}
@@ -845,6 +856,7 @@ export default function GuestsPage() {
                       </div>
                     )}
 
+                    {!isViewer && (
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                       <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
                       <div style={{ display: 'flex', gap: 7 }}>
@@ -855,6 +867,7 @@ export default function GuestsPage() {
                         <button onClick={saveManualHorse} disabled={savingManual || !manualHorse.trim()} style={{ padding: '8px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>{savingManual ? 'Saving...' : 'Assign'}</button>
                       </div>
                     </div>
+                    )}
                   </div>
 
                   {/* Horse matches */}
@@ -892,7 +905,7 @@ export default function GuestsPage() {
                             <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 7 : 0 }}>{m.reason}</p>
                             {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', padding: '4px 7px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--radius-sm)', marginBottom: 7 }}>⚠ {m.warning}</p>}
                             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                              <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')} disabled={assigningHorse === m.name} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>
+                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')} disabled={assigningHorse === m.name} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
                               <button onClick={() => dismissHorse(m.name)} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
@@ -1124,7 +1137,7 @@ export default function GuestsPage() {
         ` }} />
       </main>
 
-      {showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active).map(h => h.name)} />}
+      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active).map(h => h.name)} />}
 
       {/* Doesn't work reason modal */}
       {doesntWorkTarget && (

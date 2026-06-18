@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { HORSES } from '@/lib/horses'
+import { useRole } from '@/lib/auth-context'
 
 // TODO: track size history per horse, surface last known size,
 // run analytics on shoe types and sizes across the herd
@@ -238,7 +239,7 @@ function HorseAutocomplete({ value, onChange, placeholder, extraNames = [] }: { 
 function NeedRow({
   need, onUpdate, onRemove, onToggleDrugger, onTogglePriority, onViewProfile,
   markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving, markDoneError,
-  farrierNames,
+  farrierNames, isViewer,
 }: {
   need: ShoeNeed
   onUpdate: (id: string, field: string, value: string) => void
@@ -254,6 +255,7 @@ function NeedRow({
   saving: boolean
   markDoneError: string | null
   farrierNames: string[]
+  isViewer?: boolean
 }) {
   const [horseName, setHorseName] = useState(need.horse_name)
   const [workDoneSelection, setWorkDoneSelection] = useState('')
@@ -291,7 +293,7 @@ function NeedRow({
     >
       {/* Row 1: star + emoji + editable name + drugger + done + remove */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <button
+        {!isViewer && <button
           onClick={e => { e.stopPropagation(); onTogglePriority(need.id, need.priority) }}
           title={need.priority ? 'Remove priority' : 'Mark as priority'}
           style={{
@@ -301,21 +303,25 @@ function NeedRow({
           }}
         >
           {need.priority ? '★' : '☆'}
-        </button>
+        </button>}
+        {isViewer && need.priority && <span style={{ fontSize: 16, flexShrink: 0, color: '#f59e0b' }}>★</span>}
         <span style={{ fontSize: 14, flexShrink: 0 }}>🐴</span>
-        <input
-          value={horseName}
-          onChange={e => setHorseName(e.target.value)}
-          onBlur={saveHorseName}
-          onClick={e => e.stopPropagation()}
-          onFocus={e => e.stopPropagation()}
-          style={{
-            fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60,
-            background: 'transparent', border: 'none', outline: 'none',
-            fontFamily: 'inherit', cursor: 'text', color: 'inherit', padding: 0,
-          }}
-        />
-        <button
+        {isViewer
+          ? <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60 }}>{horseName}</span>
+          : <input
+              value={horseName}
+              onChange={e => setHorseName(e.target.value)}
+              onBlur={saveHorseName}
+              onClick={e => e.stopPropagation()}
+              onFocus={e => e.stopPropagation()}
+              style={{
+                fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60,
+                background: 'transparent', border: 'none', outline: 'none',
+                fontFamily: 'inherit', cursor: 'text', color: 'inherit', padding: 0,
+              }}
+            />
+        }
+        {!isViewer && <button
           onClick={e => { e.stopPropagation(); onToggleDrugger(need.id, need.is_drugger) }}
           title={need.is_drugger ? 'Remove drugger flag' : 'Mark as drugger'}
           style={{
@@ -328,8 +334,9 @@ function NeedRow({
           }}
         >
           💊
-        </button>
-        <button
+        </button>}
+        {isViewer && need.is_drugger && <span style={{ fontSize: 11, padding: '1px 5px', borderRadius: 999, flexShrink: 0, lineHeight: 1.5, border: '1px solid #fca5a5', background: '#fee2e2', color: '#dc2626', fontWeight: 700 }}>💊</span>}
+        {!isViewer && <button
           onClick={e => { e.stopPropagation(); toggleExpand() }}
           style={{
             padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 600,
@@ -340,8 +347,8 @@ function NeedRow({
           }}
         >
           {isExpanded ? 'Cancel' : '✓ Done'}
-        </button>
-        <button
+        </button>}
+        {!isViewer && <button
           onClick={e => { e.stopPropagation(); onRemove(need.id) }}
           style={{
             width: 22, height: 22, padding: 0, borderRadius: 'var(--radius-sm)', flexShrink: 0,
@@ -351,27 +358,30 @@ function NeedRow({
           }}
         >
           ✕
-        </button>
+        </button>}
       </div>
 
       {/* Row 2: shoe type badge + work select + date — all inline */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
         <ShoeTypeBadge shoeType={need.shoe_type || 'regular'} />
-        <select
-          value={need.what_needed}
-          onClick={e => e.stopPropagation()}
-          onChange={e => { e.stopPropagation(); onUpdate(need.id, 'what_needed', e.target.value) }}
-          style={{
-            fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
-            cursor: 'pointer', flexShrink: 0, flexGrow: 0, width: 'auto',
-            appearance: 'none', WebkitAppearance: 'none',
-            border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)',
-            background: isFronts ? '#fee2e2' : 'var(--color-surface)',
-            color: isFronts ? '#dc2626' : 'var(--color-text-3)',
-          }}
-        >
-          {CARD_WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-        </select>
+        {isViewer
+          ? <span style={{ fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600, flexShrink: 0, border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)', background: isFronts ? '#fee2e2' : 'var(--color-surface)', color: isFronts ? '#dc2626' : 'var(--color-text-3)' }}>{CARD_WORK_OPTIONS.find(o => o.key === need.what_needed)?.label ?? need.what_needed}</span>
+          : <select
+              value={need.what_needed}
+              onClick={e => e.stopPropagation()}
+              onChange={e => { e.stopPropagation(); onUpdate(need.id, 'what_needed', e.target.value) }}
+              style={{
+                fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600,
+                cursor: 'pointer', flexShrink: 0, flexGrow: 0, width: 'auto',
+                appearance: 'none', WebkitAppearance: 'none',
+                border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)',
+                background: isFronts ? '#fee2e2' : 'var(--color-surface)',
+                color: isFronts ? '#dc2626' : 'var(--color-text-3)',
+              }}
+            >
+              {CARD_WORK_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+        }
         <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Added {created}</span>
       </div>
 
@@ -961,6 +971,7 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
 }
 
 export default function ShoesPage() {
+  const { isViewer } = useRole()
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
@@ -1208,12 +1219,12 @@ export default function ShoesPage() {
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Current Shoe Needs</h2>
-              <button
+              {!isViewer && <button
                 onClick={() => { setAddForm(f => f ? null : { horse_name: '', what_needed: 'all_4s', shoe_type: 'regular', notes: '' }); setAddError(null) }}
                 style={{ padding: '6px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
               >
                 + Add Horse
-              </button>
+              </button>}
             </div>
 
             {/* Add Horse prompt */}
@@ -1328,6 +1339,7 @@ export default function ShoesPage() {
                 saving: savingDone,
                 markDoneError,
                 farrierNames,
+                isViewer,
               })
               return (
                 <>
@@ -1386,12 +1398,12 @@ export default function ShoesPage() {
                   onChange={e => { setHistorySearch(e.target.value); setHistoryPage(1) }}
                   style={{ fontSize: 13, width: 200 }}
                 />
-                <button
+                {!isViewer && <button
                   onClick={() => setShowLogVisit(true)}
                   style={{ padding: '6px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
                   + Log a visit
-                </button>
+                </button>}
               </div>
             </div>
 
