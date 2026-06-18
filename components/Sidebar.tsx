@@ -1,7 +1,8 @@
 'use client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/browser'
 
 const NAV = [
   { href: '/swap',      label: 'Horse Swap',       icon: '\u21c4' },
@@ -15,7 +16,14 @@ const NAV = [
 
 export default function Sidebar() {
   const path = usePathname()
+  const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  async function handleSignOut() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   return (
     <div>
@@ -54,8 +62,16 @@ export default function Sidebar() {
           })}
         </nav>
 
-        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 11, color: 'rgba(245,237,224,0.25)', letterSpacing: '0.04em' }}>
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'rgba(245,237,224,0.25)', letterSpacing: '0.04em' }}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </span>
+          <button
+            onClick={handleSignOut}
+            style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'rgba(245,237,224,0.3)', letterSpacing: '0.04em', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(245,237,224,0.15)', textUnderlineOffset: 3 }}
+          >
+            Sign out
+          </button>
         </div>
       </aside>
 
