@@ -165,6 +165,7 @@ function ToggleSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 type EditHorseForm = {
   name: string; level: string; weight: string; size: string; notes: string
   is_active: boolean; exclude_from_ai: boolean; rank_last: boolean; is_deceased: boolean
+  is_draft: boolean; takes_kids: boolean
 }
 
 function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today, isViewer }: {
@@ -187,6 +188,8 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
     notes: horse?.notes ?? '', is_active: horse?.is_active ?? true,
     exclude_from_ai: horse?.exclude_from_ai ?? false, rank_last: horse?.rank_last ?? false,
     is_deceased: (horse as DbHorse)?.is_deceased ?? false,
+    is_draft: (horse as DbHorse)?.is_draft ?? false,
+    takes_kids: (horse as DbHorse)?.takes_kids ?? false,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -394,6 +397,8 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
                 { field: 'exclude_from_ai' as const, label: 'Manual Only', desc: 'Never in AI suggestions or Assign All — manual assignment only' },
                 { field: 'rank_last' as const, label: 'Last Resort', desc: 'AI ranks last — only if no other suitable horse exists' },
                 { field: 'is_deceased' as const, label: 'Deceased', desc: 'Mark if horse has passed — removes from all AI suggestions permanently' },
+                { field: 'is_draft' as const, label: 'Draft horse', desc: 'Marks this horse as a draft breed' },
+                { field: 'takes_kids' as const, label: 'Takes kids', desc: 'Suitable for young or child riders' },
               ].map(({ field, label, desc }) => (
                 <div key={field} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
                   <div>
@@ -1051,6 +1056,7 @@ export default function HorsesPage() {
       size: form.size, notes: form.notes,
       is_active: form.is_active, exclude_from_ai: form.exclude_from_ai, rank_last: form.rank_last,
       is_deceased: form.is_deceased,
+      is_draft: form.is_draft, takes_kids: form.takes_kids,
     }
     if (editMode === 'new') {
       const res = await fetch('/api/horses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })

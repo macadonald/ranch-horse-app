@@ -83,7 +83,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { name, level, weight, size, notes, is_active, exclude_from_ai, rank_last } = body
+  const { name, level, weight, size, notes, is_active, exclude_from_ai, rank_last, is_deceased, is_draft, takes_kids } = body
   if (!name?.trim() || !level || !size) {
     return NextResponse.json({ error: 'Name, level, and size are required.' }, { status: 400 })
   }
@@ -98,6 +98,9 @@ export async function POST(req: NextRequest) {
       is_active: is_active ?? true,
       exclude_from_ai: exclude_from_ai ?? false,
       rank_last: rank_last ?? false,
+      is_deceased: is_deceased ?? false,
+      is_draft: is_draft ?? false,
+      takes_kids: takes_kids ?? false,
     })
     .select()
     .single()

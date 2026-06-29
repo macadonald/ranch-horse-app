@@ -174,6 +174,8 @@ export interface DbHorse {
   exclude_from_ai: boolean
   rank_last: boolean
   is_deceased: boolean
+  is_draft: boolean
+  takes_kids: boolean
   created_at: string
   updated_at: string
   flags: DbHorseFlag[]
