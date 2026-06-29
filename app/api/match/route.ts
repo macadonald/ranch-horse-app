@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     tomorrow.setDate(tomorrow.getDate() + 1)
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
 
-    const eligible = (horsesResult.data || []).filter((h: any) => {
+    const allEligible = (horsesResult.data || []).filter((h: any) => {
       if (h.exclude_from_ai) return false
       if (h.is_deceased) return false
       if (h.weight === null) return false
@@ -118,6 +118,9 @@ export async function POST(req: NextRequest) {
       if (dismissedHorses.includes(h.name)) return false
       return true
     })
+    // Draft horses are last resort for weight — only include if no standard horse can carry this guest
+    const guestHasStandardOption = allEligible.some((h: any) => !h.is_draft)
+    const eligible = guestHasStandardOption ? allEligible.filter((h: any) => !h.is_draft) : allEligible
 
     const availabilityMap: Record<string, string> = {}
     eligible.forEach(h => {
@@ -127,11 +130,29 @@ export async function POST(req: NextRequest) {
       else availabilityMap[h.name] = 'double_assigned'
     })
 
+    // Compute effective level early so it can gate rank_last threshold and pattern learning
+    const LEVEL_ORDER_LOCAL = ['B', 'AB', 'I', 'I/AI', 'AI', 'A']
+    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I', I: 'AB', AB: 'B', B: 'B' }
+    const effectiveLevel = overestimatesLevel ? (LEVEL_DOWNGRADE[level] || level) : level
+    const overestimatesNote = overestimatesLevel && effectiveLevel !== level
+      ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
+      : ''
+
+    // rank_last threshold: only surface rank_last horses when < 3 standard eligible horses exist for this guest's level
+    const guestLevelIdx = LEVEL_ORDER_LOCAL.indexOf(effectiveLevel)
+    const eligibleAtGuestLevel = eligible.filter((h: any) => {
+      if (h.rank_last) return false
+      const hIdx = LEVEL_ORDER_LOCAL.indexOf(h.level)
+      return hIdx !== -1 && guestLevelIdx !== -1 && Math.abs(guestLevelIdx - hIdx) <= 1
+    })
+    const includeRankLast = guestLevelIdx === -1 || eligibleAtGuestLevel.length < 3
+    const finalEligible = includeRankLast ? eligible : eligible.filter((h: any) => !h.rank_last)
+
     const sortedEligible = [
-      ...eligible.filter((h: any) => !h.rank_last),
-      ...eligible.filter((h: any) => h.rank_last),
+      ...finalEligible.filter((h: any) => !h.rank_last),
+      ...finalEligible.filter((h: any) => h.rank_last),
     ]
-    const rankLastNames = eligible.filter((h: any) => h.rank_last).map((h: any) => h.name)
+    const rankLastNames = finalEligible.filter((h: any) => h.rank_last).map((h: any) => h.name)
 
     const rosterLines = sortedEligible.map((h: any) => {
       const assigned = assignmentMap[h.name] || []
@@ -144,14 +165,8 @@ export async function POST(req: NextRequest) {
       } else if (assigned.length > 2) {
         availNote = 'TRIPLE ASSIGNED - strongly avoid'
       }
-      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs, size: ${h.size}, availability: ${availNote}${h.notes ? ', notes: ' + h.notes : ''})`
+      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs, size: ${h.size}, availability: ${availNote}${h.takes_kids ? ', takes_kids: true' : ''}${h.notes ? ', notes: ' + h.notes : ''})`
     }).join('\n')
-
-    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I', I: 'AB', AB: 'B', B: 'B' }
-    const effectiveLevel = overestimatesLevel ? (LEVEL_DOWNGRADE[level] || level) : level
-    const overestimatesNote = overestimatesLevel && effectiveLevel !== level
-      ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
-      : ''
 
     // Pattern learning: group historical assignments into rider profile buckets
     // Weight in 20lb buckets, level exact, gender exact, age in 10-year buckets
@@ -179,7 +194,7 @@ export async function POST(req: NextRequest) {
     const bucketHorses = bucketMap[guestKey] || {}
     const bucketTotal = Object.values(bucketHorses).reduce((s, c) => s + c, 0)
 
-    const eligibleNames = new Set(eligible.map((h: any) => h.name))
+    const eligibleNames = new Set(finalEligible.map((h: any) => h.name))
     let patternNote = ''
     if (bucketTotal >= 5) {
       const topPairs = Object.entries(bucketHorses)
@@ -203,12 +218,14 @@ export async function POST(req: NextRequest) {
     const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
+    const takesKidsInstruction = 'Horses with "takes_kids: true" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a takes_kids horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${ageWarning}
 ${overestimatesNote}
+${takesKidsInstruction}
 ${patternNote}
 ${lovesNote}
 ${goodMatchNote}

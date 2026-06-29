@@ -527,10 +527,24 @@ export default function GuestsPage() {
     const unassigned = activeGuests.filter(g => !g.horse_assignments?.some(a => a.status === 'active' && !a.incompatible))
     if (unassigned.length === 0) { setAssignAllPhase('idle'); return }
 
-    const sorted = [...unassigned].sort((a, b) => {
+    // Process most-constrained guests first so they get first pick of scarce horses
+    // Tier 1: guests no standard (non-draft) horse can carry — heaviest first
+    const hasStandardOption = (g: Guest) =>
+      eligibleHorses.some(h => !h.is_draft && (!h.weight || !g.weight || g.weight <= h.weight))
+    // Tier 2: guests whose only eligible horses are takes_kids horses (very small guests)
+    const onlyFitsKidsHorses = (g: Guest) =>
+      eligibleHorses.some(h => !h.weight || !g.weight || g.weight <= h.weight) &&
+      eligibleHorses.every(h => !h.weight || !g.weight || g.weight > h.weight || h.takes_kids)
+
+    const heavyGuests = unassigned.filter(g => !hasStandardOption(g)).sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
+    const heavySet = new Set(heavyGuests.map(g => g.id))
+    const kidsOnlyGuests = unassigned.filter(g => !heavySet.has(g.id) && onlyFitsKidsHorses(g))
+    const kidsOnlySet = new Set(kidsOnlyGuests.map(g => g.id))
+    const remainingGuests = unassigned.filter(g => !heavySet.has(g.id) && !kidsOnlySet.has(g.id)).sort((a, b) => {
       const ai = LEVEL_ORDER.indexOf(a.riding_level); const bi = LEVEL_ORDER.indexOf(b.riding_level)
       return (bi < 0 ? -1 : bi) - (ai < 0 ? -1 : ai)
     })
+    const sorted = [...heavyGuests, ...kidsOnlyGuests, ...remainingGuests]
 
     const draft: DraftRow[] = []; const usedInPass1 = new Set<string>(); const pass2Queue: Guest[] = []
 
@@ -542,13 +556,28 @@ export default function GuestsPage() {
       if (gIdx === -1) { pass2Queue.push(guest); continue }
       const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
 
+      const guestCanFitStandard = eligibleHorses.some(h => !h.is_draft && (!h.weight || !guest.weight || guest.weight <= h.weight))
+      const nonRankLastAtLevel = eligibleHorses.filter(h =>
+        !h.rank_last && (!h.weight || !guest.weight || guest.weight <= h.weight) &&
+        Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)) <= 1 && LEVEL_ORDER.indexOf(h.level) !== -1
+      )
+      const includeRankLast = nonRankLastAtLevel.length < 3
+      const guestIsAdult = !!(guest.age && guest.age >= 16)
+
       const candidates = eligibleHorses
         .filter(h => !dbAssignedMap[h.name] && !usedInPass1.has(h.name))
         .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
+        .filter(h => !h.is_draft || !guestCanFitStandard)
+        .filter(h => includeRankLast || !h.rank_last)
         .filter(h => !guestPastRides[h.name]?.doesntWork)
         .map(h => ({ horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), margin: (h.weight ?? 999) - (guest.weight ?? 0) }))
         .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
-        .sort((a, b) => (Number(a.horse.rank_last) - Number(b.horse.rank_last)) || a.diff - b.diff || b.margin - a.margin)
+        .sort((a, b) =>
+          (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
+          (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
+          (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
+          a.diff - b.diff || b.margin - a.margin
+        )
 
       if (candidates.length > 0) {
         usedInPass1.add(candidates[0].horse.name)
@@ -567,9 +596,19 @@ export default function GuestsPage() {
       if (gIdx === -1) { pass3Queue.push(guest); continue }
       const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
 
+      const guestCanFitStandard2 = eligibleHorses.some(h => !h.is_draft && (!h.weight || !guest.weight || guest.weight <= h.weight))
+      const nonRankLastAtLevel2 = eligibleHorses.filter(h =>
+        !h.rank_last && (!h.weight || !guest.weight || guest.weight <= h.weight) &&
+        Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)) <= 1 && LEVEL_ORDER.indexOf(h.level) !== -1
+      )
+      const includeRankLast2 = nonRankLastAtLevel2.length < 3
+      const guestIsAdult2 = !!(guest.age && guest.age >= 16)
+
       const candidates = eligibleHorses
         .filter(h => runtimeDoubleMap[h.name] || usedInPass1.has(h.name))
         .filter(h => !h.weight || !guest.weight || guest.weight <= h.weight)
+        .filter(h => !h.is_draft || !guestCanFitStandard2)
+        .filter(h => includeRankLast2 || !h.rank_last)
         .filter(h => !guestPastRides[h.name]?.doesntWork)
         .map(h => {
           const riders = runtimeDoubleMap[h.name] || []
@@ -577,7 +616,12 @@ export default function GuestsPage() {
           return { horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), soonest }
         })
         .filter(c => c.diff <= 1 && LEVEL_ORDER.indexOf(c.horse.level) !== -1)
-        .sort((a, b) => (Number(a.horse.rank_last) - Number(b.horse.rank_last)) || a.diff - b.diff || a.soonest.localeCompare(b.soonest))
+        .sort((a, b) =>
+          (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
+          (guestIsAdult2 ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
+          (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
+          a.diff - b.diff || a.soonest.localeCompare(b.soonest)
+        )
 
       if (candidates.length > 0) {
         const best = candidates[0]
