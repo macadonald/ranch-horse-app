@@ -108,11 +108,44 @@ export async function POST(req: NextRequest) {
     tomorrow.setDate(tomorrow.getDate() + 1)
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
 
+    const LEVEL_ORDER_LOCAL = ['B', 'AB', 'I', 'I/AI', 'AI', 'A']
+    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I', I: 'AB', AB: 'B', B: 'B' }
+    const effectiveLevel = overestimatesLevel ? (LEVEL_DOWNGRADE[level] || level) : level
+    const overestimatesNote = overestimatesLevel && effectiveLevel !== level
+      ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
+      : ''
+
+    // Per-horse historical stats from all non-incompatible assignments with guest profiles.
+    // patternResult uses horse_assignments (all statuses, not just active) — provides meaningful historical depth.
+    type HorseHistStats = { levels: Set<string>; maxWeight: number; count: number }
+    const horseHistStats: Record<string, HorseHistStats> = {}
+    for (const a of patternResult.data || []) {
+      const g = Array.isArray(a.guests) ? a.guests[0] : a.guests
+      if (!g) continue
+      const hname = a.horse_name as string
+      if (!horseHistStats[hname]) horseHistStats[hname] = { levels: new Set(), maxWeight: 0, count: 0 }
+      if (g.riding_level) horseHistStats[hname].levels.add(g.riding_level as string)
+      if (g.weight) horseHistStats[hname].maxWeight = Math.max(horseHistStats[hname].maxWeight, g.weight as number)
+      horseHistStats[hname].count++
+    }
+    // listed + 15 base buffer, extended by historical max up to listed + 30
+    const horseWeightCeiling = (listed: number, hname: string) =>
+      Math.min(listed + 30, Math.max(listed + 15, horseHistStats[hname]?.maxWeight ?? 0))
+    // < 5 assignments → ±1 default; ≥ 20 and never above base level → ceiling at base; else historical range (floor at base - 1)
+    const horseLevelRangeFn = (hname: string, baseLevelIdx: number) => {
+      const s = horseHistStats[hname]
+      if (!s || s.count < 5) return { min: Math.max(0, baseLevelIdx - 1), max: Math.min(LEVEL_ORDER_LOCAL.length - 1, baseLevelIdx + 1) }
+      let lo = baseLevelIdx, hi = baseLevelIdx
+      for (const lvl of s.levels) { const i = LEVEL_ORDER_LOCAL.indexOf(lvl); if (i !== -1) { if (i < lo) lo = i; if (i > hi) hi = i } }
+      if (s.count >= 20 && hi <= baseLevelIdx) return { min: Math.max(0, lo), max: baseLevelIdx }
+      return { min: Math.max(0, Math.min(lo, baseLevelIdx - 1)), max: Math.min(LEVEL_ORDER_LOCAL.length - 1, hi) }
+    }
+
     const allEligible = (horsesResult.data || []).filter((h: any) => {
       if (h.exclude_from_ai) return false
       if (h.is_deceased) return false
       if (h.weight === null) return false
-      if (weightNum > h.weight) return false
+      if (weightNum > horseWeightCeiling(h.weight, h.name)) return false
       if (flagBlocked.has(h.name)) return false
       if (incompatibleHorses.includes(h.name)) return false
       if (dismissedHorses.includes(h.name)) return false
@@ -130,20 +163,14 @@ export async function POST(req: NextRequest) {
       else availabilityMap[h.name] = 'double_assigned'
     })
 
-    // Compute effective level early so it can gate rank_last threshold and pattern learning
-    const LEVEL_ORDER_LOCAL = ['B', 'AB', 'I', 'I/AI', 'AI', 'A']
-    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I', I: 'AB', AB: 'B', B: 'B' }
-    const effectiveLevel = overestimatesLevel ? (LEVEL_DOWNGRADE[level] || level) : level
-    const overestimatesNote = overestimatesLevel && effectiveLevel !== level
-      ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
-      : ''
-
     // rank_last threshold: only surface rank_last horses when < 3 standard eligible horses exist for this guest's level
     const guestLevelIdx = LEVEL_ORDER_LOCAL.indexOf(effectiveLevel)
     const eligibleAtGuestLevel = eligible.filter((h: any) => {
       if (h.rank_last) return false
       const hIdx = LEVEL_ORDER_LOCAL.indexOf(h.level)
-      return hIdx !== -1 && guestLevelIdx !== -1 && Math.abs(guestLevelIdx - hIdx) <= 1
+      if (hIdx === -1 || guestLevelIdx === -1) return false
+      const r = horseLevelRangeFn(h.name, hIdx)
+      return guestLevelIdx >= r.min && guestLevelIdx <= r.max
     })
     const includeRankLast = guestLevelIdx === -1 || eligibleAtGuestLevel.length < 3
     const finalEligible = includeRankLast ? eligible : eligible.filter((h: any) => !h.rank_last)
@@ -165,7 +192,13 @@ export async function POST(req: NextRequest) {
       } else if (assigned.length > 2) {
         availNote = 'TRIPLE ASSIGNED - strongly avoid'
       }
-      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs, size: ${h.size}, availability: ${availNote}${h.takes_kids ? ', takes_kids: true' : ''}${h.notes ? ', notes: ' + h.notes : ''})`
+      const wCeil = horseWeightCeiling(h.weight, h.name)
+      const hBaseLvlIdx = LEVEL_ORDER_LOCAL.indexOf(h.level)
+      const lvlRange = hBaseLvlIdx !== -1 ? horseLevelRangeFn(h.name, hBaseLvlIdx) : null
+      const defMin = Math.max(0, hBaseLvlIdx - 1), defMax = Math.min(LEVEL_ORDER_LOCAL.length - 1, hBaseLvlIdx + 1)
+      const ceilNote = wCeil > h.weight ? `, soft_ceiling: ${wCeil}lbs` : ''
+      const rangeNote = lvlRange && (lvlRange.min !== defMin || lvlRange.max !== defMax) ? `, level_range: ${LEVEL_ORDER_LOCAL[lvlRange.min]}–${LEVEL_ORDER_LOCAL[lvlRange.max]}` : ''
+      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs${ceilNote}${rangeNote}, size: ${h.size}, availability: ${availNote}${h.takes_kids ? ', takes_kids: true' : ''}${h.notes ? ', notes: ' + h.notes : ''})`
     }).join('\n')
 
     // Pattern learning: group historical assignments into rider profile buckets
@@ -219,10 +252,12 @@ export async function POST(req: NextRequest) {
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
     const takesKidsInstruction = 'Horses with "takes_kids: true" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a takes_kids horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
+    const flexNote = 'When a horse shows "soft_ceiling", you may suggest it for guests up to that weight when options are limited — the ranch owner uses this buffer in practice. When a horse shows "level_range", use that range instead of rigid ±1 rules — it reflects actual historical assignment patterns. Always prefer horses whose listed level is closest to the guest\'s level when multiple options exist.'
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
+${flexNote}
 ${ageWarning}
 ${overestimatesNote}
 ${takesKidsInstruction}
