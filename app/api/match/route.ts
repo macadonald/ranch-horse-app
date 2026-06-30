@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
       const s = horseHistStats[hname]
       if (!s || s.count < 5) return { min: Math.max(0, baseLevelIdx - 1), max: Math.min(LEVEL_ORDER_LOCAL.length - 1, baseLevelIdx + 1) }
       let lo = baseLevelIdx, hi = baseLevelIdx
-      for (const lvl of s.levels) { const i = LEVEL_ORDER_LOCAL.indexOf(lvl); if (i !== -1) { if (i < lo) lo = i; if (i > hi) hi = i } }
+      Array.from(s.levels).forEach(lvl => { const i = LEVEL_ORDER_LOCAL.indexOf(lvl); if (i !== -1) { if (i < lo) lo = i; if (i > hi) hi = i } })
       if (s.count >= 20 && hi <= baseLevelIdx) return { min: Math.max(0, lo), max: baseLevelIdx }
       return { min: Math.max(0, Math.min(lo, baseLevelIdx - 1)), max: Math.min(LEVEL_ORDER_LOCAL.length - 1, hi) }
     }
