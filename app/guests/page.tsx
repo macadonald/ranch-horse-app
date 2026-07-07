@@ -1245,7 +1245,6 @@ export default function GuestsPage() {
   )
 }
 
-type RepeatHistoryRecord = { horse_name: string; assigned_date: string; doesnt_work: boolean; loves_horse: boolean; riding_level?: string; assignment_type: string }
 
 function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => void; onSaved: () => void; horseNames?: string[] }) {
   const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' as 'yes' | 'no' })
@@ -1254,8 +1253,6 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const [count, setCount] = useState(0)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string; loves: boolean } | null>(null)
-  const [repeatHistory, setRepeatHistory] = useState<RepeatHistoryRecord[] | null>(null)
-  const [repeatHistoryLoading, setRepeatHistoryLoading] = useState(false)
   const dragStartedInsideModal = useRef(false)
   const modalContentRef = useRef<HTMLDivElement>(null)
 
@@ -1279,26 +1276,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
     } catch { setReturningInfo(null) }
   }
 
-  async function loadRepeatHistory(name: string) {
-    if (!name || name.length < 3) { setRepeatHistory(null); return }
-    setRepeatHistoryLoading(true)
-    try {
-      const res = await fetch(`/api/assignment-history?check_returning=${encodeURIComponent(name)}`).then(r => r.json())
-      if (res.records?.length > 0) {
-        setRepeatHistory(res.records)
-      } else {
-        setRepeatHistory([])
-      }
-    } catch { setRepeatHistory([]) } finally { setRepeatHistoryLoading(false) }
-  }
-
   function handleRepeatGuestToggle(val: 'yes' | 'no') {
     setForm(prev => ({ ...prev, repeat_guest: val }))
-    if (val === 'yes' && form.name.length >= 3) {
-      loadRepeatHistory(form.name)
-    } else if (val === 'no') {
-      setRepeatHistory(null)
-    }
   }
 
   async function save(addAnother: boolean) {
@@ -1310,7 +1289,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Save failed')
       onSaved()
-      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setRepeatHistory(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' })); setTimeout(() => setLastSaved(null), 2000) }
+      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' })); setTimeout(() => setLastSaved(null), 2000) }
       else { onClose() }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save guest — check your connection and try again')
@@ -1336,7 +1315,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, paddingBottom: 80 }}>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Full Name *</label>
-            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => { checkReturning(form.name); if (form.repeat_guest === 'yes') loadRepeatHistory(form.name) }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} autoFocus />
+            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => checkReturning(form.name)} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} autoFocus />
           </div>
           <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
           <div><label>Gender</label><select value={form.gender} onChange={f('gender')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
@@ -1363,25 +1342,6 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
                 </button>
               ))}
             </div>
-            {form.repeat_guest === 'yes' && (
-              <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-                <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Previous visit records</p>
-                {repeatHistoryLoading && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Looking up history...</p>}
-                {!repeatHistoryLoading && repeatHistory === null && <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Enter the guest&apos;s name above to look up history</p>}
-                {!repeatHistoryLoading && repeatHistory && repeatHistory.length > 0 && (
-                  <div>
-                    {repeatHistory.map((rec, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: i < repeatHistory.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>🐴 {rec.horse_name}</span>
-                        {rec.loves_horse && <span style={{ fontSize: 11, color: '#e11d48', fontWeight: 600 }}>❤️</span>}
-                        {rec.doesnt_work && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600 }}>✗ Didn&apos;t work</span>}
-                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 'auto' }}>{rec.assigned_date}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           <div style={{ gridColumn: '1/-1' }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
             <label>Horse Request</label>
