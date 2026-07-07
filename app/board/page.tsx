@@ -215,7 +215,7 @@ export default function BoardPage() {
       })
       setAssignmentMap(newAssignmentMap)
 
-      const horses: DbHorse[] = horsesRes.horses || []
+      const horses: DbHorse[] = (horsesRes.horses || []).filter((h: DbHorse) => !h.is_deceased)
       const newShoeMap: Record<string, ShoeWarning> = {}
       horses.forEach(h => {
         const shoe = h.shoe_flags?.[0]

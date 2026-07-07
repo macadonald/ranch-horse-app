@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
         .eq('status', 'active')
         .eq('incompatible', false),
       supabase.from('shoe_needs').select('horse_name, what_needed'),
-      supabase.from('horses').select('*').eq('is_active', true),
+      supabase.from('horses').select('*').eq('is_active', true).eq('is_deceased', false),
       supabase.from('horse_status_flags').select('horse_name, flag_type, day_off_date').eq('status', 'active'),
       supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
       guestId ? supabase.from('guests').select('overestimates_level').eq('id', guestId).single() : Promise.resolve({ data: null }),

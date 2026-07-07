@@ -543,7 +543,7 @@ export default function GuestsPage() {
       if (f.flag_type === 'day_off') return f.day_off_date === now
       return ['lame', 'injured', 'in_training', 'retired'].includes(f.flag_type)
     })
-    const eligibleHorses = dbHorses.filter(h => h.is_active && !h.exclude_from_ai && !hasBlockingFlag(h))
+    const eligibleHorses = dbHorses.filter(h => h.is_active && !h.is_deceased && !h.exclude_from_ai && !hasBlockingFlag(h))
     const unassigned = activeGuests.filter(g => !g.horse_assignments?.some(a => a.status === 'active' && !a.incompatible))
     if (unassigned.length === 0) { setAssignAllPhase('idle'); return }
 
@@ -927,7 +927,7 @@ export default function GuestsPage() {
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                       <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
                       <div style={{ display: 'flex', gap: 7 }}>
-                        <HorseAutocomplete value={manualHorse} onChange={setManualHorse} placeholder="Type horse name..." horses={dbHorses.filter(h => h.is_active).map(h => h.name)} />
+                        <HorseAutocomplete value={manualHorse} onChange={setManualHorse} placeholder="Type horse name..." horses={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)} />
                         <select value={manualType} onChange={e => setManualType(e.target.value)} style={{ fontSize: 13, width: 120 }}>
                           <option value="primary">Primary</option><option value="secondary">Secondary</option><option value="additional">Additional</option>
                         </select>
@@ -1204,7 +1204,7 @@ export default function GuestsPage() {
         ` }} />
       </main>
 
-      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active).map(h => h.name)} />}
+      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)} />}
 
       {/* Doesn't work reason modal */}
       {doesntWorkTarget && (
@@ -1237,7 +1237,7 @@ export default function GuestsPage() {
           initialRows={draftRows}
           onConfirm={confirmAssignAll}
           onCancel={() => { setAssignAllPhase('idle'); setDraftRows([]) }}
-          horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active).map(h => [h.name, { level: h.level, weight: h.weight }]))}
+          horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => [h.name, { level: h.level, weight: h.weight }]))}
           pastRideMap={assignAllPastRideMap}
         />
       )}

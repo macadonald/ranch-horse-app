@@ -499,7 +499,7 @@ export default function AnalyticsPage() {
       fetch('/api/horses').then(r => r.json()),
     ]).then(([gd, hd]) => {
       setGuests(gd.guests || gd || [])
-      setHorses((hd.horses || []).filter((h: DbHorse) => h.is_active))
+      setHorses((hd.horses || []).filter((h: DbHorse) => h.is_active && !h.is_deceased))
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])

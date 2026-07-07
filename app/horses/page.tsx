@@ -662,8 +662,13 @@ function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit, isViewer
             {hasFronts && hasRears ? 'Fronts+Rears' : hasFronts ? 'Fronts' : 'Rears'}
           </span>
         )}
-        {/* Active toggle */}
-        {!isViewer && (
+        {horse.is_deceased && (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            Deceased
+          </span>
+        )}
+        {/* Active toggle — hidden for deceased horses */}
+        {!isViewer && !horse.is_deceased && (
           <button
             onClick={e => { e.stopPropagation(); onToggleActive() }}
             title={horse.is_active ? 'Mark inactive' : 'Mark active'}
@@ -1054,7 +1059,7 @@ export default function HorsesPage() {
       name: form.name.trim(), level: form.level,
       weight: form.weight ? parseInt(form.weight) : null,
       size: form.size, notes: form.notes,
-      is_active: form.is_active, exclude_from_ai: form.exclude_from_ai, rank_last: form.rank_last,
+      is_active: form.is_deceased ? false : form.is_active, exclude_from_ai: form.exclude_from_ai, rank_last: form.rank_last,
       is_deceased: form.is_deceased,
       is_draft: form.is_draft, takes_kids: form.takes_kids,
     }
@@ -1105,14 +1110,16 @@ export default function HorsesPage() {
   const q = search.toLowerCase()
   const filteredHorses = sortHorses(
     dbHorses.filter(h =>
+      !h.is_deceased &&
       matchesFilter(h, filter, today) &&
       (!q || h.name.toLowerCase().includes(q) || h.notes.toLowerCase().includes(q))
     ),
     today
   )
 
-  const activeCount = dbHorses.filter(h => h.is_active && !hasBlockingFlag(h, today)).length
+  const activeCount = dbHorses.filter(h => !h.is_deceased && h.is_active && !hasBlockingFlag(h, today)).length
   const grouped = OTHER_GROUPS.map(g => ({ group: g, items: animals.filter(a => a.group_name === g) })).filter(g => g.items.length > 0)
+  const deceasedHorses = dbHorses.filter(h => h.is_deceased)
   const trainingAnimals = filter === 'in_training' ? animals.filter(a => a.group_name === 'In Training') : []
 
   function openEdit(horse: DbHorse) {
@@ -1311,14 +1318,15 @@ export default function HorsesPage() {
           <div style={{ padding: 24 }}>
             {animalsLoading ? (
               <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Loading...</p>
-            ) : animals.length === 0 ? (
+            ) : animals.length === 0 && deceasedHorses.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--color-text-3)' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>◈</div>
                 <p style={{ fontSize: 13 }}>No horses added yet</p>
                 {!isViewer && <button onClick={() => setShowOtherModal(true)} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Add the first one</button>}
               </div>
             ) : (
-              grouped.map(({ group, items }) => (
+              <>
+              {grouped.map(({ group, items }) => (
                 <div key={group} style={{ marginBottom: 32 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
                     {group} · {items.length}
@@ -1341,7 +1349,28 @@ export default function HorsesPage() {
                     ))}
                   </div>
                 </div>
-              ))
+              ))}
+              {deceasedHorses.length > 0 && (
+                <div style={{ marginBottom: 32 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+                    Deceased · {deceasedHorses.length}
+                  </div>
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                    {deceasedHorses.map(horse => (
+                      <HorseListRow
+                        key={horse.id}
+                        horse={horse}
+                        today={today}
+                        onSelect={() => openEdit(horse)}
+                        onToggleActive={() => {}}
+                        onEdit={() => openEdit(horse)}
+                        isViewer={isViewer}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              </>
             )}
           </div>
         )}
