@@ -1347,10 +1347,11 @@ export default function ShoesPage() {
                     <>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>★ Priority ({priorityNeeds.length})</div>
                       {priorityNeeds.map(need => <NeedRow {...rowProps(need)} />)}
-                      {normalNeeds.length > 0 && (
-                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, marginTop: 10 }}>All Horses ({normalNeeds.length})</div>
-                      )}
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, marginTop: 10 }}>All Horses ({normalNeeds.length})</div>
                     </>
+                  )}
+                  {priorityNeeds.length === 0 && (
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>All Horses ({normalNeeds.length})</div>
                   )}
                   {normalNeeds.map(need => <NeedRow {...rowProps(need)} />)}
                 </>
