@@ -1257,6 +1257,15 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const [repeatHistory, setRepeatHistory] = useState<RepeatHistoryRecord[] | null>(null)
   const [repeatHistoryLoading, setRepeatHistoryLoading] = useState(false)
   const dragStartedInsideModal = useRef(false)
+  const modalContentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onDocMouseDown = (e: MouseEvent) => {
+      dragStartedInsideModal.current = !!modalContentRef.current?.contains(e.target as Node)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [])
 
   async function checkReturning(name: string) {
     if (!name || name.length < 3) { setReturningInfo(null); return }
@@ -1311,8 +1320,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const f = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm(prev => ({ ...prev, [field]: e.target.value }))
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={e => { if (dragStartedInsideModal.current) { dragStartedInsideModal.current = false; return } if (e.target === e.currentTarget) onClose() }}>
-      <div className="add-guest-modal" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' }} onMouseDown={e => { dragStartedInsideModal.current = true; e.stopPropagation() }} onMouseUp={() => { dragStartedInsideModal.current = false }} onTouchStart={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onMouseUp={() => { if (dragStartedInsideModal.current) return }} onClick={e => { if (dragStartedInsideModal.current) { dragStartedInsideModal.current = false; return } if (e.target === e.currentTarget) onClose() }}>
+      <div ref={modalContentRef} className="add-guest-modal" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>Add Guest {count > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>({count} added)</span>}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
