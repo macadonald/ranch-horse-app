@@ -8,7 +8,7 @@ import { HorseTrends, HorseAnalyticsPanel } from '@/components/HorseAnalyticsPan
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-const OTHER_GROUPS = ['Miniatures', 'Mares', 'Drafts', 'Geldings', 'Privates', 'Retirees', 'In Training', 'Out for injury', 'Other'] as const
+const OTHER_GROUPS = ['Miniatures', 'Mares', 'Drafts', 'Geldings', 'Privates', 'Retirees', 'In Training', 'Out for injury', 'Other', 'Deceased'] as const
 type OtherGroup = typeof OTHER_GROUPS[number]
 
 type OtherAnimal = {
@@ -805,6 +805,20 @@ function OtherAnimalModal({ animal, onClose, onSaved }: {
     if (!form.name.trim()) return
     setSaving(true); setError(null)
     try {
+      if (form.group_name === 'Deceased') {
+        const res = await fetch('/api/horses', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: form.name.trim(), level: 'B', size: 'medium', notes: form.notes.trim() || '', is_active: false, is_deceased: true, exclude_from_ai: false, rank_last: false }),
+        })
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}))
+          const msg = (d.error || '').toLowerCase()
+          setError(msg.includes('duplicate') || msg.includes('unique') || msg.includes('already') ? 'A horse with this name already exists' : d.error || 'Save failed')
+          return
+        }
+        if (isEdit) await fetch(`/api/other-animals?id=${encodeURIComponent(animal.id)}`, { method: 'DELETE' })
+        onSaved(); return
+      }
       const payload = { name: form.name.trim(), group_name: form.group_name, age: form.age ? parseInt(form.age, 10) : null, notes: form.notes.trim() || null }
       const res = await fetch('/api/other-animals', {
         method: isEdit ? 'PUT' : 'POST',
@@ -1104,7 +1118,7 @@ export default function HorsesPage() {
   }
 
   async function handleOtherSaved() {
-    setShowOtherModal(false); setEditingAnimal(null); await fetchAnimals()
+    setShowOtherModal(false); setEditingAnimal(null); await Promise.all([fetchAnimals(), fetchHorses()])
   }
 
   const q = search.toLowerCase()
