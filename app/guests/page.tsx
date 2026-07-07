@@ -603,9 +603,13 @@ export default function GuestsPage() {
           a.diff - b.diff || b.margin - a.margin
         )
 
-      if (candidates.length > 0) {
-        usedInPass1.add(candidates[0].horse.name)
-        draft.push({ guest, suggestedHorse: candidates[0].horse.name, isDouble: false, needsReview: false, flagged: false })
+      const isSmallGuest1 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
+      const smallCandidates1 = isSmallGuest1 ? candidates.filter(c => c.horse.weight != null && c.horse.weight <= 150) : []
+      const effectiveCandidates1 = smallCandidates1.length > 0 ? smallCandidates1 : candidates
+
+      if (effectiveCandidates1.length > 0) {
+        usedInPass1.add(effectiveCandidates1[0].horse.name)
+        draft.push({ guest, suggestedHorse: effectiveCandidates1[0].horse.name, isDouble: false, needsReview: false, flagged: false })
       } else { pass2Queue.push(guest) }
     }
 
@@ -651,8 +655,12 @@ export default function GuestsPage() {
           a.diff - b.diff || a.soonest.localeCompare(b.soonest)
         )
 
-      if (candidates.length > 0) {
-        const best = candidates[0]
+      const isSmallGuest2 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
+      const smallCandidates2 = isSmallGuest2 ? candidates.filter(c => c.horse.weight != null && c.horse.weight <= 150) : []
+      const effectiveCandidates2 = smallCandidates2.length > 0 ? smallCandidates2 : candidates
+
+      if (effectiveCandidates2.length > 0) {
+        const best = effectiveCandidates2[0]
         if (!runtimeDoubleMap[best.horse.name]) runtimeDoubleMap[best.horse.name] = []
         runtimeDoubleMap[best.horse.name].push({ checkOut: guest.check_out_date || '' })
         draft.push({ guest, suggestedHorse: best.horse.name, isDouble: true, needsReview: false, flagged: false })
@@ -1248,6 +1256,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string; loves: boolean } | null>(null)
   const [repeatHistory, setRepeatHistory] = useState<RepeatHistoryRecord[] | null>(null)
   const [repeatHistoryLoading, setRepeatHistoryLoading] = useState(false)
+  const dragStartedInsideModal = useRef(false)
 
   async function checkReturning(name: string) {
     if (!name || name.length < 3) { setReturningInfo(null); return }
@@ -1302,8 +1311,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const f = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm(prev => ({ ...prev, [field]: e.target.value }))
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="add-guest-modal" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={e => { if (dragStartedInsideModal.current) { dragStartedInsideModal.current = false; return } if (e.target === e.currentTarget) onClose() }}>
+      <div className="add-guest-modal" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' }} onMouseDown={e => { dragStartedInsideModal.current = true; e.stopPropagation() }} onMouseUp={() => { dragStartedInsideModal.current = false }} onTouchStart={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>Add Guest {count > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>({count} added)</span>}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>

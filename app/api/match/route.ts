@@ -249,6 +249,9 @@ export async function POST(req: NextRequest) {
     const doesntWorkNote = doesntWorkNames.length > 0 ? `DO NOT SUGGEST — marked "doesn't work" for this guest: ${doesntWorkNames.join(', ')}` : ''
 
     const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''
+    const smallGuestNote = (weightNum < 80 || ageNum < 10)
+      ? 'SMALL GUEST: This guest is very small (under 80lbs or under age 10). Strongly prefer horses with a max weight of 150lbs or less. Only suggest larger horses if no appropriate smaller horse is available.'
+      : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
     const takesKidsInstruction = 'Horses with "takes_kids: true" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a takes_kids horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
@@ -259,6 +262,7 @@ ${doubleAssignInstruction}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${flexNote}
 ${ageWarning}
+${smallGuestNote}
 ${overestimatesNote}
 ${takesKidsInstruction}
 ${patternNote}
