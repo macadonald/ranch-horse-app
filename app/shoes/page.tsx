@@ -66,6 +66,8 @@ const FILTER_CHIPS = [
   { key: 'priority',    label: '★ Priority' },
 ]
 
+type HorseDbEntry = { name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[] }
+
 type ShoeNeed = {
   id: string
   horse_name: string
@@ -609,7 +611,7 @@ function HorseProfileModal({ need, visits, onClose }: {
 }
 
 function SuggestionRow({ suggestion, onAdd }: {
-  suggestion: { horse_name: string; weeks: number }
+  suggestion: { horse_name: string; days: number | null; neverDone: boolean }
   onAdd: () => Promise<void>
 }) {
   const [adding, setAdding] = useState(false)
@@ -619,11 +621,15 @@ function SuggestionRow({ suggestion, onAdd }: {
     try { await onAdd() } finally { setAdding(false) }
   }
 
+  const ageLabel = suggestion.neverDone
+    ? 'Never done'
+    : `${Math.floor((suggestion.days ?? 0) / 7)} weeks ago`
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 6 }}>
       <span style={{ fontSize: 14 }}>🐴</span>
       <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{suggestion.horse_name}</span>
-      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{suggestion.weeks} weeks ago</span>
+      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{ageLabel}</span>
       <button
         onClick={handle}
         disabled={adding}
@@ -976,7 +982,7 @@ export default function ShoesPage() {
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
   const [otherAnimalNames, setOtherAnimalNames] = useState<string[]>([])
-  const [horseDbNames, setHorseDbNames] = useState<string[]>([])
+  const [horseDbData, setHorseDbData] = useState<HorseDbEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string } | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
@@ -1014,7 +1020,7 @@ export default function ShoesPage() {
       setVisits(visitsData.visits || [])
       setHealthIssues(healthData.issues || [])
       setOtherAnimalNames((otherData.animals || []).map((a: { name: string }) => a.name))
-      setHorseDbNames((horsesData.horses || []).map((h: { name: string }) => h.name))
+      setHorseDbData((horsesData.horses || []).map((h: { name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[] }) => ({ name: h.name, is_active: h.is_active, is_deceased: h.is_deceased, flags: h.flags || [] })))
     } catch (err) {
       console.error(err)
     } finally {
@@ -1036,20 +1042,57 @@ export default function ShoesPage() {
   }, [needs, typeFilter])
 
   const suggestions = useMemo(() => {
-    const lastShodMap: Record<string, { date: string; weeks: number }> = {}
+    const MS_PER_DAY = 24 * 60 * 60 * 1000
+    const now = Date.now()
+
+    // Build exclusion set: needs list + inactive + deceased
+    const excludedNames = new Set(needsHorseNames)
+    const BLOCKING = new Set(['lame', 'injured', 'in_training', 'retired'])
+    horseDbData.forEach(h => {
+      if (!h.is_active || h.is_deceased || (h.flags || []).some(f => BLOCKING.has(f.flag_type))) {
+        excludedNames.add(h.name)
+      }
+    })
+
+    // Find the true most-recent visit date per horse, then compute days from that date
+    const lastShodMap: Record<string, string> = {}
     visits.forEach(v => {
-      const weeks = weeksSince(v.visit_date)
       v.farrier_visit_horses.forEach(h => {
-        if (!lastShodMap[h.horse_name] || v.visit_date > lastShodMap[h.horse_name].date) {
-          lastShodMap[h.horse_name] = { date: v.visit_date, weeks }
+        if (!lastShodMap[h.horse_name] || v.visit_date > lastShodMap[h.horse_name]) {
+          lastShodMap[h.horse_name] = v.visit_date
         }
       })
     })
-    return Object.entries(lastShodMap)
-      .map(([horse_name, { date, weeks }]) => ({ horse_name, date, weeks }))
-      .filter(s => s.weeks >= 6 && !needsHorseNames.has(s.horse_name))
-      .sort((a, b) => b.weeks - a.weeks)
-  }, [visits, needsHorseNames])
+
+    // Horses with a visit in the 6–8 week window (42–56 days inclusive)
+    const withVisits = Object.entries(lastShodMap)
+      .filter(([horse_name, date]) => {
+        const days = Math.floor((now - new Date(date + 'T12:00:00').getTime()) / MS_PER_DAY)
+        return days >= 42 && days <= 56 && !excludedNames.has(horse_name)
+      })
+      .map(([horse_name, date]) => ({
+        horse_name,
+        date,
+        days: Math.floor((now - new Date(date + 'T12:00:00').getTime()) / MS_PER_DAY),
+        neverDone: false,
+      }))
+
+    // Active, non-deceased horses with no farrier history at all
+    const neverDone = horseDbData
+      .filter(h => !excludedNames.has(h.name) && !lastShodMap[h.name])
+      .map(h => ({ horse_name: h.name, date: null as string | null, days: null as number | null, neverDone: true }))
+
+    // Sort: by week bucket desc (more weeks = first), then name asc; never-done at end
+    return [...withVisits, ...neverDone].sort((a, b) => {
+      if (a.neverDone && b.neverDone) return a.horse_name.localeCompare(b.horse_name)
+      if (a.neverDone) return 1
+      if (b.neverDone) return -1
+      const weekA = Math.floor((a.days ?? 0) / 7)
+      const weekB = Math.floor((b.days ?? 0) / 7)
+      if (weekA !== weekB) return weekB - weekA
+      return a.horse_name.localeCompare(b.horse_name)
+    })
+  }, [visits, needsHorseNames, horseDbData])
 
   const filteredVisits = useMemo(() => {
     if (!historySearch) return visits
@@ -1064,9 +1107,6 @@ export default function ShoesPage() {
   const historyTotalPages = Math.max(1, Math.ceil(filteredVisits.length / HISTORY_PAGE_SIZE))
   const pagedVisits = filteredVisits.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
 
-  const overdue = suggestions.filter(s => s.weeks >= 10)
-  const gettingClose = suggestions.filter(s => s.weeks >= 8 && s.weeks < 10)
-  const dueSoon = suggestions.filter(s => s.weeks >= 6 && s.weeks < 8)
 
   async function addNeed() {
     if (!addForm?.horse_name || !addForm.what_needed) return
@@ -1195,7 +1235,7 @@ export default function ShoesPage() {
     await fetchData()
   }
 
-  const hasSuggestions = overdue.length > 0 || gettingClose.length > 0 || dueSoon.length > 0
+  const hasSuggestions = suggestions.length > 0
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
@@ -1247,7 +1287,7 @@ export default function ShoesPage() {
                       setAddForm(f => f ? { ...f, horse_name: v, shoe_type: shoeType } : f)
                       setAddError(null)
                     }}
-                    extraNames={[...horseDbNames, ...otherAnimalNames]}
+                    extraNames={[...horseDbData.map(h => h.name), ...otherAnimalNames]}
                   />
                   <select
                     value={addForm.what_needed}
@@ -1363,28 +1403,9 @@ export default function ShoesPage() {
           {!loading && hasSuggestions && (
             <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 18 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Suggestions</h2>
-              <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 14 }}>Based on last recorded farrier visit — horses already on the needs list are excluded</p>
+              <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 14 }}>Horses last shod 6–8 weeks ago, plus horses with no recorded farrier history. Longest overdue shown first.</p>
 
-              {overdue.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>🔴 Overdue — 10+ weeks</div>
-                  {overdue.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
-                </div>
-              )}
-
-              {gettingClose.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#ea580c', marginBottom: 8 }}>🟠 Getting close — 8-9 weeks</div>
-                  {gettingClose.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
-                </div>
-              )}
-
-              {dueSoon.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#ca8a04', marginBottom: 8 }}>🟡 Due soon — 6-7 weeks</div>
-                  {dueSoon.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
-                </div>
-              )}
+              {suggestions.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
             </div>
           )}
 
@@ -1551,7 +1572,7 @@ export default function ShoesPage() {
           onClose={() => setShowLogVisit(false)}
           onSaved={handleVisitSaved}
           needs={needs}
-          extraNames={[...horseDbNames, ...otherAnimalNames]}
+          extraNames={[...horseDbData.map(h => h.name), ...otherAnimalNames]}
           pastFarrierNames={Array.from(new Set(visits.map(v => v.farrier_name).filter(Boolean)))}
         />
       )}
