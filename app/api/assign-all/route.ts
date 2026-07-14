@@ -45,11 +45,15 @@ export async function POST(req: NextRequest) {
 
     // ── Parallel Supabase fetches ──
     const [assignRes, histRes, statsRes] = await Promise.all([
-      // Active non-incompatible assignments — tells us which horses are already taken
+      // Current active assignments only — guests physically on property right now.
+      // Must filter on guest dates so historical assignments never inflate the rider count.
       supabase.from('horse_assignments')
-        .select('horse_name, guests(check_out_date)')
+        .select('horse_name, guests!inner(check_out_date)')
         .eq('status', 'active')
-        .eq('incompatible', false),
+        .eq('incompatible', false)
+        .eq('guests.checked_out', false)
+        .lte('guests.check_in_date', today)
+        .gte('guests.check_out_date', today),
       // Historical rides since cutoff — for doesntWork / loves past-ride flags
       supabase.from('guests')
         .select('name, check_in_date, horse_assignments(horse_name, incompatible)')
