@@ -513,7 +513,7 @@ export default function GuestsPage() {
     }
     setAssignAllPastRideMap(pastRideMapLocal)
 
-    type HorseStatEntry = { historicalLevels: string[]; historicalMaxWeight: number; totalAssignments: number }
+    type HorseStatEntry = { historicalLevels: string[]; historicalMaxWeight: number; totalAssignments: number; historicalAvgWeight: number | null }
     const horseStatsData: Record<string, HorseStatEntry> = horseStatsRes.stats || {}
 
     // listed + 15 base buffer, extended by historical max up to listed + 30; null weight = uncapped
@@ -604,6 +604,16 @@ export default function GuestsPage() {
       return Math.abs(rawDiff) * 5
     }
 
+    // Positive dist = horse typically carries heavier riders than this guest; capped for draft horses
+    const weightRoutingScore = (guestWeight: number, horseName: string, isDraft: boolean): number => {
+      const s = horseStatsData[horseName]
+      if (!s || s.totalAssignments < 5 || s.historicalAvgWeight == null) return 0
+      const dist = s.historicalAvgWeight - guestWeight
+      if (dist <= 10) return 0
+      const raw = dist <= 40 ? (dist - 10) / 15 : 2 + (dist - 40) * 0.05
+      return isDraft ? Math.min(raw, 1.0) : raw
+    }
+
     const draft: DraftRow[] = []; const usedInPass1 = new Set<string>(); const pass2Queue: Guest[] = []
 
     setAssignAllProgress('Pass 1: Finding best matches...'); setAssignAllPct(35)
@@ -633,12 +643,12 @@ export default function GuestsPage() {
         .filter(h => includeRankLast || !h.rank_last)
         .filter(h => !guestPastRides[h.name]?.doesntWork)
         .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); return gIdx >= r.min && gIdx <= r.max })
-        .map(h => ({ horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
+        .map(h => ({ horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
           (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          a.dirScore - b.dirScore || b.margin - a.margin
+          (a.dirScore + a.weightScore) - (b.dirScore + b.weightScore) || b.margin - a.margin
         )
 
       const isSmallGuest1 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
@@ -692,13 +702,13 @@ export default function GuestsPage() {
         .map(h => {
           const riders = runtimeDoubleMap[h.name] || []
           const soonest = riders.length > 0 ? riders.reduce((min, r) => r.checkOut < min ? r.checkOut : min, riders[0].checkOut) : '9999-99-99'
-          return { horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), soonest }
+          return { horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), soonest }
         })
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult2 ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
           (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          a.dirScore - b.dirScore || a.soonest.localeCompare(b.soonest)
+          (a.dirScore + a.weightScore) - (b.dirScore + b.weightScore) || a.soonest.localeCompare(b.soonest)
         )
 
       const isSmallGuest2 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)

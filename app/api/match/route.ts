@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       guestId ? supabase.from('assignment_history').select('horse_name, match_quality, doesnt_work, loves_horse').eq('guest_id', guestId).gte('assigned_date', '2026-05-11') : Promise.resolve({ data: [] }),
       // Pattern learning: all non-incompatible assignments with guest rider profiles
       supabase.from('horse_assignments')
-        .select('horse_name, guests!inner(weight, riding_level, gender, age)')
+        .select('horse_name, guests!inner(weight, riding_level, gender, age, checked_out)')
         .eq('incompatible', false),
     ])
 
@@ -117,16 +117,20 @@ export async function POST(req: NextRequest) {
 
     // Per-horse historical stats from all non-incompatible assignments with guest profiles.
     // patternResult uses horse_assignments (all statuses, not just active) — provides meaningful historical depth.
-    type HorseHistStats = { levels: Set<string>; maxWeight: number; count: number }
+    type HorseHistStats = { levels: Set<string>; maxWeight: number; count: number; weightSum: number; weightCount: number }
     const horseHistStats: Record<string, HorseHistStats> = {}
     for (const a of patternResult.data || []) {
       const g = Array.isArray(a.guests) ? a.guests[0] : a.guests
       if (!g) continue
       const hname = a.horse_name as string
-      if (!horseHistStats[hname]) horseHistStats[hname] = { levels: new Set(), maxWeight: 0, count: 0 }
+      if (!horseHistStats[hname]) horseHistStats[hname] = { levels: new Set(), maxWeight: 0, count: 0, weightSum: 0, weightCount: 0 }
       if (g.riding_level) horseHistStats[hname].levels.add(g.riding_level as string)
       if (g.weight) horseHistStats[hname].maxWeight = Math.max(horseHistStats[hname].maxWeight, g.weight as number)
       horseHistStats[hname].count++
+      if (g.checked_out && g.weight) {
+        horseHistStats[hname].weightSum += g.weight as number
+        horseHistStats[hname].weightCount++
+      }
     }
     // listed + 15 base buffer, extended by historical max up to listed + 30
     const horseWeightCeiling = (listed: number, hname: string) =>
@@ -139,6 +143,11 @@ export async function POST(req: NextRequest) {
       Array.from(s.levels).forEach(lvl => { const i = LEVEL_ORDER_LOCAL.indexOf(lvl); if (i !== -1) { if (i < lo) lo = i; if (i > hi) hi = i } })
       if (s.count >= 20 && hi <= baseLevelIdx) return { min: Math.max(0, lo), max: baseLevelIdx }
       return { min: Math.max(0, Math.min(lo, baseLevelIdx - 1)), max: Math.min(LEVEL_ORDER_LOCAL.length - 1, hi) }
+    }
+    const horseAvgWeight = (hname: string): number | null => {
+      const s = horseHistStats[hname]
+      if (!s || s.weightCount < 5) return null
+      return Math.round(s.weightSum / s.weightCount)
     }
 
     // Triple cap: collect horses already at 2 riders so we can exclude them and note them in the prompt
@@ -201,7 +210,9 @@ export async function POST(req: NextRequest) {
       const defMin = Math.max(0, hBaseLvlIdx - 1), defMax = Math.min(LEVEL_ORDER_LOCAL.length - 1, hBaseLvlIdx + 1)
       const ceilNote = wCeil > h.weight ? `, soft_ceiling: ${wCeil}lbs` : ''
       const rangeNote = lvlRange && (lvlRange.min !== defMin || lvlRange.max !== defMax) ? `, level_range: ${LEVEL_ORDER_LOCAL[lvlRange.min]}–${LEVEL_ORDER_LOCAL[lvlRange.max]}` : ''
-      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs${ceilNote}${rangeNote}, size: ${h.size}, availability: ${availNote}${h.takes_kids ? ', takes_kids: true' : ''}${h.notes ? ', notes: ' + h.notes : ''})`
+      const avgW = horseAvgWeight(h.name)
+      const avgWNote = avgW != null ? `, hist_avg_weight: ${avgW}lbs` : ''
+      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs${ceilNote}${avgWNote}${rangeNote}, size: ${h.size}, availability: ${availNote}${h.takes_kids ? ', takes_kids: true' : ''}${h.notes ? ', notes: ' + h.notes : ''})`
     }).join('\n')
 
     // Pattern learning: group historical assignments into rider profile buckets
@@ -276,12 +287,14 @@ export async function POST(req: NextRequest) {
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
     const takesKidsInstruction = 'Horses with "takes_kids: true" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a takes_kids horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
     const flexNote = 'When a horse shows "soft_ceiling", you may suggest it for guests up to that weight when options are limited — the ranch owner uses this buffer in practice. When a horse shows "level_range", use that range instead of rigid ±1 rules — it reflects actual historical assignment patterns. Always prefer horses whose listed level is closest to the guest\'s level when multiple options exist.'
+    const weightRoutingNote = 'WEIGHT ROUTING: When a horse shows "hist_avg_weight", use it as a soft signal (~40% of your scoring weight) — prefer horses whose historical average is within 40lbs of this guest\'s weight. A guest more than 40lbs below a horse\'s historical average is a soft floor: less preferred but not blocked, especially for draft horses (capped penalty). The hard weight ceiling always takes precedence.'
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
 ${cappedNote}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${flexNote}
+${weightRoutingNote}
 ${levelDirNote}
 ${ageWarning}
 ${smallGuestNote}
