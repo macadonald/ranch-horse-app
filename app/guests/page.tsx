@@ -490,348 +490,44 @@ export default function GuestsPage() {
 
   async function runAssignAll() {
     const now = getTucsonToday()
-    setAssignAllPhase('running'); setAssignAllProgress('Fetching current assignments...'); setAssignAllPct(10)
+    setAssignAllPhase('running'); setAssignAllProgress('Computing assignments...'); setAssignAllPct(10)
 
-    // Overall 30-second hard cap; fires if any phase of Assign All hangs indefinitely
-    const overallCtrl = new AbortController()
-    const overallTimer = setTimeout(() => {
-      overallCtrl.abort()
-      console.error('[AssignAll] 30s overall timeout fired')
-      setAssignAllProgress('Timed out after 30s — open browser console for details')
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => {
+      ctrl.abort()
+      setAssignAllProgress('Timed out after 60s — check server logs')
       setTimeout(() => setAssignAllPhase('idle'), 3000)
-    }, 30000)
+    }, 60000)
 
-    // Per-fetch 15-second timeout; also propagates overall abort signal
-    const timedFetch = (url: string, ms = 15000) => {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), ms)
-      overallCtrl.signal.addEventListener('abort', () => ctrl.abort(), { once: true })
-      return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer))
-    }
-    // Logs label, elapsed ms, and error; optional fallback lets non-critical fetches degrade gracefully
-    const labeledFetch = async (label: string, url: string, fallback?: any): Promise<any> => {
-      const t0 = performance.now()
-      try {
-        const res = await timedFetch(url)
-        if (!res.ok) {
-          const body = await res.text().catch(() => '')
-          console.error(`[AssignAll] ${label} → HTTP ${res.status} (${Math.round(performance.now() - t0)}ms):`, body.slice(0, 400))
-          if (fallback !== undefined) { console.warn(`[AssignAll] ${label} using fallback`); return fallback }
-          throw new Error(`${label} HTTP ${res.status}`)
-        }
-        const data = await res.json()
-        console.log(`[AssignAll] ${label} ✓ ${Math.round(performance.now() - t0)}ms`)
-        return data
-      } catch (err) {
-        console.error(`[AssignAll] ${label} threw after ${Math.round(performance.now() - t0)}ms:`, err)
-        if (fallback !== undefined) { console.warn(`[AssignAll] ${label} using fallback`); return fallback }
-        throw err
-      }
-    }
-
-    let fetchResults: any[]
     try {
-      fetchResults = await Promise.all([
-        labeledFetch('assignments', '/api/assignments'),
-        // fallback to empty history — past-ride context (loves/doesntWork flags) turns off, core matching still works
-        labeledFetch('assignment-history', '/api/assignment-history?since=2026-05-11', { history: [] }),
-        // horse-stats failure degrades to empty stats — scoring features turn off, core matching still works
-        labeledFetch('horse-stats', '/api/horse-stats', { stats: {} }),
-      ])
+      setAssignAllPct(20)
+      const res = await fetch('/api/assign-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guests: activeGuests, horses: dbHorses, today: now }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        console.error('[AssignAll] server error:', res.status, body.slice(0, 400))
+        setAssignAllProgress('Server error — check browser console')
+        setTimeout(() => setAssignAllPhase('idle'), 3000)
+        return
+      }
+      setAssignAllPct(80)
+      const { draft, pastRideMap } = await res.json()
+      setAssignAllPastRideMap(pastRideMap)
+      setDraftRows(draft)
+      setAssignAllPct(100)
     } catch (err) {
-      clearTimeout(overallTimer)
-      console.error('[AssignAll] fatal fetch error, aborting:', err)
-      setAssignAllProgress('Load failed — open browser console for details')
+      console.error('[AssignAll] threw:', err)
+      setAssignAllProgress('Failed — check browser console')
       setTimeout(() => setAssignAllPhase('idle'), 3000)
       return
-    }
-    const [assignRes, histRes, horseStatsRes] = fetchResults
-
-    // Build enriched past-ride map for draft disclaimers (guest_name_lower → horse_name → PastRideDetail)
-    // doesntWork and loves are ORed across all records so a single flag is never lost by a newer neutral record.
-    const pastRideMapLocal: Record<string, Record<string, PastRideDetail>> = {}
-    for (const rec of histRes.history || []) {
-      const key = (rec.guest_name as string).toLowerCase()
-      if (!pastRideMapLocal[key]) pastRideMapLocal[key] = {}
-      const existing = pastRideMapLocal[key][rec.horse_name]
-      pastRideMapLocal[key][rec.horse_name] = {
-        date: !existing || rec.assigned_date > existing.date ? rec.assigned_date : existing.date,
-        loves: (rec.loves_horse || false) || (existing?.loves || false),
-        doesntWork: (rec.doesnt_work || false) || (existing?.doesntWork || false),
-      }
-    }
-    setAssignAllPastRideMap(pastRideMapLocal)
-
-    type HorseStatEntry = { historicalLevels: string[]; historicalMaxWeight: number; totalAssignments: number; historicalAvgWeight: number | null; historicalAvgAge: number | null; hasKidHistory: boolean }
-    const horseStatsData: Record<string, HorseStatEntry> = horseStatsRes.stats || {}
-
-    // listed + 15 base buffer, extended by historical max up to listed + 30; null weight = uncapped
-    const horseWeightCeiling = (listed: number | null, horseName: string): number => {
-      if (listed === null) return 999
-      const s = horseStatsData[horseName]
-      return Math.min(listed + 30, Math.max(listed + 15, s?.historicalMaxWeight ?? 0))
-    }
-    // < 5 assignments → ±1 default; ≥ 20 and never above base → ceiling at base; else historical range (floor at base - 1)
-    const horseLevelRangeFn = (horseName: string, baseLevelIdx: number): { min: number; max: number } => {
-      const s = horseStatsData[horseName]
-      if (!s || s.totalAssignments < 5) return { min: Math.max(0, baseLevelIdx - 1), max: Math.min(LEVEL_ORDER.length - 1, baseLevelIdx + 1) }
-      let lo = baseLevelIdx, hi = baseLevelIdx
-      for (const lvl of s.historicalLevels) { const i = LEVEL_ORDER.indexOf(lvl); if (i !== -1) { if (i < lo) lo = i; if (i > hi) hi = i } }
-      if (s.totalAssignments >= 20 && hi <= baseLevelIdx) return { min: Math.max(0, lo), max: baseLevelIdx }
-      return { min: Math.max(0, Math.min(lo, baseLevelIdx - 1)), max: Math.min(LEVEL_ORDER.length - 1, hi) }
+    } finally {
+      clearTimeout(timer)
     }
 
-    const dbAssignedMap: Record<string, { checkOut: string }[]> = {}
-    for (const a of assignRes.assignments || []) {
-      const g = Array.isArray(a.guests) ? a.guests[0] : a.guests
-      if (!g) continue
-      if (!dbAssignedMap[a.horse_name]) dbAssignedMap[a.horse_name] = []
-      dbAssignedMap[a.horse_name].push({ checkOut: g.check_out_date })
-    }
-
-    const hasBlockingFlag = (h: DbHorse) => (h.flags || []).some(f => {
-      if (f.flag_type === 'day_off') return f.day_off_date === now
-      return ['lame', 'injured', 'in_training', 'retired'].includes(f.flag_type)
-    })
-    const eligibleHorses = dbHorses.filter(h => h.is_active && !h.is_deceased && !h.exclude_from_ai && !hasBlockingFlag(h))
-    const unassigned = activeGuests.filter(g => !g.horse_assignments?.some(a => a.status === 'active' && !a.incompatible))
-    if (unassigned.length === 0) { setAssignAllPhase('idle'); return }
-
-    // ── Planning pass: tier guests by constraint, then score by fewest eligible options ──
-    const hasStandardOption = (g: Guest) =>
-      eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (g.weight ?? 0))
-    const onlyFitsKidsHorses = (g: Guest) =>
-      eligibleHorses.some(h => horseWeightCeiling(h.weight, h.name) >= (g.weight ?? 0)) &&
-      eligibleHorses.every(h => horseWeightCeiling(h.weight, h.name) < (g.weight ?? 0) || h.takes_kids)
-
-    // Count level+weight eligible horses per guest to rank by constrainedness (uses fragility-adjusted level)
-    const eligibleCountFor = (g: Guest): number => {
-      const gIdx = LEVEL_ORDER.indexOf(g.riding_level)
-      if (gIdx === -1) return 999
-      const shift = fragilityShift(g.age)
-      return eligibleHorses.filter(h => {
-        if ((g.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
-        const hIdx = LEVEL_ORDER.indexOf(h.level)
-        if (hIdx === -1) return false
-        const r = horseLevelRangeFn(h.name, hIdx)
-        const effGIdx = effectiveGIdxFor(gIdx, h.name, shift)
-        return effGIdx >= r.min && effGIdx <= r.max
-      }).length
-    }
-
-    const heavyGuests = unassigned.filter(g => !hasStandardOption(g)).sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
-    const heavySet = new Set(heavyGuests.map(g => g.id))
-    const kidsOnlyGuests = unassigned.filter(g => !heavySet.has(g.id) && onlyFitsKidsHorses(g))
-    const kidsOnlySet = new Set(kidsOnlyGuests.map(g => g.id))
-    // Most constrained first, then heaviest, then highest level within same constraint count
-    const remainingGuests = unassigned.filter(g => !heavySet.has(g.id) && !kidsOnlySet.has(g.id)).sort((a, b) => {
-      const aC = eligibleCountFor(a), bC = eligibleCountFor(b)
-      if (aC !== bC) return aC - bC
-      if ((b.weight ?? 0) !== (a.weight ?? 0)) return (b.weight ?? 0) - (a.weight ?? 0)
-      const ai = LEVEL_ORDER.indexOf(a.riding_level); const bi = LEVEL_ORDER.indexOf(b.riding_level)
-      return (bi < 0 ? -1 : bi) - (ai < 0 ? -1 : ai)
-    })
-    const sorted = [...heavyGuests, ...kidsOnlyGuests, ...remainingGuests]
-
-    // ── Level directionality: score candidates so down-level beats up-level ──
-    // Sensitive (age <16 or ≥70): prefer 1-2 steps down, heavily penalise going up
-    // Advanced (A) riders: all levels fine, mild penalty for >3 down, moderate for going up
-    // General: same distance down beats same distance up; 2+ up is heavily penalised
-    const levelDirScore = (gIdx: number, hIdx: number, age: number | undefined): number => {
-      const rawDiff = gIdx - hIdx  // positive = horse below guest (going down)
-      const isSensitive = !!(age && (age < 16 || age >= 70))
-      const isAdvanced = gIdx === LEVEL_ORDER.length - 1
-      if (isSensitive) {
-        if (rawDiff >= 0) return rawDiff === 0 ? 0 : rawDiff <= 2 ? rawDiff * 0.5 : rawDiff
-        return Math.abs(rawDiff) * 10
-      }
-      if (isAdvanced) {
-        if (rawDiff > 3) return rawDiff * 1.5
-        if (rawDiff >= 0) return rawDiff * 0.3
-        return Math.abs(rawDiff) * 2
-      }
-      if (rawDiff >= 0) return rawDiff
-      if (Math.abs(rawDiff) === 1) return 1.5
-      return Math.abs(rawDiff) * 5
-    }
-
-    // How many levels to shift down for fragility-sensitive demographics
-    const fragilityShift = (age: number | null | undefined): number => {
-      if (!age) return 0
-      if (age < 10 || age >= 80) return 2
-      if (age < 16 || age >= 70) return 1
-      return 0
-    }
-    // Per-horse: if owner has placed riders at or above the stated level on this horse, trust history over the shift
-    const effectiveGIdxFor = (statedGIdx: number, horseName: string, shift: number): number => {
-      if (shift === 0) return statedGIdx
-      const s = horseStatsData[horseName]
-      if (s && s.historicalLevels.some(lvl => LEVEL_ORDER.indexOf(lvl) >= statedGIdx)) return statedGIdx
-      return Math.max(0, statedGIdx - shift)
-    }
-    // Age bucket: positive score when guest age is far from horse's historical average
-    const ageRoutingScore = (guestAge: number | null | undefined, horseName: string): number => {
-      if (!guestAge) return 0
-      const s = horseStatsData[horseName]
-      if (!s || s.totalAssignments < 5 || s.historicalAvgAge == null) return 0
-      const dist = Math.abs(s.historicalAvgAge - guestAge)
-      if (dist <= 10) return 0
-      return dist <= 30 ? (dist - 10) / 20 : 1 + (dist - 30) * 0.03
-    }
-
-    // Positive dist = horse typically carries heavier riders than this guest; capped for draft horses
-    const weightRoutingScore = (guestWeight: number, horseName: string, isDraft: boolean): number => {
-      const s = horseStatsData[horseName]
-      if (!s || s.totalAssignments < 5 || s.historicalAvgWeight == null) return 0
-      const dist = s.historicalAvgWeight - guestWeight
-      if (dist <= 10) return 0
-      const raw = dist <= 40 ? (dist - 10) / 15 : 2 + (dist - 40) * 0.05
-      return isDraft ? Math.min(raw, 1.0) : raw
-    }
-
-    const draft: DraftRow[] = []; const usedInPass1 = new Set<string>(); const pass2Queue: Guest[] = []
-
-    setAssignAllProgress('Pass 1: Finding best matches...'); setAssignAllPct(35)
-    await new Promise(r => setTimeout(r, 350))
-
-    for (const guest of sorted) {
-      const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
-      if (gIdx === -1) { pass2Queue.push(guest); continue }
-      const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
-      const gFragilityShift = fragilityShift(guest.age)
-      const isKid = !!(guest.age != null && guest.age < 13)
-
-      const guestCanFitStandard = eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (guest.weight ?? 0))
-      const nonRankLastAtLevel = eligibleHorses.filter(h => {
-        if (h.rank_last) return false
-        if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
-        const hIdx = LEVEL_ORDER.indexOf(h.level)
-        if (hIdx === -1) return false
-        const r = horseLevelRangeFn(h.name, hIdx)
-        const effGIdx = effectiveGIdxFor(gIdx, h.name, gFragilityShift)
-        return effGIdx >= r.min && effGIdx <= r.max
-      })
-      const includeRankLast = nonRankLastAtLevel.length < 3
-      const guestIsAdult = !!(guest.age && guest.age >= 16)
-
-      const candidates = eligibleHorses
-        .filter(h => !dbAssignedMap[h.name] && !usedInPass1.has(h.name))
-        .filter(h => (guest.weight ?? 0) <= horseWeightCeiling(h.weight, h.name))
-        .filter(h => !h.is_draft || !guestCanFitStandard)
-        .filter(h => includeRankLast || !h.rank_last)
-        .filter(h => !guestPastRides[h.name]?.doesntWork)
-        .filter(h => !isKid || h.takes_kids || (horseStatsData[h.name]?.hasKidHistory ?? false))
-        .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); const effGIdx = effectiveGIdxFor(gIdx, h.name, gFragilityShift); return effGIdx >= r.min && effGIdx <= r.max })
-        .map(h => ({ horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), ageScore: ageRoutingScore(guest.age, h.name), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
-        .sort((a, b) =>
-          (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
-          (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
-          (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          (a.dirScore + a.weightScore + a.ageScore) - (b.dirScore + b.weightScore + b.ageScore) || b.margin - a.margin
-        )
-
-      const isSmallGuest1 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
-      const smallCandidates1 = isSmallGuest1 ? candidates.filter(c => c.horse.weight != null && c.horse.weight <= 150) : []
-      const effectiveCandidates1 = smallCandidates1.length > 0 ? smallCandidates1 : candidates
-
-      if (effectiveCandidates1.length > 0) {
-        usedInPass1.add(effectiveCandidates1[0].horse.name)
-        draft.push({ guest, suggestedHorse: effectiveCandidates1[0].horse.name, isDouble: false, needsReview: false, flagged: false })
-      } else { pass2Queue.push(guest) }
-    }
-
-    setAssignAllProgress('Pass 2: Filling gaps with shared horses...'); setAssignAllPct(65)
-    await new Promise(r => setTimeout(r, 350))
-
-    const runtimeDoubleMap: Record<string, { checkOut: string }[]> = { ...dbAssignedMap }
-    // Track which horses were assigned in pass2 so the triple cap is enforced within this pass too
-    const pass2Assigned = new Set<string>()
-    const pass3Queue: Guest[] = []
-    const pass3Reasons = new Map<string, 'triple_cap' | 'no_match'>()
-
-    for (const guest of pass2Queue) {
-      const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
-      if (gIdx === -1) { pass3Queue.push(guest); pass3Reasons.set(guest.id, 'no_match'); continue }
-      const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
-      const gFragilityShift2 = fragilityShift(guest.age)
-      const isKid2 = !!(guest.age != null && guest.age < 13)
-
-      const guestCanFitStandard2 = eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (guest.weight ?? 0))
-      const nonRankLastAtLevel2 = eligibleHorses.filter(h => {
-        if (h.rank_last) return false
-        if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
-        const hIdx = LEVEL_ORDER.indexOf(h.level)
-        if (hIdx === -1) return false
-        const r = horseLevelRangeFn(h.name, hIdx)
-        const effGIdx2 = effectiveGIdxFor(gIdx, h.name, gFragilityShift2)
-        return effGIdx2 >= r.min && effGIdx2 <= r.max
-      })
-      const includeRankLast2 = nonRankLastAtLevel2.length < 3
-      const guestIsAdult2 = !!(guest.age && guest.age >= 16)
-
-      // Hard triple cap: total assignments (db + pass1 + this pass) must stay < 2
-      const totalCount = (h: DbHorse) =>
-        (dbAssignedMap[h.name]?.length ?? 0) + (usedInPass1.has(h.name) ? 1 : 0) + (pass2Assigned.has(h.name) ? 1 : 0)
-
-      const candidates = eligibleHorses
-        .filter(h => (dbAssignedMap[h.name]?.length ?? 0) > 0 || usedInPass1.has(h.name))
-        .filter(h => totalCount(h) < 2)
-        .filter(h => (guest.weight ?? 0) <= horseWeightCeiling(h.weight, h.name))
-        .filter(h => !h.is_draft || !guestCanFitStandard2)
-        .filter(h => includeRankLast2 || !h.rank_last)
-        .filter(h => !guestPastRides[h.name]?.doesntWork)
-        .filter(h => !isKid2 || h.takes_kids || (horseStatsData[h.name]?.hasKidHistory ?? false))
-        .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); const effGIdx2 = effectiveGIdxFor(gIdx, h.name, gFragilityShift2); return effGIdx2 >= r.min && effGIdx2 <= r.max })
-        .map(h => {
-          const riders = runtimeDoubleMap[h.name] || []
-          const soonest = riders.length > 0 ? riders.reduce((min, r) => r.checkOut < min ? r.checkOut : min, riders[0].checkOut) : '9999-99-99'
-          return { horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), ageScore: ageRoutingScore(guest.age, h.name), soonest }
-        })
-        .sort((a, b) =>
-          (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
-          (guestIsAdult2 ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
-          (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          (a.dirScore + a.weightScore + a.ageScore) - (b.dirScore + b.weightScore + b.ageScore) || a.soonest.localeCompare(b.soonest)
-        )
-
-      const isSmallGuest2 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
-      const smallCandidates2 = isSmallGuest2 ? candidates.filter(c => c.horse.weight != null && c.horse.weight <= 150) : []
-      const effectiveCandidates2 = smallCandidates2.length > 0 ? smallCandidates2 : candidates
-
-      if (effectiveCandidates2.length > 0) {
-        const best = effectiveCandidates2[0]
-        pass2Assigned.add(best.horse.name)
-        if (!runtimeDoubleMap[best.horse.name]) runtimeDoubleMap[best.horse.name] = []
-        runtimeDoubleMap[best.horse.name].push({ checkOut: guest.check_out_date || '' })
-        draft.push({ guest, suggestedHorse: best.horse.name, isDouble: true, needsReview: false, flagged: false })
-      } else {
-        // Distinguish: would a match have existed if the cap weren't enforced?
-        const wouldFitWithoutCap = eligibleHorses.some(h => {
-          if (!((dbAssignedMap[h.name]?.length ?? 0) > 0 || usedInPass1.has(h.name))) return false
-          if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
-          if (guestPastRides[h.name]?.doesntWork) return false
-          if (isKid2 && !h.takes_kids && !(horseStatsData[h.name]?.hasKidHistory ?? false)) return false
-          const hIdx = LEVEL_ORDER.indexOf(h.level)
-          if (hIdx === -1) return false
-          const r = horseLevelRangeFn(h.name, hIdx)
-          const effGIdx2 = effectiveGIdxFor(gIdx, h.name, gFragilityShift2)
-          return effGIdx2 >= r.min && effGIdx2 <= r.max
-        })
-        pass3Queue.push(guest)
-        pass3Reasons.set(guest.id, wouldFitWithoutCap ? 'triple_cap' : 'no_match')
-      }
-    }
-
-    setAssignAllProgress('Pass 3: Flagging guests needing manual review...'); setAssignAllPct(90)
-    await new Promise(r => setTimeout(r, 350))
-    for (const guest of pass3Queue) {
-      const noHorseReason = pass3Reasons.get(guest.id) ?? 'no_match'
-      draft.push({ guest, suggestedHorse: null, isDouble: false, needsReview: true, flagged: false, noHorseReason })
-    }
-
-    setDraftRows(draft); setAssignAllPct(100)
-    await new Promise(r => setTimeout(r, 200))
-    clearTimeout(overallTimer)
     setAssignAllPhase('draft')
   }
 
