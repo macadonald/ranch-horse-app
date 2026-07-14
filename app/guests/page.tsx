@@ -513,7 +513,7 @@ export default function GuestsPage() {
     }
     setAssignAllPastRideMap(pastRideMapLocal)
 
-    type HorseStatEntry = { historicalLevels: string[]; historicalMaxWeight: number; totalAssignments: number; historicalAvgWeight: number | null }
+    type HorseStatEntry = { historicalLevels: string[]; historicalMaxWeight: number; totalAssignments: number; historicalAvgWeight: number | null; historicalAvgAge: number | null; hasKidHistory: boolean }
     const horseStatsData: Record<string, HorseStatEntry> = horseStatsRes.stats || {}
 
     // listed + 15 base buffer, extended by historical max up to listed + 30; null weight = uncapped
@@ -555,16 +555,18 @@ export default function GuestsPage() {
       eligibleHorses.some(h => horseWeightCeiling(h.weight, h.name) >= (g.weight ?? 0)) &&
       eligibleHorses.every(h => horseWeightCeiling(h.weight, h.name) < (g.weight ?? 0) || h.takes_kids)
 
-    // Count level+weight eligible horses per guest to rank by constrainedness
+    // Count level+weight eligible horses per guest to rank by constrainedness (uses fragility-adjusted level)
     const eligibleCountFor = (g: Guest): number => {
       const gIdx = LEVEL_ORDER.indexOf(g.riding_level)
       if (gIdx === -1) return 999
+      const shift = fragilityShift(g.age)
       return eligibleHorses.filter(h => {
         if ((g.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
         const hIdx = LEVEL_ORDER.indexOf(h.level)
         if (hIdx === -1) return false
         const r = horseLevelRangeFn(h.name, hIdx)
-        return gIdx >= r.min && gIdx <= r.max
+        const effGIdx = effectiveGIdxFor(gIdx, h.name, shift)
+        return effGIdx >= r.min && effGIdx <= r.max
       }).length
     }
 
@@ -604,6 +606,30 @@ export default function GuestsPage() {
       return Math.abs(rawDiff) * 5
     }
 
+    // How many levels to shift down for fragility-sensitive demographics
+    const fragilityShift = (age: number | null | undefined): number => {
+      if (!age) return 0
+      if (age < 10 || age >= 80) return 2
+      if (age < 16 || age >= 70) return 1
+      return 0
+    }
+    // Per-horse: if owner has placed riders at or above the stated level on this horse, trust history over the shift
+    const effectiveGIdxFor = (statedGIdx: number, horseName: string, shift: number): number => {
+      if (shift === 0) return statedGIdx
+      const s = horseStatsData[horseName]
+      if (s && s.historicalLevels.some(lvl => LEVEL_ORDER.indexOf(lvl) >= statedGIdx)) return statedGIdx
+      return Math.max(0, statedGIdx - shift)
+    }
+    // Age bucket: positive score when guest age is far from horse's historical average
+    const ageRoutingScore = (guestAge: number | null | undefined, horseName: string): number => {
+      if (!guestAge) return 0
+      const s = horseStatsData[horseName]
+      if (!s || s.totalAssignments < 5 || s.historicalAvgAge == null) return 0
+      const dist = Math.abs(s.historicalAvgAge - guestAge)
+      if (dist <= 10) return 0
+      return dist <= 30 ? (dist - 10) / 20 : 1 + (dist - 30) * 0.03
+    }
+
     // Positive dist = horse typically carries heavier riders than this guest; capped for draft horses
     const weightRoutingScore = (guestWeight: number, horseName: string, isDraft: boolean): number => {
       const s = horseStatsData[horseName]
@@ -623,6 +649,8 @@ export default function GuestsPage() {
       const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
       if (gIdx === -1) { pass2Queue.push(guest); continue }
       const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
+      const gFragilityShift = fragilityShift(guest.age)
+      const isKid = !!(guest.age != null && guest.age < 13)
 
       const guestCanFitStandard = eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (guest.weight ?? 0))
       const nonRankLastAtLevel = eligibleHorses.filter(h => {
@@ -631,7 +659,8 @@ export default function GuestsPage() {
         const hIdx = LEVEL_ORDER.indexOf(h.level)
         if (hIdx === -1) return false
         const r = horseLevelRangeFn(h.name, hIdx)
-        return gIdx >= r.min && gIdx <= r.max
+        const effGIdx = effectiveGIdxFor(gIdx, h.name, gFragilityShift)
+        return effGIdx >= r.min && effGIdx <= r.max
       })
       const includeRankLast = nonRankLastAtLevel.length < 3
       const guestIsAdult = !!(guest.age && guest.age >= 16)
@@ -642,13 +671,14 @@ export default function GuestsPage() {
         .filter(h => !h.is_draft || !guestCanFitStandard)
         .filter(h => includeRankLast || !h.rank_last)
         .filter(h => !guestPastRides[h.name]?.doesntWork)
-        .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); return gIdx >= r.min && gIdx <= r.max })
-        .map(h => ({ horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
+        .filter(h => !isKid || h.takes_kids || (horseStatsData[h.name]?.hasKidHistory ?? false))
+        .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); const effGIdx = effectiveGIdxFor(gIdx, h.name, gFragilityShift); return effGIdx >= r.min && effGIdx <= r.max })
+        .map(h => ({ horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), ageScore: ageRoutingScore(guest.age, h.name), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
           (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          (a.dirScore + a.weightScore) - (b.dirScore + b.weightScore) || b.margin - a.margin
+          (a.dirScore + a.weightScore + a.ageScore) - (b.dirScore + b.weightScore + b.ageScore) || b.margin - a.margin
         )
 
       const isSmallGuest1 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
@@ -674,6 +704,8 @@ export default function GuestsPage() {
       const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
       if (gIdx === -1) { pass3Queue.push(guest); pass3Reasons.set(guest.id, 'no_match'); continue }
       const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
+      const gFragilityShift2 = fragilityShift(guest.age)
+      const isKid2 = !!(guest.age != null && guest.age < 13)
 
       const guestCanFitStandard2 = eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (guest.weight ?? 0))
       const nonRankLastAtLevel2 = eligibleHorses.filter(h => {
@@ -682,7 +714,8 @@ export default function GuestsPage() {
         const hIdx = LEVEL_ORDER.indexOf(h.level)
         if (hIdx === -1) return false
         const r = horseLevelRangeFn(h.name, hIdx)
-        return gIdx >= r.min && gIdx <= r.max
+        const effGIdx2 = effectiveGIdxFor(gIdx, h.name, gFragilityShift2)
+        return effGIdx2 >= r.min && effGIdx2 <= r.max
       })
       const includeRankLast2 = nonRankLastAtLevel2.length < 3
       const guestIsAdult2 = !!(guest.age && guest.age >= 16)
@@ -698,17 +731,18 @@ export default function GuestsPage() {
         .filter(h => !h.is_draft || !guestCanFitStandard2)
         .filter(h => includeRankLast2 || !h.rank_last)
         .filter(h => !guestPastRides[h.name]?.doesntWork)
-        .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); return gIdx >= r.min && gIdx <= r.max })
+        .filter(h => !isKid2 || h.takes_kids || (horseStatsData[h.name]?.hasKidHistory ?? false))
+        .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); const effGIdx2 = effectiveGIdxFor(gIdx, h.name, gFragilityShift2); return effGIdx2 >= r.min && effGIdx2 <= r.max })
         .map(h => {
           const riders = runtimeDoubleMap[h.name] || []
           const soonest = riders.length > 0 ? riders.reduce((min, r) => r.checkOut < min ? r.checkOut : min, riders[0].checkOut) : '9999-99-99'
-          return { horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), soonest }
+          return { horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft), ageScore: ageRoutingScore(guest.age, h.name), soonest }
         })
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult2 ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
           (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          (a.dirScore + a.weightScore) - (b.dirScore + b.weightScore) || a.soonest.localeCompare(b.soonest)
+          (a.dirScore + a.weightScore + a.ageScore) - (b.dirScore + b.weightScore + b.ageScore) || a.soonest.localeCompare(b.soonest)
         )
 
       const isSmallGuest2 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
@@ -727,10 +761,12 @@ export default function GuestsPage() {
           if (!((dbAssignedMap[h.name]?.length ?? 0) > 0 || usedInPass1.has(h.name))) return false
           if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
           if (guestPastRides[h.name]?.doesntWork) return false
+          if (isKid2 && !h.takes_kids && !(horseStatsData[h.name]?.hasKidHistory ?? false)) return false
           const hIdx = LEVEL_ORDER.indexOf(h.level)
           if (hIdx === -1) return false
           const r = horseLevelRangeFn(h.name, hIdx)
-          return gIdx >= r.min && gIdx <= r.max
+          const effGIdx2 = effectiveGIdxFor(gIdx, h.name, gFragilityShift2)
+          return effGIdx2 >= r.min && effGIdx2 <= r.max
         })
         pass3Queue.push(guest)
         pass3Reasons.set(guest.id, wouldFitWithoutCap ? 'triple_cap' : 'no_match')

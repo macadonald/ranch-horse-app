@@ -109,27 +109,39 @@ export async function POST(req: NextRequest) {
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
 
     const LEVEL_ORDER_LOCAL = ['B', 'AB', 'I', 'I/AI', 'AI', 'A']
-    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I', I: 'AB', AB: 'B', B: 'B' }
+    const LEVEL_DOWNGRADE: Record<string, string> = { A: 'AI', AI: 'I/AI', 'I/AI': 'I', I: 'AB', AB: 'B', B: 'B' }
     const effectiveLevel = overestimatesLevel ? (LEVEL_DOWNGRADE[level] || level) : level
     const overestimatesNote = overestimatesLevel && effectiveLevel !== level
       ? `IMPORTANT: Guest's stated level is ${level} but they overestimate their ability. Match as ${effectiveLevel}.`
       : ''
+    // Fragility adjustment: sensitive demographics ride at a lower effective level before pool filtering
+    const fragilitySteps = ageNum < 10 || ageNum >= 80 ? 2 : (ageNum < 16 || ageNum >= 70 ? 1 : 0)
+    let fragilityAdjustedLevel = effectiveLevel
+    for (let i = 0; i < fragilitySteps; i++) fragilityAdjustedLevel = LEVEL_DOWNGRADE[fragilityAdjustedLevel] || fragilityAdjustedLevel
+    const fragilityNote = fragilitySteps > 0 && fragilityAdjustedLevel !== effectiveLevel
+      ? `FRAGILITY ADJUSTMENT: Due to age (${ageNum}), treat this rider as ${fragilityAdjustedLevel} instead of ${effectiveLevel} for horse selection. HISTORY OVERRIDE: If pattern data or hist_avg_age on a specific horse shows strong historical evidence of this age/weight profile riding at ${effectiveLevel} successfully, you may restore up to the stated level for that horse only.`
+      : ''
 
     // Per-horse historical stats from all non-incompatible assignments with guest profiles.
     // patternResult uses horse_assignments (all statuses, not just active) — provides meaningful historical depth.
-    type HorseHistStats = { levels: Set<string>; maxWeight: number; count: number; weightSum: number; weightCount: number }
+    type HorseHistStats = { levels: Set<string>; maxWeight: number; count: number; weightSum: number; weightCount: number; ageSum: number; ageCount: number; kidCount: number }
     const horseHistStats: Record<string, HorseHistStats> = {}
     for (const a of patternResult.data || []) {
       const g = Array.isArray(a.guests) ? a.guests[0] : a.guests
       if (!g) continue
       const hname = a.horse_name as string
-      if (!horseHistStats[hname]) horseHistStats[hname] = { levels: new Set(), maxWeight: 0, count: 0, weightSum: 0, weightCount: 0 }
+      if (!horseHistStats[hname]) horseHistStats[hname] = { levels: new Set(), maxWeight: 0, count: 0, weightSum: 0, weightCount: 0, ageSum: 0, ageCount: 0, kidCount: 0 }
       if (g.riding_level) horseHistStats[hname].levels.add(g.riding_level as string)
       if (g.weight) horseHistStats[hname].maxWeight = Math.max(horseHistStats[hname].maxWeight, g.weight as number)
       horseHistStats[hname].count++
       if (g.checked_out && g.weight) {
         horseHistStats[hname].weightSum += g.weight as number
         horseHistStats[hname].weightCount++
+      }
+      if (g.age != null) {
+        horseHistStats[hname].ageSum += g.age as number
+        horseHistStats[hname].ageCount++
+        if ((g.age as number) < 13) horseHistStats[hname].kidCount++
       }
     }
     // listed + 15 base buffer, extended by historical max up to listed + 30
@@ -149,6 +161,11 @@ export async function POST(req: NextRequest) {
       if (!s || s.weightCount < 5) return null
       return Math.round(s.weightSum / s.weightCount)
     }
+    const horseAvgAge = (hname: string): number | null => {
+      const s = horseHistStats[hname]
+      if (!s || s.ageCount < 5) return null
+      return Math.round(s.ageSum / s.ageCount)
+    }
 
     // Triple cap: collect horses already at 2 riders so we can exclude them and note them in the prompt
     const cappedHorseNames: string[] = []
@@ -161,6 +178,7 @@ export async function POST(req: NextRequest) {
       if (incompatibleHorses.includes(h.name)) return false
       if (dismissedHorses.includes(h.name)) return false
       if ((assignmentMap[h.name] || []).length >= 2) { cappedHorseNames.push(h.name); return false }
+      if (ageNum < 13 && !h.takes_kids && !(horseHistStats[h.name]?.kidCount > 0)) return false
       return true
     })
     // Draft horses are last resort for weight — only include if no standard horse can carry this guest
@@ -176,7 +194,7 @@ export async function POST(req: NextRequest) {
     })
 
     // rank_last threshold: only surface rank_last horses when < 3 standard eligible horses exist for this guest's level
-    const guestLevelIdx = LEVEL_ORDER_LOCAL.indexOf(effectiveLevel)
+    const guestLevelIdx = LEVEL_ORDER_LOCAL.indexOf(fragilityAdjustedLevel || effectiveLevel)
     const eligibleAtGuestLevel = eligible.filter((h: any) => {
       if (h.rank_last) return false
       const hIdx = LEVEL_ORDER_LOCAL.indexOf(h.level)
@@ -212,7 +230,10 @@ export async function POST(req: NextRequest) {
       const rangeNote = lvlRange && (lvlRange.min !== defMin || lvlRange.max !== defMax) ? `, level_range: ${LEVEL_ORDER_LOCAL[lvlRange.min]}–${LEVEL_ORDER_LOCAL[lvlRange.max]}` : ''
       const avgW = horseAvgWeight(h.name)
       const avgWNote = avgW != null ? `, hist_avg_weight: ${avgW}lbs` : ''
-      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs${ceilNote}${avgWNote}${rangeNote}, size: ${h.size}, availability: ${availNote}${h.takes_kids ? ', takes_kids: true' : ''}${h.notes ? ', notes: ' + h.notes : ''})`
+      const avgA = horseAvgAge(h.name)
+      const avgANote = avgA != null ? `, hist_avg_age: ${avgA}` : ''
+      const kidHistNote = h.takes_kids ? ', takes_kids: true' : (horseHistStats[h.name]?.kidCount > 0 ? ', has_kid_history: true' : '')
+      return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs${ceilNote}${avgWNote}${avgANote}${rangeNote}, size: ${h.size}, availability: ${availNote}${kidHistNote}${h.notes ? ', notes: ' + h.notes : ''})`
     }).join('\n')
 
     // Pattern learning: group historical assignments into rider profile buckets
@@ -249,7 +270,7 @@ export async function POST(req: NextRequest) {
         .sort(([, a], [, b]) => b - a)
         .slice(0, 6)
       if (topPairs.length > 0) {
-        patternNote = `PATTERN DATA (${bucketTotal} historical assignments for guests ${guestWBucket}–${guestWBucket + 20}lbs, ${effectiveLevel} level, ${gender || 'unspecified'} gender, age ${guestABucket}–${guestABucket + 10}): Owner has historically paired this profile with: ${topPairs.map(([n, c]) => `${n} (${c}x)`).join(', ')}. Factor as a soft preference alongside other rules — do not override level/weight/safety constraints.`
+        patternNote = `PATTERN DATA (${bucketTotal} historical assignments for guests ${guestWBucket}–${guestWBucket + 20}lbs, ${effectiveLevel} level, ${gender || 'unspecified'} gender, age ${guestABucket}–${guestABucket + 10}): Owner has historically paired this profile with: ${topPairs.map(([n, c]) => `${n} (${c}x)`).join(', ')}. Treat this as strong evidence of owner preference — weight this heavily in your final ranking. Owner assignments are ground truth; if pattern data consistently shows this profile on a certain horse, that horse should rank near the top unless a hard safety constraint blocks it.`
       }
     }
 
@@ -287,7 +308,11 @@ export async function POST(req: NextRequest) {
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
     const takesKidsInstruction = 'Horses with "takes_kids: true" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a takes_kids horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
     const flexNote = 'When a horse shows "soft_ceiling", you may suggest it for guests up to that weight when options are limited — the ranch owner uses this buffer in practice. When a horse shows "level_range", use that range instead of rigid ±1 rules — it reflects actual historical assignment patterns. Always prefer horses whose listed level is closest to the guest\'s level when multiple options exist.'
-    const weightRoutingNote = 'WEIGHT ROUTING: When a horse shows "hist_avg_weight", use it as a soft signal (~40% of your scoring weight) — prefer horses whose historical average is within 40lbs of this guest\'s weight. A guest more than 40lbs below a horse\'s historical average is a soft floor: less preferred but not blocked, especially for draft horses (capped penalty). The hard weight ceiling always takes precedence.'
+    const weightRoutingNote = 'WEIGHT ROUTING: When a horse shows "hist_avg_weight", use it as a meaningful signal (~40% of your scoring) — prefer horses whose historical average is within 40lbs of this guest\'s weight. If history shows a horse regularly carrying guests outside its expected weight range, expand your routing window accordingly — that history overrides the default expectation. Hard weight ceiling still applies.'
+    const ageRoutingNote = 'AGE ROUTING: When a horse shows "hist_avg_age", use it as a soft scoring signal — prefer horses whose historical age average is within 15 years of this guest\'s age. A gap of 30+ years is a soft penalty. If history shows a horse consistently assigned to a specific age group, trust that pattern. Safety and level constraints take precedence.'
+    const kidsNote = ageNum < 13
+      ? `KIDS RIDER (age ${ageNum}): Only suggest horses that have "takes_kids: true" OR "has_kid_history: true" in the roster. Do not suggest any horse without one of these qualifiers. Horses filtered from the pool for this guest already excluded non-kid horses.`
+      : ''
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
@@ -295,9 +320,12 @@ ${cappedNote}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${flexNote}
 ${weightRoutingNote}
+${ageRoutingNote}
 ${levelDirNote}
+${fragilityNote}
 ${ageWarning}
 ${smallGuestNote}
+${kidsNote}
 ${overestimatesNote}
 ${takesKidsInstruction}
 ${patternNote}
@@ -305,7 +333,7 @@ ${lovesNote}
 ${goodMatchNote}
 ${doesntWorkNote}
 ${rankLastInstruction}
-Rider: Age ${age}, Weight ${weight}lbs, Height ${height}, Level ${effectiveLevel}, Gender ${gender || 'not specified'}, Notes: ${notes || 'none'}
+Rider: Age ${age}, Weight ${weight}lbs, Height ${height}, Level ${fragilityAdjustedLevel || effectiveLevel}, Gender ${gender || 'not specified'}, Notes: ${notes || 'none'}
 Eligible horses:
 ${rosterLines}
 Respond ONLY with valid JSON array, no markdown:
