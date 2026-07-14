@@ -13,85 +13,110 @@ export async function GET(req: NextRequest) {
   const since = searchParams.get('since')
   const archived = searchParams.get('archived') === 'true'
 
-  // All returning guest names + any "loves horse" entries (for guest list badges)
-  if (allReturning) {
-    const { data } = await supabase
-      .from('assignment_history')
-      .select('guest_name, loves_horse, horse_name')
-      .gte('assigned_date', LEARNING_CUTOFF)
-    const seen = new Set<string>()
-    const names: string[] = []
-    const lovesItems: { guest_name: string; horse_name: string }[] = []
-    for (const r of data || []) {
-      const n = r.guest_name as string
-      if (!seen.has(n)) { seen.add(n); names.push(n) }
-      if (r.loves_horse) lovesItems.push({ guest_name: n, horse_name: r.horse_name })
+  try {
+    // All returning guest names + any "loves horse" entries (for guest list badges)
+    if (allReturning) {
+      const { data, error } = await supabase
+        .from('assignment_history')
+        .select('guest_name, loves_horse, horse_name')
+        .gte('assigned_date', LEARNING_CUTOFF)
+      if (error) {
+        console.error('[assignment-history] allReturning query error:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+      const seen = new Set<string>()
+      const names: string[] = []
+      const lovesItems: { guest_name: string; horse_name: string }[] = []
+      for (const r of data || []) {
+        const n = r.guest_name as string
+        if (!seen.has(n)) { seen.add(n); names.push(n) }
+        if (r.loves_horse) lovesItems.push({ guest_name: n, horse_name: r.horse_name })
+      }
+      return NextResponse.json({ names, lovesItems })
     }
-    return NextResponse.json({ names, lovesItems })
-  }
 
-  // Archived guest history grouped by guest_name (for History view)
-  if (archived) {
-    const { data, error } = await supabase
+    // Archived guest history grouped by guest_name (for History view)
+    if (archived) {
+      const { data, error } = await supabase
+        .from('assignment_history')
+        .select('*')
+        .not('archived_at', 'is', null)
+        .order('assigned_date', { ascending: false })
+      if (error) {
+        console.error('[assignment-history] archived query error:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+
+      const groups: Record<string, { records: typeof data; latestCheckout: string }> = {}
+      for (const rec of data || []) {
+        const key = rec.guest_name as string
+        if (!groups[key]) groups[key] = { records: [], latestCheckout: rec.archived_at || '' }
+        groups[key].records.push(rec)
+        if (rec.archived_at && rec.archived_at > groups[key].latestCheckout) {
+          groups[key].latestCheckout = rec.archived_at
+        }
+      }
+      const guests = Object.entries(groups).map(([name, v]) => ({
+        guest_name: name,
+        checkout_date: v.latestCheckout,
+        records: v.records,
+      })).sort((a, b) => b.checkout_date.localeCompare(a.checkout_date))
+      return NextResponse.json({ guests })
+    }
+
+    // Check if a specific guest name has prior history (returning guest detection)
+    if (checkReturning) {
+      const { data, error } = await supabase
+        .from('assignment_history')
+        .select('id, horse_name, assigned_date, match_quality, loves_horse')
+        .ilike('guest_name', checkReturning)
+        .gte('assigned_date', LEARNING_CUTOFF)
+        .order('assigned_date', { ascending: false })
+        .limit(3)
+      if (error) {
+        console.error('[assignment-history] checkReturning query error:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+      return NextResponse.json({ isReturning: (data?.length ?? 0) > 0, records: data || [] })
+    }
+
+    // Bulk fetch since a date (for AssignAll draft disclaimers)
+    if (since) {
+      console.log('[assignment-history] since query:', since)
+      const { data, error } = await supabase
+        .from('assignment_history')
+        .select('guest_name, horse_name, assigned_date, match_quality, doesnt_work, loves_horse')
+        .gte('assigned_date', since)
+        .order('assigned_date', { ascending: false })
+      if (error) {
+        console.error('[assignment-history] since query error (since=' + since + '):', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+      console.log('[assignment-history] since query returned', data?.length ?? 0, 'rows')
+      return NextResponse.json({ history: data || [] })
+    }
+
+    let query = supabase
       .from('assignment_history')
       .select('*')
-      .not('archived_at', 'is', null)
       .order('assigned_date', { ascending: false })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    const groups: Record<string, { records: typeof data; latestCheckout: string }> = {}
-    for (const rec of data || []) {
-      const key = rec.guest_name as string
-      if (!groups[key]) groups[key] = { records: [], latestCheckout: rec.archived_at || '' }
-      groups[key].records.push(rec)
-      if (rec.archived_at && rec.archived_at > groups[key].latestCheckout) {
-        groups[key].latestCheckout = rec.archived_at
-      }
+    if (guestId) query = query.eq('guest_id', guestId)
+    else if (guestName) query = query.ilike('guest_name', guestName)
+    else if (horseName) query = query.eq('horse_name', horseName)
+    else return NextResponse.json({ error: 'Need guest_id, guest_name, horse_name, check_returning, all_returning, since, or archived' }, { status: 400 })
+
+    const { data, error } = await query
+    if (error) {
+      console.error('[assignment-history] general query error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
-    const guests = Object.entries(groups).map(([name, v]) => ({
-      guest_name: name,
-      checkout_date: v.latestCheckout,
-      records: v.records,
-    })).sort((a, b) => b.checkout_date.localeCompare(a.checkout_date))
-    return NextResponse.json({ guests })
+    return NextResponse.json({ history: data })
+
+  } catch (err) {
+    console.error('[assignment-history GET] unhandled exception:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-
-  // Check if a specific guest name has prior history (returning guest detection)
-  if (checkReturning) {
-    const { data } = await supabase
-      .from('assignment_history')
-      .select('id, horse_name, assigned_date, match_quality, loves_horse')
-      .ilike('guest_name', checkReturning)
-      .gte('assigned_date', LEARNING_CUTOFF)
-      .order('assigned_date', { ascending: false })
-      .limit(3)
-    return NextResponse.json({ isReturning: (data?.length ?? 0) > 0, records: data || [] })
-  }
-
-  // Bulk fetch since a date (for AssignAll draft disclaimers)
-  if (since) {
-    const { data, error } = await supabase
-      .from('assignment_history')
-      .select('guest_name, horse_name, assigned_date, match_quality, doesnt_work, loves_horse')
-      .gte('assigned_date', since)
-      .order('assigned_date', { ascending: false })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ history: data || [] })
-  }
-
-  let query = supabase
-    .from('assignment_history')
-    .select('*')
-    .order('assigned_date', { ascending: false })
-
-  if (guestId) query = query.eq('guest_id', guestId)
-  else if (guestName) query = query.ilike('guest_name', guestName)
-  else if (horseName) query = query.eq('horse_name', horseName)
-  else return NextResponse.json({ error: 'Need guest_id, guest_name, horse_name, check_returning, all_returning, since, or archived' }, { status: 400 })
-
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ history: data })
 }
 
 export async function POST(req: NextRequest) {

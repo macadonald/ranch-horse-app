@@ -520,7 +520,8 @@ export default function GuestsPage() {
     try {
       fetchResults = await Promise.all([
         labeledFetch('assignments', '/api/assignments'),
-        labeledFetch('assignment-history', '/api/assignment-history?since=2026-05-11'),
+        // fallback to empty history — past-ride context (loves/doesntWork flags) turns off, core matching still works
+        labeledFetch('assignment-history', '/api/assignment-history?since=2026-05-11', { history: [] }),
         // horse-stats failure degrades to empty stats — scoring features turn off, core matching still works
         labeledFetch('horse-stats', '/api/horse-stats', { stats: {} }),
       ])
