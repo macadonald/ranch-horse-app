@@ -492,11 +492,45 @@ export default function GuestsPage() {
     const now = getTucsonToday()
     setAssignAllPhase('running'); setAssignAllProgress('Fetching current assignments...'); setAssignAllPct(10)
 
-    const [assignRes, histRes, horseStatsRes] = await Promise.all([
-      fetch('/api/assignments').then(r => r.json()),
-      fetch('/api/assignment-history?since=2026-05-11').then(r => r.json()),
-      fetch('/api/horse-stats').then(r => r.json()),
-    ])
+    // Abort after 15 s so a hung fetch fails loudly instead of freezing the UI
+    const timedFetch = (url: string, ms = 15000) => {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), ms)
+      return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer))
+    }
+    // Logs which endpoint failed; optional fallback lets non-critical fetches degrade gracefully
+    const labeledFetch = async (label: string, url: string, fallback?: any): Promise<any> => {
+      try {
+        const res = await timedFetch(url)
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          console.error(`[AssignAll] ${label} → HTTP ${res.status}:`, body.slice(0, 400))
+          if (fallback !== undefined) { console.warn(`[AssignAll] ${label} using fallback`); return fallback }
+          throw new Error(`${label} HTTP ${res.status}`)
+        }
+        return res.json()
+      } catch (err) {
+        console.error(`[AssignAll] ${label} threw:`, err)
+        if (fallback !== undefined) { console.warn(`[AssignAll] ${label} using fallback`); return fallback }
+        throw err
+      }
+    }
+
+    let fetchResults: any[]
+    try {
+      fetchResults = await Promise.all([
+        labeledFetch('assignments', '/api/assignments'),
+        labeledFetch('assignment-history', '/api/assignment-history?since=2026-05-11'),
+        // horse-stats failure degrades to empty stats — scoring features turn off, core matching still works
+        labeledFetch('horse-stats', '/api/horse-stats', { stats: {} }),
+      ])
+    } catch (err) {
+      console.error('[AssignAll] fatal fetch error, aborting:', err)
+      setAssignAllProgress('Load failed — open browser console for details')
+      setTimeout(() => setAssignAllPhase('idle'), 3000)
+      return
+    }
+    const [assignRes, histRes, horseStatsRes] = fetchResults
 
     // Build enriched past-ride map for draft disclaimers (guest_name_lower → horse_name → PastRideDetail)
     // doesntWork and loves are ORed across all records so a single flag is never lost by a newer neutral record.
