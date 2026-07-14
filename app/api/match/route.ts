@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       supabase.from('horse_status_flags').select('horse_name, flag_type, day_off_date').eq('status', 'active'),
       supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
       guestId ? supabase.from('guests').select('overestimates_level').eq('id', guestId).single() : Promise.resolve({ data: null }),
-      guestId ? supabase.from('assignment_history').select('horse_name, match_quality, doesnt_work, loves_horse').eq('guest_id', guestId).gte('assigned_date', '2026-05-11') : Promise.resolve({ data: [] }),
+      guestId ? supabase.from('horse_assignments').select('horse_name, incompatible').eq('guest_id', guestId).gte('assigned_at', '2026-05-11') : Promise.resolve({ data: [] }),
       // Pattern learning: all non-incompatible assignments with guest rider profiles
       supabase.from('horse_assignments')
         .select('horse_name, guests!inner(weight, riding_level, gender, age, checked_out)')
@@ -69,13 +69,14 @@ export async function POST(req: NextRequest) {
 
     // Build past-ride map from history (for learning cutoff >= 2026-05-11)
     const overestimatesLevel = guestResult.data?.overestimates_level || false
+    // loves_horse and match_quality are not columns on horse_assignments; map incompatible → doesnt_work
     const pastHorseMap: Record<string, { match_quality: number | null; doesnt_work: boolean; loves_horse: boolean }> = {}
     ;(historyResult.data || []).forEach((h: any) => {
       const existing = pastHorseMap[h.horse_name]
       pastHorseMap[h.horse_name] = {
-        match_quality: h.loves_horse ? 2 : (h.match_quality ?? existing?.match_quality ?? null),
-        doesnt_work: h.doesnt_work || existing?.doesnt_work || false,
-        loves_horse: h.loves_horse || existing?.loves_horse || false,
+        match_quality: h.incompatible ? null : 1,
+        doesnt_work: h.incompatible || existing?.doesnt_work || false,
+        loves_horse: existing?.loves_horse || false,
       }
     })
 
