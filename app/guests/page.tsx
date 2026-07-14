@@ -1255,6 +1255,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string; loves: boolean } | null>(null)
   const dragStartedInsideModal = useRef(false)
   const modalContentRef = useRef<HTMLDivElement>(null)
+  const [saveBlocked, setSaveBlocked] = useState(false)
+  const saveBlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
@@ -1278,6 +1280,12 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
 
   function handleRepeatGuestToggle(val: 'yes' | 'no') {
     setForm(prev => ({ ...prev, repeat_guest: val }))
+  }
+
+  function blockSaveTemp() {
+    setSaveBlocked(true)
+    if (saveBlockTimerRef.current) clearTimeout(saveBlockTimerRef.current)
+    saveBlockTimerRef.current = setTimeout(() => setSaveBlocked(false), 600)
   }
 
   async function save(addAnother: boolean) {
@@ -1315,17 +1323,17 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, paddingBottom: 80 }}>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Full Name *</label>
-            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => checkReturning(form.name)} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} autoFocus />
+            <input placeholder="e.g. Sharon Bryant" value={form.name} onChange={f('name')} onBlur={() => checkReturning(form.name)} autoFocus />
           </div>
-          <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div><label>Gender</label><select value={form.gender} onChange={f('gender')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
-          <div><label>Riding Level *</label><select value={form.riding_level} onChange={f('riding_level')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}><option value="">Select...</option>{LEVELS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select></div>
-          <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} onBlur={e => setForm(prev => ({ ...prev, height: formatHeight(e.target.value) }))} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} /></div>
-          <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ resize: 'vertical' }} /></div>
+          <div><label>Room Number</label><input placeholder="e.g. 25" value={form.room_number} onChange={f('room_number')} /></div>
+          <div><label>Gender</label><select value={form.gender} onChange={f('gender')}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+          <div><label>Riding Level *</label><select value={form.riding_level} onChange={f('riding_level')}><option value="">Select...</option>{LEVELS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select></div>
+          <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} /></div>
+          <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} onTouchStart={blockSaveTemp} /></div>
+          <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} onTouchStart={blockSaveTemp} /></div>
+          <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} onBlur={e => setForm(prev => ({ ...prev, height: formatHeight(e.target.value) }))} /></div>
+          <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} /></div>
+          <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} style={{ resize: 'vertical' }} /></div>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Repeat guest?</label>
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -1334,8 +1342,6 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
                   key={val}
                   type="button"
                   onClick={() => handleRepeatGuestToggle(val)}
-                  onMouseDown={e => e.stopPropagation()}
-                  onTouchStart={e => e.stopPropagation()}
                   style={{ padding: '5px 14px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontWeight: form.repeat_guest === val ? 600 : 400, border: `1px solid ${form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-border)'}`, background: form.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-surface)', color: form.repeat_guest === val ? '#fff' : 'var(--color-text-2)' }}
                 >
                   {val === 'yes' ? 'Yes' : 'No'}
@@ -1343,14 +1349,14 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
               ))}
             </div>
           </div>
-          <div style={{ gridColumn: '1/-1' }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+          <div style={{ gridColumn: '1/-1' }}>
             <label>Horse Request</label>
             <HorseAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={horseNames} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 9, position: 'sticky', bottom: 0, background: 'var(--color-surface)', padding: '12px 16px', borderTop: '1px solid var(--color-border)', zIndex: 10, marginLeft: -22, marginRight: -22, marginBottom: -22 }}>
-          <button onClick={() => save(false)} disabled={saving || !form.name || !form.riding_level} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Save Guest'}</button>
-          <button onClick={() => save(true)} disabled={saving || !form.name || !form.riding_level} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--color-text-2)' }}>Save + Add Another</button>
+          <button type="button" onClick={() => save(false)} disabled={saving || !form.name || !form.riding_level || saveBlocked} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Save Guest'}</button>
+          <button type="button" onClick={() => save(true)} disabled={saving || !form.name || !form.riding_level || saveBlocked} style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--color-text-2)' }}>Save + Add Another</button>
         </div>
       </div>
     </div>
