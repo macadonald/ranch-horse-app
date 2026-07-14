@@ -141,6 +141,8 @@ export async function POST(req: NextRequest) {
       return { min: Math.max(0, Math.min(lo, baseLevelIdx - 1)), max: Math.min(LEVEL_ORDER_LOCAL.length - 1, hi) }
     }
 
+    // Triple cap: collect horses already at 2 riders so we can exclude them and note them in the prompt
+    const cappedHorseNames: string[] = []
     const allEligible = (horsesResult.data || []).filter((h: any) => {
       if (h.exclude_from_ai) return false
       if (h.is_deceased) return false
@@ -149,6 +151,7 @@ export async function POST(req: NextRequest) {
       if (flagBlocked.has(h.name)) return false
       if (incompatibleHorses.includes(h.name)) return false
       if (dismissedHorses.includes(h.name)) return false
+      if ((assignmentMap[h.name] || []).length >= 2) { cappedHorseNames.push(h.name); return false }
       return true
     })
     // Draft horses are last resort for weight — only include if no standard horse can carry this guest
@@ -248,7 +251,24 @@ export async function POST(req: NextRequest) {
     // Doesn't Work is per-guest only — zero effect on other guests' suggestions or global horse scoring
     const doesntWorkNote = doesntWorkNames.length > 0 ? `DO NOT SUGGEST — marked "doesn't work" for this guest: ${doesntWorkNames.join(', ')}` : ''
 
-    const ageWarning = ageNum >= 70 ? 'IMPORTANT: This rider is 70+. Strongly consider horses one to two levels below.' : ageNum >= 60 ? 'NOTE: This rider is 60+. Consider a slightly easier horse.' : ''
+    const cappedNote = cappedHorseNames.length > 0
+      ? `HARD CAP — DO NOT SUGGEST UNDER ANY CIRCUMSTANCES (already at 2-rider limit): ${cappedHorseNames.join(', ')}.`
+      : ''
+
+    const isSensitiveDemographic = ageNum < 16 || ageNum >= 70
+    const isAdvancedRider = guestLevelIdx === LEVEL_ORDER_LOCAL.length - 1
+    const ageWarning = ageNum >= 70
+      ? 'IMPORTANT: This rider is 70+. Strongly prefer horses 1-2 levels BELOW their stated level. Only place them on a horse above their level if absolutely no other option exists.'
+      : ageNum >= 60
+      ? 'NOTE: This rider is 60+. Lean toward horses at or one level below their stated level.'
+      : ageNum < 16
+      ? 'IMPORTANT: This rider is under 16. Strongly prefer horses at or 1-2 levels BELOW their stated level. Placing them above their stated level should be a last resort only.'
+      : ''
+    const levelDirNote = isAdvancedRider
+      ? 'Advanced (A) riders can ride any horse at any level — a B or AB horse is a valid assignment. Going more than 3 levels below is a last resort but not prohibited. Going up is not applicable for Advanced riders.'
+      : isSensitiveDemographic
+      ? ''  // covered fully by ageWarning
+      : 'LEVEL DIRECTION: When two horses are otherwise equal, prefer the one at or below the guest\'s level over one above it. Upward assignments of 2+ levels are a last resort — explain in the reason field if used.'
     const smallGuestNote = (weightNum < 80 || ageNum < 10)
       ? 'SMALL GUEST: This guest is very small (under 80lbs or under age 10). Strongly prefer horses with a max weight of 150lbs or less. Only suggest larger horses if no appropriate smaller horse is available.'
       : ''
@@ -259,8 +279,10 @@ export async function POST(req: NextRequest) {
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
+${cappedNote}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${flexNote}
+${levelDirNote}
 ${ageWarning}
 ${smallGuestNote}
 ${overestimatesNote}

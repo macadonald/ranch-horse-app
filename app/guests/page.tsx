@@ -75,6 +75,7 @@ type DraftRow = {
   isDouble: boolean
   needsReview: boolean
   flagged: boolean
+  noHorseReason?: 'triple_cap' | 'no_match'
 }
 
 function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: string[] }) {
@@ -547,24 +548,61 @@ export default function GuestsPage() {
     const unassigned = activeGuests.filter(g => !g.horse_assignments?.some(a => a.status === 'active' && !a.incompatible))
     if (unassigned.length === 0) { setAssignAllPhase('idle'); return }
 
-    // Process most-constrained guests first so they get first pick of scarce horses
-    // Tier 1: guests no standard (non-draft) horse can carry — heaviest first
+    // ── Planning pass: tier guests by constraint, then score by fewest eligible options ──
     const hasStandardOption = (g: Guest) =>
       eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (g.weight ?? 0))
-    // Tier 2: guests whose only eligible horses are takes_kids horses (very small guests)
     const onlyFitsKidsHorses = (g: Guest) =>
       eligibleHorses.some(h => horseWeightCeiling(h.weight, h.name) >= (g.weight ?? 0)) &&
       eligibleHorses.every(h => horseWeightCeiling(h.weight, h.name) < (g.weight ?? 0) || h.takes_kids)
+
+    // Count level+weight eligible horses per guest to rank by constrainedness
+    const eligibleCountFor = (g: Guest): number => {
+      const gIdx = LEVEL_ORDER.indexOf(g.riding_level)
+      if (gIdx === -1) return 999
+      return eligibleHorses.filter(h => {
+        if ((g.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
+        const hIdx = LEVEL_ORDER.indexOf(h.level)
+        if (hIdx === -1) return false
+        const r = horseLevelRangeFn(h.name, hIdx)
+        return gIdx >= r.min && gIdx <= r.max
+      }).length
+    }
 
     const heavyGuests = unassigned.filter(g => !hasStandardOption(g)).sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
     const heavySet = new Set(heavyGuests.map(g => g.id))
     const kidsOnlyGuests = unassigned.filter(g => !heavySet.has(g.id) && onlyFitsKidsHorses(g))
     const kidsOnlySet = new Set(kidsOnlyGuests.map(g => g.id))
+    // Most constrained first, then heaviest, then highest level within same constraint count
     const remainingGuests = unassigned.filter(g => !heavySet.has(g.id) && !kidsOnlySet.has(g.id)).sort((a, b) => {
+      const aC = eligibleCountFor(a), bC = eligibleCountFor(b)
+      if (aC !== bC) return aC - bC
+      if ((b.weight ?? 0) !== (a.weight ?? 0)) return (b.weight ?? 0) - (a.weight ?? 0)
       const ai = LEVEL_ORDER.indexOf(a.riding_level); const bi = LEVEL_ORDER.indexOf(b.riding_level)
       return (bi < 0 ? -1 : bi) - (ai < 0 ? -1 : ai)
     })
     const sorted = [...heavyGuests, ...kidsOnlyGuests, ...remainingGuests]
+
+    // ── Level directionality: score candidates so down-level beats up-level ──
+    // Sensitive (age <16 or ≥70): prefer 1-2 steps down, heavily penalise going up
+    // Advanced (A) riders: all levels fine, mild penalty for >3 down, moderate for going up
+    // General: same distance down beats same distance up; 2+ up is heavily penalised
+    const levelDirScore = (gIdx: number, hIdx: number, age: number | undefined): number => {
+      const rawDiff = gIdx - hIdx  // positive = horse below guest (going down)
+      const isSensitive = !!(age && (age < 16 || age >= 70))
+      const isAdvanced = gIdx === LEVEL_ORDER.length - 1
+      if (isSensitive) {
+        if (rawDiff >= 0) return rawDiff === 0 ? 0 : rawDiff <= 2 ? rawDiff * 0.5 : rawDiff
+        return Math.abs(rawDiff) * 10
+      }
+      if (isAdvanced) {
+        if (rawDiff > 3) return rawDiff * 1.5
+        if (rawDiff >= 0) return rawDiff * 0.3
+        return Math.abs(rawDiff) * 2
+      }
+      if (rawDiff >= 0) return rawDiff
+      if (Math.abs(rawDiff) === 1) return 1.5
+      return Math.abs(rawDiff) * 5
+    }
 
     const draft: DraftRow[] = []; const usedInPass1 = new Set<string>(); const pass2Queue: Guest[] = []
 
@@ -595,12 +633,12 @@ export default function GuestsPage() {
         .filter(h => includeRankLast || !h.rank_last)
         .filter(h => !guestPastRides[h.name]?.doesntWork)
         .filter(h => { const hIdx = LEVEL_ORDER.indexOf(h.level); if (hIdx === -1) return false; const r = horseLevelRangeFn(h.name, hIdx); return gIdx >= r.min && gIdx <= r.max })
-        .map(h => ({ horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
+        .map(h => ({ horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0) }))
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
           (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          a.diff - b.diff || b.margin - a.margin
+          a.dirScore - b.dirScore || b.margin - a.margin
         )
 
       const isSmallGuest1 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
@@ -617,11 +655,14 @@ export default function GuestsPage() {
     await new Promise(r => setTimeout(r, 350))
 
     const runtimeDoubleMap: Record<string, { checkOut: string }[]> = { ...dbAssignedMap }
+    // Track which horses were assigned in pass2 so the triple cap is enforced within this pass too
+    const pass2Assigned = new Set<string>()
     const pass3Queue: Guest[] = []
+    const pass3Reasons = new Map<string, 'triple_cap' | 'no_match'>()
 
     for (const guest of pass2Queue) {
       const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
-      if (gIdx === -1) { pass3Queue.push(guest); continue }
+      if (gIdx === -1) { pass3Queue.push(guest); pass3Reasons.set(guest.id, 'no_match'); continue }
       const guestPastRides = pastRideMapLocal[guest.name.toLowerCase()] || {}
 
       const guestCanFitStandard2 = eligibleHorses.some(h => !h.is_draft && horseWeightCeiling(h.weight, h.name) >= (guest.weight ?? 0))
@@ -636,8 +677,13 @@ export default function GuestsPage() {
       const includeRankLast2 = nonRankLastAtLevel2.length < 3
       const guestIsAdult2 = !!(guest.age && guest.age >= 16)
 
+      // Hard triple cap: total assignments (db + pass1 + this pass) must stay < 2
+      const totalCount = (h: DbHorse) =>
+        (dbAssignedMap[h.name]?.length ?? 0) + (usedInPass1.has(h.name) ? 1 : 0) + (pass2Assigned.has(h.name) ? 1 : 0)
+
       const candidates = eligibleHorses
-        .filter(h => runtimeDoubleMap[h.name] || usedInPass1.has(h.name))
+        .filter(h => (dbAssignedMap[h.name]?.length ?? 0) > 0 || usedInPass1.has(h.name))
+        .filter(h => totalCount(h) < 2)
         .filter(h => (guest.weight ?? 0) <= horseWeightCeiling(h.weight, h.name))
         .filter(h => !h.is_draft || !guestCanFitStandard2)
         .filter(h => includeRankLast2 || !h.rank_last)
@@ -646,13 +692,13 @@ export default function GuestsPage() {
         .map(h => {
           const riders = runtimeDoubleMap[h.name] || []
           const soonest = riders.length > 0 ? riders.reduce((min, r) => r.checkOut < min ? r.checkOut : min, riders[0].checkOut) : '9999-99-99'
-          return { horse: h, diff: Math.abs(gIdx - LEVEL_ORDER.indexOf(h.level)), soonest }
+          return { horse: h, dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined), soonest }
         })
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult2 ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
           (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          a.diff - b.diff || a.soonest.localeCompare(b.soonest)
+          a.dirScore - b.dirScore || a.soonest.localeCompare(b.soonest)
         )
 
       const isSmallGuest2 = (guest.weight ?? 999) < 80 || (guest.age != null && guest.age < 10)
@@ -661,15 +707,32 @@ export default function GuestsPage() {
 
       if (effectiveCandidates2.length > 0) {
         const best = effectiveCandidates2[0]
+        pass2Assigned.add(best.horse.name)
         if (!runtimeDoubleMap[best.horse.name]) runtimeDoubleMap[best.horse.name] = []
         runtimeDoubleMap[best.horse.name].push({ checkOut: guest.check_out_date || '' })
         draft.push({ guest, suggestedHorse: best.horse.name, isDouble: true, needsReview: false, flagged: false })
-      } else { pass3Queue.push(guest) }
+      } else {
+        // Distinguish: would a match have existed if the cap weren't enforced?
+        const wouldFitWithoutCap = eligibleHorses.some(h => {
+          if (!((dbAssignedMap[h.name]?.length ?? 0) > 0 || usedInPass1.has(h.name))) return false
+          if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
+          if (guestPastRides[h.name]?.doesntWork) return false
+          const hIdx = LEVEL_ORDER.indexOf(h.level)
+          if (hIdx === -1) return false
+          const r = horseLevelRangeFn(h.name, hIdx)
+          return gIdx >= r.min && gIdx <= r.max
+        })
+        pass3Queue.push(guest)
+        pass3Reasons.set(guest.id, wouldFitWithoutCap ? 'triple_cap' : 'no_match')
+      }
     }
 
     setAssignAllProgress('Pass 3: Flagging guests needing manual review...'); setAssignAllPct(90)
     await new Promise(r => setTimeout(r, 350))
-    for (const guest of pass3Queue) draft.push({ guest, suggestedHorse: null, isDouble: false, needsReview: true, flagged: false })
+    for (const guest of pass3Queue) {
+      const noHorseReason = pass3Reasons.get(guest.id) ?? 'no_match'
+      draft.push({ guest, suggestedHorse: null, isDouble: false, needsReview: true, flagged: false, noHorseReason })
+    }
 
     setDraftRows(draft); setAssignAllPct(100)
     await new Promise(r => setTimeout(r, 200))
@@ -1482,7 +1545,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }} className="draft-list" onClick={() => setActiveTooltip(null)}>
         {rows.map(row => {
-          const { guest, suggestedHorse, isDouble, needsReview, flagged } = row
+          const { guest, suggestedHorse, isDouble, needsReview, flagged, noHorseReason } = row
           const horse = suggestedHorse ? horseMap[suggestedHorse] : null
           const guestLevelIdx = LEVEL_ORDER.indexOf(guest.riding_level)
           const horseLevelIdx = horse ? LEVEL_ORDER.indexOf(horse.level) : -1
@@ -1520,7 +1583,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
                   {matchQuality === 'adjacent' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟡 Adjacent ⓘ</span>}
                   {matchQuality === 'mismatch' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🔴 Mismatch ⓘ</span>}
                   {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>×2 Double</span>}
-                  {needsReview && !suggestedHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Needs review</span>}
+                  {needsReview && !suggestedHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>{noHorseReason === 'triple_cap' ? '⛔ All horses at 2-rider limit' : 'Needs review'}</span>}
                   {nearWeight && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>}
                   {pastRide && !pastRide.doesntWork && (
                     <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: pastRide.loves ? '#fff1f2' : 'var(--color-bg)', color: pastRide.loves ? '#9f1239' : 'var(--color-text-3)', border: `1px solid ${pastRide.loves ? '#fda4af' : 'var(--color-border)'}`, fontWeight: pastRide.loves ? 600 : 400, whiteSpace: 'nowrap' }}>
