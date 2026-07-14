@@ -492,25 +492,38 @@ export default function GuestsPage() {
     const now = getTucsonToday()
     setAssignAllPhase('running'); setAssignAllProgress('Fetching current assignments...'); setAssignAllPct(10)
 
-    // Abort after 15 s so a hung fetch fails loudly instead of freezing the UI
+    // Overall 30-second hard cap; fires if any phase of Assign All hangs indefinitely
+    const overallCtrl = new AbortController()
+    const overallTimer = setTimeout(() => {
+      overallCtrl.abort()
+      console.error('[AssignAll] 30s overall timeout fired')
+      setAssignAllProgress('Timed out after 30s — open browser console for details')
+      setTimeout(() => setAssignAllPhase('idle'), 3000)
+    }, 30000)
+
+    // Per-fetch 15-second timeout; also propagates overall abort signal
     const timedFetch = (url: string, ms = 15000) => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), ms)
+      overallCtrl.signal.addEventListener('abort', () => ctrl.abort(), { once: true })
       return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer))
     }
-    // Logs which endpoint failed; optional fallback lets non-critical fetches degrade gracefully
+    // Logs label, elapsed ms, and error; optional fallback lets non-critical fetches degrade gracefully
     const labeledFetch = async (label: string, url: string, fallback?: any): Promise<any> => {
+      const t0 = performance.now()
       try {
         const res = await timedFetch(url)
         if (!res.ok) {
           const body = await res.text().catch(() => '')
-          console.error(`[AssignAll] ${label} → HTTP ${res.status}:`, body.slice(0, 400))
+          console.error(`[AssignAll] ${label} → HTTP ${res.status} (${Math.round(performance.now() - t0)}ms):`, body.slice(0, 400))
           if (fallback !== undefined) { console.warn(`[AssignAll] ${label} using fallback`); return fallback }
           throw new Error(`${label} HTTP ${res.status}`)
         }
-        return res.json()
+        const data = await res.json()
+        console.log(`[AssignAll] ${label} ✓ ${Math.round(performance.now() - t0)}ms`)
+        return data
       } catch (err) {
-        console.error(`[AssignAll] ${label} threw:`, err)
+        console.error(`[AssignAll] ${label} threw after ${Math.round(performance.now() - t0)}ms:`, err)
         if (fallback !== undefined) { console.warn(`[AssignAll] ${label} using fallback`); return fallback }
         throw err
       }
@@ -526,6 +539,7 @@ export default function GuestsPage() {
         labeledFetch('horse-stats', '/api/horse-stats', { stats: {} }),
       ])
     } catch (err) {
+      clearTimeout(overallTimer)
       console.error('[AssignAll] fatal fetch error, aborting:', err)
       setAssignAllProgress('Load failed — open browser console for details')
       setTimeout(() => setAssignAllPhase('idle'), 3000)
@@ -817,6 +831,7 @@ export default function GuestsPage() {
 
     setDraftRows(draft); setAssignAllPct(100)
     await new Promise(r => setTimeout(r, 200))
+    clearTimeout(overallTimer)
     setAssignAllPhase('draft')
   }
 
