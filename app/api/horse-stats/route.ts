@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
+// Opt out of Next.js route caching so every request hits Supabase fresh (prevents 304/empty responses)
+export const dynamic = 'force-dynamic'
+
 // Returns per-horse historical stats derived from all non-incompatible assignments.
 // Consumers use this to compute per-horse weight soft ceilings, data-driven level ranges, age routing, and kid eligibility.
 export async function GET() {
+  console.log('[horse-stats] GET called')
   try {
     const { data, error } = await supabase
       .from('horse_assignments')
@@ -54,7 +58,8 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ stats })
+    console.log('[horse-stats] returning stats for', Object.keys(stats).length, 'horses')
+    return NextResponse.json({ stats }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     console.error('[horse-stats] unhandled exception:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
