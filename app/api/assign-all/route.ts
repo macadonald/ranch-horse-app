@@ -216,8 +216,10 @@ export async function POST(req: NextRequest) {
       const gIdx = LEVEL_ORDER.indexOf(g.riding_level)
       if (gIdx === -1) return 999
       const shift = fragilityShift(g.age)
+      const isKidGuest = g.age != null && g.age < 13
       return eligibleHorses.filter(h => {
         if ((g.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
+        if (isKidGuest && !h.takes_kids && !(horseStats[h.name]?.hasKidHistory ?? false)) return false
         const hIdx = LEVEL_ORDER.indexOf(h.level)
         if (hIdx === -1) return false
         const r = horseLevelRangeFn(h.name, hIdx)
