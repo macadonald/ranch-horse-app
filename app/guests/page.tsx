@@ -1237,7 +1237,7 @@ export default function GuestsPage() {
           initialRows={draftRows}
           onConfirm={confirmAssignAll}
           onCancel={() => { setAssignAllPhase('idle'); setDraftRows([]) }}
-          horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => [h.name, { level: h.level, weight: h.weight }]))}
+          horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => [h.name, { level: h.level, weight: h.weight, is_draft: h.is_draft, rank_last: h.rank_last, takes_kids: h.takes_kids }]))}
           pastRideMap={assignAllPastRideMap}
         />
       )}
@@ -1393,15 +1393,64 @@ function DraftHorseAutocomplete({ value, onChange, horses }: { value: string; on
   )
 }
 
+function buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, levelDiff, matchQuality, nearWeight, isDouble, pastRide }: {
+  guest: Guest
+  horse: { level: string; weight: number | null; is_draft: boolean; rank_last: boolean; takes_kids: boolean } | null
+  guestLevelIdx: number
+  horseLevelIdx: number
+  levelDiff: number | null
+  matchQuality: 'exact' | 'adjacent' | 'mismatch'
+  nearWeight: boolean
+  isDouble: boolean
+  pastRide: PastRideDetail | null
+}): string {
+  if (!horse) return ''
+  const guestLevel = LEVEL_LABELS[guest.riding_level] || guest.riding_level
+  const horseLevel = LEVEL_LABELS[horse.level] || horse.level
+
+  let primary: string
+  if (matchQuality === 'exact') {
+    primary = `Riding levels match exactly — guest and horse are both ${guestLevel}.`
+  } else if (matchQuality === 'adjacent') {
+    const dir = guestLevelIdx > horseLevelIdx ? 'above' : 'below'
+    primary = `Guest rides at ${guestLevel}, one level ${dir} this horse's ${horseLevel} base level.`
+  } else {
+    const diff = levelDiff ?? 2
+    const dir = guestLevelIdx > horseLevelIdx ? 'above' : 'below'
+    primary = `Guest is ${guestLevel} but horse is rated ${horseLevel} — ${diff} level${diff !== 1 ? 's' : ''} ${dir}.`
+  }
+
+  let secondary = ''
+  if (horse.is_draft) {
+    secondary = `Draft horse — no standard horse fits this guest's weight${guest.weight ? ` (${guest.weight} lbs)` : ''}.`
+  } else if (horse.rank_last) {
+    secondary = 'Last-resort horse — few other options were available for this guest.'
+  } else if (nearWeight && horse.weight !== null && guest.weight) {
+    const margin = horse.weight - guest.weight
+    secondary = `Guest at ${guest.weight} lbs is only ${margin} lb${margin !== 1 ? 's' : ''} under this horse's weight limit.`
+  } else if (isDouble) {
+    secondary = 'This horse is already assigned to another guest this week.'
+  } else if (pastRide?.loves) {
+    secondary = 'Guest has ridden and loved this horse before.'
+  } else if (horse.takes_kids && guest.age) {
+    secondary = guest.age >= 16
+      ? `Kids horse paired with an adult (age ${guest.age}) — likely the best fit given weight or level constraints.`
+      : `Kids horse matched to a young rider (age ${guest.age}).`
+  }
+
+  return secondary ? `${primary} ${secondary}` : primary
+}
+
 function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMap }: {
   initialRows: DraftRow[]
   onConfirm: (rows: DraftRow[]) => Promise<void>
   onCancel: () => void
-  horseMap: Record<string, { level: string; weight: number | null }>
+  horseMap: Record<string, { level: string; weight: number | null; is_draft: boolean; rank_last: boolean; takes_kids: boolean }>
   pastRideMap: Record<string, Record<string, PastRideDetail>>
 }) {
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
+  const [activeTooltip, setActiveTooltip] = useState<string | null>(null)
   const today = getTucsonToday()
   const tomorrow = getTucsonTomorrow()
 
@@ -1431,7 +1480,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }} className="draft-list">
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }} className="draft-list" onClick={() => setActiveTooltip(null)}>
         {rows.map(row => {
           const { guest, suggestedHorse, isDouble, needsReview, flagged } = row
           const horse = suggestedHorse ? horseMap[suggestedHorse] : null
@@ -1467,13 +1516,12 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
               <div>
                 <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} horses={Object.keys(horseMap)} />
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
-                  {matchQuality === 'exact' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🟢 Good match</span>}
-                  {matchQuality === 'adjacent' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>🟡 Adjacent</span>}
-                  {matchQuality === 'mismatch' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🔴 Mismatch</span>}
+                  {matchQuality === 'exact' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟢 Good match ⓘ</span>}
+                  {matchQuality === 'adjacent' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟡 Adjacent ⓘ</span>}
+                  {matchQuality === 'mismatch' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🔴 Mismatch ⓘ</span>}
                   {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>×2 Double</span>}
                   {needsReview && !suggestedHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Needs review</span>}
                   {nearWeight && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>}
-                  {/* Past ride note — informational only, not a block */}
                   {pastRide && !pastRide.doesntWork && (
                     <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: pastRide.loves ? '#fff1f2' : 'var(--color-bg)', color: pastRide.loves ? '#9f1239' : 'var(--color-text-3)', border: `1px solid ${pastRide.loves ? '#fda4af' : 'var(--color-border)'}`, fontWeight: pastRide.loves ? 600 : 400, whiteSpace: 'nowrap' }}>
                       {pastRide.loves ? '❤️ Loves this horse' : 'Rode this horse before'}
@@ -1481,6 +1529,11 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
                   )}
                   {flagged && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🚩 Flagged — skip on save</span>}
                 </div>
+                {activeTooltip === guest.id && matchQuality !== null && (
+                  <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6, padding: '7px 10px', background: '#1e293b', color: '#f1f5f9', borderRadius: 6, fontSize: 11, lineHeight: 1.5 }}>
+                    {buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, levelDiff, matchQuality, nearWeight, isDouble, pastRide })}
+                  </div>
+                )}
               </div>
 
               <button onClick={() => toggleFlag(guest.id)} title={flagged ? 'Unflag' : 'Flag — skip on save'} style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)', border: `1px solid ${flagged ? 'var(--color-warning-border)' : 'var(--color-border)'}`, background: flagged ? 'var(--color-warning-bg)' : 'var(--color-surface)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🚩</button>
