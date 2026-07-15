@@ -174,6 +174,9 @@ export default function GuestsPage() {
   const [archivedLoading, setArchivedLoading] = useState(false)
   const [selectedArchived, setSelectedArchived] = useState<ArchivedGuestSummary | null>(null)
   const [selectedHistoryGuest, setSelectedHistoryGuest] = useState<Guest | null>(null)
+  const [historyAddHorseOpen, setHistoryAddHorseOpen] = useState(false)
+  const [historyHorseInput, setHistoryHorseInput] = useState('')
+  const [historyHorseSaving, setHistoryHorseSaving] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [guestGridView, setGuestGridView] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('guestGridView') === 'grid' : false)
   const [showAnalytics, setShowAnalytics] = useState(false)
@@ -889,7 +892,7 @@ export default function GuestsPage() {
                     return (
                       <div key={g.id} onClick={() => {
                         if (isSelected) { setSelectedArchived(null); setSelectedHistoryGuest(null) }
-                        else { setSelectedArchived(ag || null); setSelectedHistoryGuest(g) }
+                        else { setSelectedArchived(ag || null); setSelectedHistoryGuest(g); setHistoryAddHorseOpen(false); setHistoryHorseInput('') }
                       }}
                         style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '9px 14px', borderBottom: '1px solid var(--color-border)', background: isSelected ? 'var(--color-accent-bg)' : 'transparent', borderLeft: `3px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`, cursor: 'pointer' }}>
                         <div style={{ minWidth: 0 }}>
@@ -1026,7 +1029,57 @@ export default function GuestsPage() {
                   {(() => {
                     const assignments = (selectedHistoryGuest!.horse_assignments || []).filter(a => a.horse_name && a.horse_name !== '—')
                     if (assignments.length === 0) return (
-                      <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No ride records found</p>
+                      <div>
+                        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic', marginBottom: historyAddHorseOpen ? 8 : 0 }}>No ride records found</p>
+                        {!isViewer && (historyAddHorseOpen ? (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <div style={{ flex: 1 }}>
+                              <HorseAutocomplete
+                                value={historyHorseInput}
+                                onChange={setHistoryHorseInput}
+                                placeholder="Horse name..."
+                                horses={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)}
+                              />
+                            </div>
+                            <button
+                              disabled={!historyHorseInput.trim() || historyHorseSaving}
+                              onClick={async () => {
+                                const horseName = historyHorseInput.trim()
+                                if (!horseName || !selectedHistoryGuest) return
+                                setHistoryHorseSaving(true)
+                                try {
+                                  const res = await fetch('/api/assignments', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ guest_id: selectedHistoryGuest.id, horse_name: horseName, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false }),
+                                  })
+                                  if (!res.ok) throw new Error('Save failed')
+                                  const { assignment } = await res.json()
+                                  const newA = { id: assignment?.id || '', horse_name: horseName, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false, reason: '' }
+                                  setSelectedHistoryGuest(prev => prev ? { ...prev, horse_assignments: [...(prev.horse_assignments || []), newA] } : prev)
+                                  setGuests(prev => prev.map(g => g.id === selectedHistoryGuest.id ? { ...g, horse_assignments: [...(g.horse_assignments || []), newA] } : g))
+                                  setHistoryAddHorseOpen(false)
+                                  setHistoryHorseInput('')
+                                } catch (err) {
+                                  console.error('[history] save horse error:', err)
+                                } finally {
+                                  setHistoryHorseSaving(false)
+                                }
+                              }}
+                              style={{ padding: '5px 14px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: historyHorseInput.trim() && !historyHorseSaving ? 'pointer' : 'not-allowed', opacity: historyHorseInput.trim() && !historyHorseSaving ? 1 : 0.5, whiteSpace: 'nowrap' }}
+                            >{historyHorseSaving ? 'Saving…' : 'Save'}</button>
+                            <button
+                              onClick={() => { setHistoryAddHorseOpen(false); setHistoryHorseInput('') }}
+                              style={{ padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-2)', fontSize: 12, cursor: 'pointer' }}
+                            >Cancel</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setHistoryAddHorseOpen(true)}
+                            style={{ marginTop: 6, fontSize: 12, color: 'var(--color-accent)', background: 'none', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-sm)', padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}
+                          >+ Add horse</button>
+                        ))}
+                      </div>
                     )
                     return assignments.map((a, i) => (
                       <div key={a.id || i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 6 }}>
