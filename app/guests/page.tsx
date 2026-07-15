@@ -883,11 +883,14 @@ export default function GuestsPage() {
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Signals</span>
                   </div>
                   {pagedCheckedOut.map(g => {
-                    const ag = archivedGuests.find(a => a.guest_name === g.name)
-                    const lovesRecs = ag?.records.filter(r => r.loves_horse) || []
-                    const doesntWorkRecs = ag?.records.filter(r => r.doesnt_work) || []
-                    const goodRecs = ag?.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse) || []
-                    const uniqueHorses = ag?.records.map(r => r.horse_name).filter((n, i, a) => a.indexOf(n) === i) || []
+                    const agRaw = archivedGuests.find(a => a.guest_name === g.name)
+                    // Only treat as "has ride records" when there are real horse names — guests with empty horse_assignments
+                    // always appear in archivedGuests, so agRaw alone isn't enough to know rides exist.
+                    const ag = agRaw?.records.some(r => r.horse_name && r.horse_name !== '—') ? agRaw : null
+                    const lovesRecs = agRaw?.records.filter(r => r.loves_horse) || []
+                    const doesntWorkRecs = agRaw?.records.filter(r => r.doesnt_work) || []
+                    const goodRecs = agRaw?.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse) || []
+                    const uniqueHorses = agRaw?.records.map(r => r.horse_name).filter((n, i, a) => a.indexOf(n) === i) || []
                     const isSelected = selectedHistoryGuest?.id === g.id
                     return (
                       <div key={g.id} onClick={() => {
