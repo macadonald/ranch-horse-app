@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
         .from('guests')
         .select('name, horse_assignments(horse_name)')
         .gte('check_in_date', LEARNING_CUTOFF)
+        .eq('checked_out', true)
       if (error) {
         console.error('[assignment-history] allReturning error:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
