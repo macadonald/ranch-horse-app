@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     let fragilityAdjustedLevel = effectiveLevel
     for (let i = 0; i < fragilitySteps; i++) fragilityAdjustedLevel = LEVEL_DOWNGRADE[fragilityAdjustedLevel] || fragilityAdjustedLevel
     const fragilityNote = fragilitySteps > 0 && fragilityAdjustedLevel !== effectiveLevel
-      ? `FRAGILITY ADJUSTMENT: Due to age (${ageNum}), treat this rider as ${fragilityAdjustedLevel} instead of ${effectiveLevel} for horse selection. HISTORY OVERRIDE: If pattern data or hist_avg_age on a specific horse shows strong historical evidence of this age/weight profile riding at ${effectiveLevel} successfully, you may restore up to the stated level for that horse only.`
+      ? `FRAGILITY ADJUSTMENT: Due to age (${ageNum}), treat this rider as ${fragilityAdjustedLevel} instead of ${effectiveLevel} for horse selection. HISTORY OVERRIDE: If pattern data or the horse's average rider age shows strong historical evidence of this age and weight profile riding at ${effectiveLevel} successfully, you may restore up to the stated level for that horse only.`
       : ''
 
     // Per-horse historical stats from all non-incompatible assignments with guest profiles.
@@ -227,13 +227,13 @@ export async function POST(req: NextRequest) {
       const hBaseLvlIdx = LEVEL_ORDER_LOCAL.indexOf(h.level)
       const lvlRange = hBaseLvlIdx !== -1 ? horseLevelRangeFn(h.name, hBaseLvlIdx) : null
       const defMin = Math.max(0, hBaseLvlIdx - 1), defMax = Math.min(LEVEL_ORDER_LOCAL.length - 1, hBaseLvlIdx + 1)
-      const ceilNote = wCeil > h.weight ? `, soft_ceiling: ${wCeil}lbs` : ''
-      const rangeNote = lvlRange && (lvlRange.min !== defMin || lvlRange.max !== defMax) ? `, level_range: ${LEVEL_ORDER_LOCAL[lvlRange.min]}–${LEVEL_ORDER_LOCAL[lvlRange.max]}` : ''
+      const ceilNote = wCeil > h.weight ? `, extended weight limit: ${wCeil}lbs` : ''
+      const rangeNote = lvlRange && (lvlRange.min !== defMin || lvlRange.max !== defMax) ? `, works well with ${LEVEL_ORDER_LOCAL[lvlRange.min]} to ${LEVEL_ORDER_LOCAL[lvlRange.max]} riders` : ''
       const avgW = horseAvgWeight(h.name)
-      const avgWNote = avgW != null ? `, hist_avg_weight: ${avgW}lbs` : ''
+      const avgWNote = avgW != null ? `, typically carries riders around ${avgW}lbs` : ''
       const avgA = horseAvgAge(h.name)
-      const avgANote = avgA != null ? `, hist_avg_age: ${avgA}` : ''
-      const kidHistNote = h.takes_kids ? ', takes_kids: true' : (horseHistStats[h.name]?.kidCount > 0 ? ', has_kid_history: true' : '')
+      const avgANote = avgA != null ? `, average rider age ${avgA}` : ''
+      const kidHistNote = h.takes_kids ? ', good with kids' : (horseHistStats[h.name]?.kidCount > 0 ? ', has experience with young riders' : '')
       return `- ${h.name} (level: ${h.level}, max: ${h.weight}lbs${ceilNote}${avgWNote}${avgANote}${rangeNote}, size: ${h.size}, availability: ${availNote}${kidHistNote}${h.notes ? ', notes: ' + h.notes : ''})`
     }).join('\n')
 
@@ -307,12 +307,12 @@ export async function POST(req: NextRequest) {
       : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
-    const takesKidsInstruction = 'Horses with "takes_kids: true" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a takes_kids horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
-    const flexNote = 'When a horse shows "soft_ceiling", you may suggest it for guests up to that weight when options are limited — the ranch owner uses this buffer in practice. When a horse shows "level_range", use that range instead of rigid ±1 rules — it reflects actual historical assignment patterns. Always prefer horses whose listed level is closest to the guest\'s level when multiple options exist.'
-    const weightRoutingNote = 'WEIGHT ROUTING: When a horse shows "hist_avg_weight", use it as a meaningful signal (~40% of your scoring) — prefer horses whose historical average is within 40lbs of this guest\'s weight. If history shows a horse regularly carrying guests outside its expected weight range, expand your routing window accordingly — that history overrides the default expectation. Hard weight ceiling still applies.'
-    const ageRoutingNote = 'AGE ROUTING: When a horse shows "hist_avg_age", use it as a soft scoring signal — prefer horses whose historical age average is within 15 years of this guest\'s age. A gap of 30+ years is a soft penalty. If history shows a horse consistently assigned to a specific age group, trust that pattern. Safety and level constraints take precedence.'
+    const takesKidsInstruction = 'Horses marked "good with kids" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a kids-friendly horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
+    const flexNote = 'When a horse shows an "extended weight limit", you may suggest it for guests up to that weight when options are limited — the ranch owner uses this buffer in practice. When a horse shows a rider level range (e.g. "works well with B to I riders"), use that range instead of rigid ±1 rules — it reflects actual historical assignment patterns. Always prefer horses whose listed level is closest to the guest\'s level when multiple options exist.'
+    const weightRoutingNote = 'WEIGHT ROUTING: When a horse shows a typical carry weight (e.g. "typically carries riders around X lbs"), use it as a meaningful signal (~40% of your scoring) — prefer horses whose historical average is within 40lbs of this guest\'s weight. If history shows a horse regularly carrying guests outside its expected weight range, expand your routing window accordingly — that history overrides the default expectation. Hard weight ceiling still applies.'
+    const ageRoutingNote = 'AGE ROUTING: When a horse shows an average rider age, use it as a soft scoring signal — prefer horses whose average rider age is within 15 years of this guest\'s age. A gap of 30+ years is a soft penalty. If history shows a horse consistently assigned to a specific age group, trust that pattern. Safety and level constraints take precedence.'
     const kidsNote = ageNum < 13
-      ? `KIDS RIDER (age ${ageNum}): Only suggest horses that have "takes_kids: true" OR "has_kid_history: true" in the roster. Do not suggest any horse without one of these qualifiers. Horses filtered from the pool for this guest already excluded non-kid horses.`
+      ? `KIDS RIDER (age ${ageNum}): Only suggest horses that are marked "good with kids" OR "has experience with young riders" in the roster. Do not suggest any horse without one of these qualifiers. Horses filtered from the pool for this guest already excluded non-kid horses.`
       : ''
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
