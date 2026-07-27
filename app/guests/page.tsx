@@ -180,6 +180,7 @@ export default function GuestsPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [guestGridView, setGuestGridView] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('guestGridView') === 'grid' : false)
   const [showAnalytics, setShowAnalytics] = useState(false)
+  const [deleteHistoryTarget, setDeleteHistoryTarget] = useState<Guest | null>(null)
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const matchAbortRef = useRef<AbortController | null>(null)
 
@@ -439,6 +440,16 @@ export default function GuestsPage() {
     await fetch(`/api/guests?id=${id}`, { method: 'DELETE' })
     if (selectedGuest?.id === id) setSelectedGuest(null)
     await fetchGuests()
+  }
+
+  async function deleteGuestFromHistory(guest: Guest) {
+    await fetch(`/api/guests?id=${guest.id}`, { method: 'DELETE' })
+    setGuests(prev => prev.filter(g => g.id !== guest.id))
+    if (selectedHistoryGuest?.id === guest.id) {
+      setSelectedHistoryGuest(null)
+      setSelectedArchived(null)
+    }
+    setDeleteHistoryTarget(null)
   }
 
   async function checkOutGuest(guest: Guest) {
@@ -877,10 +888,11 @@ export default function GuestsPage() {
                 <>
                   {/* Count + column header row */}
                   <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--color-border)', fontSize: 11, color: 'var(--color-text-3)' }}>{filteredCheckedOut.length} total guests</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '7px 14px', borderBottom: '2px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-surface)', zIndex: 1 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isViewer ? '1fr 90px 44px' : '1fr 90px 44px 28px', gap: 8, padding: '7px 14px', borderBottom: '2px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-surface)', zIndex: 1 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Guest</span>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last visit</span>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Signals</span>
+                    {!isViewer && <span />}
                   </div>
                   {pagedCheckedOut.map(g => {
                     const agRaw = archivedGuests.find(a => a.guest_name === g.name)
@@ -897,7 +909,7 @@ export default function GuestsPage() {
                         if (isSelected) { setSelectedArchived(null); setSelectedHistoryGuest(null) }
                         else { setSelectedArchived(ag || null); setSelectedHistoryGuest(g); setHistoryAddHorseOpen(false); setHistoryHorseInput('') }
                       }}
-                        style={{ display: 'grid', gridTemplateColumns: '1fr 90px 44px', gap: 8, padding: '9px 14px', borderBottom: '1px solid var(--color-border)', background: isSelected ? 'var(--color-accent-bg)' : 'transparent', borderLeft: `3px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`, cursor: 'pointer' }}>
+                        style={{ display: 'grid', gridTemplateColumns: isViewer ? '1fr 90px 44px' : '1fr 90px 44px 28px', gap: 8, padding: '9px 14px', borderBottom: '1px solid var(--color-border)', background: isSelected ? 'var(--color-accent-bg)' : 'transparent', borderLeft: `3px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`, cursor: 'pointer' }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -910,6 +922,15 @@ export default function GuestsPage() {
                           {goodRecs.length > 0 && <span title={`Good match: ${goodRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 700 }}>✓</span>}
                           {doesntWorkRecs.length > 0 && <span title={`Didn't work: ${doesntWorkRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: '#dc2626', fontWeight: 700 }}>✗</span>}
                         </div>
+                        {!isViewer && (
+                          <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 1 }}>
+                            <button
+                              onClick={e => { e.stopPropagation(); setDeleteHistoryTarget(g) }}
+                              title="Remove from history"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 13, padding: '1px 3px', lineHeight: 1, opacity: 0.45, borderRadius: 'var(--radius-sm)' }}
+                            >✕</button>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -1127,6 +1148,19 @@ export default function GuestsPage() {
             <div style={{ display: 'flex', gap: 9 }}>
               <button onClick={() => { setDoesntWorkTarget(null); setDoesntWorkReason('') }} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
               <button onClick={() => markIncompatible(doesntWorkTarget.horseName, doesntWorkTarget.assignmentId, doesntWorkReason)} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Mark — Doesn&apos;t Work</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteHistoryTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 360 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Remove from history?</h3>
+            <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 18 }}>Remove <strong>{deleteHistoryTarget.name}</strong> from history? This permanently deletes their record and all ride data.</p>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => setDeleteHistoryTarget(null)} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
+              <button onClick={() => deleteGuestFromHistory(deleteHistoryTarget)} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Confirm</button>
             </div>
           </div>
         </div>
