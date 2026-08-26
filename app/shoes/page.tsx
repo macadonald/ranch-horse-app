@@ -1399,16 +1399,6 @@ export default function ShoesPage() {
             })()}
           </div>
 
-          {/* Section 2 — Suggestions */}
-          {!loading && hasSuggestions && (
-            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 18 }}>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Suggestions</h2>
-              <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 14 }}>Horses last shod 6–8 weeks ago, plus horses with no recorded farrier history. Longest overdue shown first.</p>
-
-              {suggestions.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
-            </div>
-          )}
-
           {/* Section 3 — Shoe History */}
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18 }}>
             <div id="shoe-history-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
@@ -1501,6 +1491,16 @@ export default function ShoesPage() {
               </>
             )}
           </div>
+
+          {/* Section 2 — Suggestions */}
+          {!loading && hasSuggestions && (
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 18 }}>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Suggestions</h2>
+              <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 14 }}>Horses last shod 6–8 weeks ago, plus horses with no recorded farrier history. Longest overdue shown first.</p>
+
+              {suggestions.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
+            </div>
+          )}
 
           {/* Section 4 — Analytics */}
           {!loading && <AnalyticsSection needs={needs} visits={visits} healthIssues={healthIssues} />}

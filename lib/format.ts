@@ -4,6 +4,7 @@ export function formatHeight(raw: string): string {
   if (/^\d+'\d+"$/.test(s)) return s                       // already X'Y"
   const withSep = s.match(/^(\d+)['\-\s]+(\d{1,2})"?$/)
   if (withSep) return `${withSep[1]}'${withSep[2]}"`       // 6'5  6-5  6 5  6'10
+  if (/^\d$/.test(s)) return `${s}'0"`                        // 6 → 6'0"
   const pure = s.match(/^(\d{2,3})$/)
   if (pure) {
     const n = pure[1]
