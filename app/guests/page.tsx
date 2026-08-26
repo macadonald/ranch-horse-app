@@ -578,8 +578,8 @@ export default function GuestsPage() {
             </div>
             {/* Active / History toggle */}
             <div style={{ display: 'flex', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', overflow: 'hidden', flexShrink: 0 }}>
-              <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
-              <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); fetchArchivedGuests(); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
+              <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null); setSelectedHistoryGuest(null); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
+              <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); setSelectedHistoryGuest(null); setSelectedArchived(null); fetchArchivedGuests(); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
             </div>
           </div>
           <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1031,6 +1031,7 @@ export default function GuestsPage() {
                     {[
                       { label: 'Weight', value: selectedHistoryGuest!.weight ? `${selectedHistoryGuest!.weight} lbs` : '—' },
                       { label: 'Height', value: selectedHistoryGuest!.height || '—' },
+                      { label: 'Age', value: selectedHistoryGuest!.age ? String(selectedHistoryGuest!.age) : '—' },
                       { label: 'Level', value: LEVEL_LABELS[selectedHistoryGuest!.riding_level] || selectedHistoryGuest!.riding_level || '—' },
                       { label: 'Gender', value: selectedHistoryGuest!.gender || '—' },
                       { label: 'Room', value: selectedHistoryGuest!.room_number || '—' },
