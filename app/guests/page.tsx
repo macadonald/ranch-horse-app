@@ -539,7 +539,22 @@ export default function GuestsPage() {
       setAssignAllPct(80)
       const { draft, pastRideMap } = await res.json()
       setAssignAllPastRideMap(pastRideMap)
-      setDraftRows(draft)
+      const displayDraft = [...draft].sort((a: DraftRow, b: DraftRow) => {
+        const wA = a.guest.weight ?? 0
+        const wB = b.guest.weight ?? 0
+        const heavyA = wA >= 200
+        const heavyB = wB >= 200
+        if (heavyA && heavyB) return wB - wA
+        if (heavyA) return -1
+        if (heavyB) return 1
+        const roomA = parseInt(a.guest.room_number) || 0
+        const roomB = parseInt(b.guest.room_number) || 0
+        if (roomA !== roomB) return roomA - roomB
+        const tsA = a.guest.created_at || a.guest.check_in_date || ''
+        const tsB = b.guest.created_at || b.guest.check_in_date || ''
+        return tsA.localeCompare(tsB)
+      })
+      setDraftRows(displayDraft)
       setAssignAllPct(100)
     } catch (err) {
       console.error('[AssignAll] threw:', err)

@@ -10,7 +10,7 @@ type GuestInput = {
   check_in_date: string; check_out_date: string
   age: number | null; weight: number | null; height: string
   riding_level: string; notes: string; horse_request: string; gender: string
-  checked_out?: boolean; repeat_guest?: boolean
+  checked_out?: boolean; repeat_guest?: boolean; created_at?: string
   horse_assignments?: { id: string; horse_name: string; assignment_type: string; status: string; incompatible: boolean }[]
 }
 
