@@ -317,7 +317,15 @@ export default function GuestsPage() {
   )
   const checkedOutGuests = guests
     .filter(g => g.checked_out === true)
-    .sort((a, b) => (b.checked_out_at || '').localeCompare(a.checked_out_at || ''))
+    .sort((a, b) => {
+      const dayA = (a.checked_out_at || '').slice(0, 10)
+      const dayB = (b.checked_out_at || '').slice(0, 10)
+      if (dayB !== dayA) return dayB.localeCompare(dayA)
+      const roomA = parseInt(a.room_number) || Infinity
+      const roomB = parseInt(b.room_number) || Infinity
+      if (roomA !== roomB) return roomA - roomB
+      return (a.checked_out_at || '').localeCompare(b.checked_out_at || '')
+    })
   const filteredCheckedOut = checkedOutGuests.filter(g =>
     !historySearch || g.name?.toLowerCase().includes(historySearch.toLowerCase())
   )
