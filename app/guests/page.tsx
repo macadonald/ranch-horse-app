@@ -1446,6 +1446,8 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null)
+  const [aiExplanations, setAiExplanations] = useState<Record<string, string>>({})
+  const [loadingExplanations, setLoadingExplanations] = useState<Set<string>>(new Set())
   const today = getTucsonToday()
   const tomorrow = getTucsonTomorrow()
 
@@ -1456,6 +1458,26 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
     setRows(prev => prev.map(r => r.guest.id === guestId ? { ...r, flagged: !r.flagged } : r))
   }
   async function handleConfirm() { setSaving(true); await onConfirm(rows); setSaving(false) }
+
+  async function fetchExplanation(guest: Guest, horseName: string, guestId: string) {
+    setLoadingExplanations(prev => { const s = new Set(prev); s.add(guestId); return s })
+    try {
+      const res = await fetch('/api/assign-all/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guest: { age: guest.age, weight: guest.weight, height: guest.height, riding_level: guest.riding_level, gender: guest.gender, name: guest.name },
+          horseName,
+        }),
+      })
+      const data = await res.json()
+      if (data.reason) setAiExplanations(prev => ({ ...prev, [guestId]: data.reason }))
+    } catch {
+      // templated fallback stays displayed
+    } finally {
+      setLoadingExplanations(prev => { const s = new Set(prev); s.delete(guestId); return s })
+    }
+  }
 
   const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
   const toSkip = rows.filter(r => !r.suggestedHorse || r.flagged)
@@ -1511,9 +1533,9 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
               <div>
                 <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} horses={Object.keys(horseMap)} />
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
-                  {matchQuality === 'exact' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟢 Good match ⓘ</span>}
-                  {matchQuality === 'adjacent' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟡 Adjacent ⓘ</span>}
-                  {matchQuality === 'mismatch' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setActiveTooltip(activeTooltip === guest.id ? null : guest.id) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🔴 Mismatch ⓘ</span>}
+                  {matchQuality === 'exact' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const next = activeTooltip === guest.id ? null : guest.id; setActiveTooltip(next); if (next && suggestedHorse && !aiExplanations[next] && !loadingExplanations.has(next)) fetchExplanation(guest, suggestedHorse, next) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟢 Good match ⓘ</span>}
+                  {matchQuality === 'adjacent' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const next = activeTooltip === guest.id ? null : guest.id; setActiveTooltip(next); if (next && suggestedHorse && !aiExplanations[next] && !loadingExplanations.has(next)) fetchExplanation(guest, suggestedHorse, next) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟡 Adjacent ⓘ</span>}
+                  {matchQuality === 'mismatch' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const next = activeTooltip === guest.id ? null : guest.id; setActiveTooltip(next); if (next && suggestedHorse && !aiExplanations[next] && !loadingExplanations.has(next)) fetchExplanation(guest, suggestedHorse, next) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🔴 Mismatch ⓘ</span>}
                   {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>×2 Double</span>}
                   {needsReview && !suggestedHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>{noHorseReason === 'triple_cap' ? '⛔ All horses at 2-rider limit' : 'Needs review'}</span>}
                   {nearWeight && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>}
@@ -1526,7 +1548,8 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
                 </div>
                 {activeTooltip === guest.id && matchQuality !== null && (
                   <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6, padding: '7px 10px', background: '#1e293b', color: '#f1f5f9', borderRadius: 6, fontSize: 11, lineHeight: 1.5 }}>
-                    {buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, levelDiff, matchQuality, nearWeight, isDouble, pastRide })}
+                    {aiExplanations[guest.id] || buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, levelDiff, matchQuality, nearWeight, isDouble, pastRide })}
+                    {loadingExplanations.has(guest.id) && !aiExplanations[guest.id] && <span style={{ opacity: 0.6 }}> Analyzing…</span>}
                   </div>
                 )}
               </div>
