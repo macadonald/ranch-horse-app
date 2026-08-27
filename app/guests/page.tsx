@@ -983,6 +983,31 @@ export default function GuestsPage() {
                     })()}
                   </div>
 
+                  {/* Guest details grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                    {[
+                      { label: 'Weight', value: selectedHistoryGuest!.weight ? `${selectedHistoryGuest!.weight} lbs` : '—' },
+                      { label: 'Height', value: selectedHistoryGuest!.height || '—' },
+                      { label: 'Age', value: selectedHistoryGuest!.age ? String(selectedHistoryGuest!.age) : '—' },
+                      { label: 'Level', value: LEVEL_LABELS[selectedHistoryGuest!.riding_level] || selectedHistoryGuest!.riding_level || '—' },
+                      { label: 'Gender', value: selectedHistoryGuest!.gender || '—' },
+                      { label: 'Room', value: selectedHistoryGuest!.room_number || '—' },
+                      { label: 'Check-in', value: selectedHistoryGuest!.check_in_date || '—' },
+                    ].map(field => (
+                      <div key={field.label} style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', border: '1px solid var(--color-border)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{field.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{field.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedHistoryGuest!.notes && (
+                    <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', border: '1px solid var(--color-border)', marginBottom: 16 }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Notes</div>
+                      <div style={{ fontSize: 13 }}>{selectedHistoryGuest!.notes}</div>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Ride History</div>
                   {/* Ride history table */}
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
