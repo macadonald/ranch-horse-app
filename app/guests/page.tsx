@@ -36,6 +36,7 @@ type Guest = {
   checked_out?: boolean
   checked_out_at?: string
   repeat_guest?: boolean
+  created_at?: string
   horse_assignments?: Assignment[]
 }
 
