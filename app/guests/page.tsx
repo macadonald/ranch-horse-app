@@ -1388,6 +1388,8 @@ function DraftHorseAutocomplete({ value, onChange, horses }: { value: string; on
   )
 }
 
+const GUEST_LEVELS = ['B', 'AB', 'I', 'AI', 'A']
+
 function buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, levelDiff, matchQuality, nearWeight, isDouble, pastRide }: {
   guest: Guest
   horse: { level: string; weight: number | null; is_draft: boolean; rank_last: boolean; takes_kids: boolean } | null
@@ -1501,8 +1503,10 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
         {rows.map(row => {
           const { guest, suggestedHorse, isDouble, needsReview, flagged, noHorseReason } = row
           const horse = suggestedHorse ? horseMap[suggestedHorse] : null
-          const guestLevelIdx = LEVEL_ORDER.indexOf(guest.riding_level)
-          const horseLevelIdx = horse ? LEVEL_ORDER.indexOf(horse.level) : -1
+          const guestLevelIdx = GUEST_LEVELS.indexOf(guest.riding_level)
+          const horseLevelIdx = horse
+            ? (horse.level === 'I/AI' ? guestLevelIdx : GUEST_LEVELS.indexOf(horse.level))
+            : -1
           const levelDiff = horse && guestLevelIdx >= 0 && horseLevelIdx >= 0 ? Math.abs(guestLevelIdx - horseLevelIdx) : null
           const matchQuality = levelDiff === null ? null : levelDiff === 0 ? 'exact' : levelDiff === 1 ? 'adjacent' : 'mismatch'
           const nearWeight = !!(horse && horse.weight !== null && guest.weight && (horse.weight - guest.weight) <= 20)
