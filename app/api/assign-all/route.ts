@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
 
     // ── Scoring helpers ──
     const horseWeightCeiling = (listed: number | null, horseName: string): number => {
-      if (listed === null) return 999
+      if (listed === null) return 0
       const s = horseStats[horseName]
       return Math.min(listed + 30, Math.max(listed + 15, s?.historicalMaxWeight ?? 0))
     }
