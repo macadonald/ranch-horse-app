@@ -193,6 +193,12 @@ export async function POST(req: NextRequest) {
       return isDraft ? Math.min(raw, 1.0) : raw
     }
 
+    const draftAffinityBonus = (guestWeight: number, isDraft: boolean): number => {
+      if (!isDraft || guestWeight < 200) return 0
+      const rampProgress = Math.min((guestWeight - 200) / 60, 1)
+      return -1.5 * rampProgress
+    }
+
     // ── Eligible horses ──
     const hasBlockingFlag = (h: DbHorse) => (h.flags || []).some(f => {
       if (f.flag_type === 'day_off') return f.day_off_date === today
@@ -281,13 +287,13 @@ export async function POST(req: NextRequest) {
           dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined),
           weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft),
           ageScore: ageRoutingScore(guest.age, h.name),
+          draftBonus: draftAffinityBonus(guest.weight ?? 0, h.is_draft),
           margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0),
         }))
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
-          (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          (a.dirScore + a.weightScore + a.ageScore) - (b.dirScore + b.weightScore + b.ageScore) ||
+          (a.dirScore + a.weightScore + a.ageScore + a.draftBonus) - (b.dirScore + b.weightScore + b.ageScore + b.draftBonus) ||
           b.margin - a.margin
         )
 
@@ -351,14 +357,14 @@ export async function POST(req: NextRequest) {
             dirScore: levelDirScore(gIdx, LEVEL_ORDER.indexOf(h.level), guest.age ?? undefined),
             weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft),
             ageScore: ageRoutingScore(guest.age, h.name),
+            draftBonus: draftAffinityBonus(guest.weight ?? 0, h.is_draft),
             soonest,
           }
         })
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult2 ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
-          (Number(a.horse.is_draft) - Number(b.horse.is_draft)) ||
-          (a.dirScore + a.weightScore + a.ageScore) - (b.dirScore + b.weightScore + b.ageScore) ||
+          (a.dirScore + a.weightScore + a.ageScore + a.draftBonus) - (b.dirScore + b.weightScore + b.ageScore + b.draftBonus) ||
           a.soonest.localeCompare(b.soonest)
         )
 
