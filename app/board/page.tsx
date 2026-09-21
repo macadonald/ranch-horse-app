@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
+import { SUPABASE_MAX_ROWS } from '@/lib/supabase'
 
 const WORK_LABELS: Record<string, string> = {
   fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', reset: 'Reset', full_set: 'Full set',
@@ -185,6 +186,8 @@ export default function BoardPage() {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
   const [assigningHorse, setAssigningHorse] = useState<DbHorse | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [assignmentLimitStatus, setAssignmentLimitStatus] = useState<{ count: number; loaded: number; truncated: boolean; nearingLimit: boolean } | null>(null)
+  const [assignmentLimitDismissed, setAssignmentLimitDismissed] = useState(false)
 
   const today = getTucsonToday()
   const tomorrow = getTucsonTomorrow()
@@ -214,6 +217,7 @@ export default function BoardPage() {
         })
       })
       setAssignmentMap(newAssignmentMap)
+      if (assignRes.rowLimitStatus) { setAssignmentLimitStatus(assignRes.rowLimitStatus); setAssignmentLimitDismissed(false) }
 
       const horses: DbHorse[] = (horsesRes.horses || []).filter((h: DbHorse) => !h.is_deceased)
       const newShoeMap: Record<string, ShoeWarning> = {}
@@ -446,6 +450,18 @@ export default function BoardPage() {
             })}
           </div>
         </div>
+
+        {/* Row-limit warning banner */}
+        {!assignmentLimitDismissed && assignmentLimitStatus && (assignmentLimitStatus.truncated || assignmentLimitStatus.nearingLimit) && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 20px', background: assignmentLimitStatus.truncated ? '#fef2f2' : '#fffbeb', borderBottom: `1px solid ${assignmentLimitStatus.truncated ? '#fca5a5' : '#fcd34d'}`, color: assignmentLimitStatus.truncated ? '#991b1b' : '#92400e', fontSize: 13, fontWeight: 500 }}>
+            <span>
+              {assignmentLimitStatus.truncated
+                ? `Not all assignments are loading. The database has ${assignmentLimitStatus.count} active assignments but only ${assignmentLimitStatus.loaded} were returned. Raise Max Rows in Supabase Settings → API.`
+                : `Active assignment count is ${assignmentLimitStatus.count} of ${SUPABASE_MAX_ROWS}. Raise Max Rows in Supabase soon.`}
+            </span>
+            <button onClick={() => setAssignmentLimitDismissed(true)} style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, color: 'inherit', opacity: 0.7, padding: '2px 4px' }}>✕</button>
+          </div>
+        )}
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)' }}>

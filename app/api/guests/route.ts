@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { supabase, SUPABASE_MAX_ROWS, WARN_THRESHOLD } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('guests')
-      .select(`*, horse_assignments (*)`)
+    const [{ data, error }, { count }] = await Promise.all([
+      supabase.from('guests').select(`*, horse_assignments (*)`),
+      supabase.from('guests').select('*', { count: 'exact', head: true }),
+    ])
 
     if (error) throw error
 
@@ -17,7 +18,15 @@ export async function GET() {
       return (a.created_at || '').localeCompare(b.created_at || '')
     })
 
-    return NextResponse.json({ guests: sorted })
+    const loaded = sorted.length
+    const totalCount = count ?? loaded
+    const truncated = totalCount > loaded
+    const nearingLimit = !truncated && totalCount >= WARN_THRESHOLD
+
+    return NextResponse.json({
+      guests: sorted,
+      rowLimitStatus: { count: totalCount, loaded, truncated, nearingLimit },
+    })
   } catch (err) {
     return NextResponse.json({ error: 'Failed to fetch guests' }, { status: 500 })
   }

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
 import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
+import { SUPABASE_MAX_ROWS } from '@/lib/supabase'
 import { GuestAnalyticsPanel } from '@/components/GuestAnalyticsPanel'
 import { useRole } from '@/lib/auth-context'
 import { formatHeight } from '@/lib/format'
@@ -182,6 +183,8 @@ export default function GuestsPage() {
   const [guestGridView, setGuestGridView] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('guestGridView') === 'grid' : false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [deleteHistoryTarget, setDeleteHistoryTarget] = useState<Guest | null>(null)
+  const [guestLimitStatus, setGuestLimitStatus] = useState<{ count: number; loaded: number; truncated: boolean; nearingLimit: boolean } | null>(null)
+  const [guestLimitDismissed, setGuestLimitDismissed] = useState(false)
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const matchAbortRef = useRef<AbortController | null>(null)
 
@@ -197,6 +200,7 @@ export default function GuestsPage() {
       ])
       const allGuests: Guest[] = guestRes.guests || []
       setGuests(allGuests)
+      if (guestRes.rowLimitStatus) { setGuestLimitStatus(guestRes.rowLimitStatus); setGuestLimitDismissed(false) }
       setDbHorses(horsesRes.horses || [])
       setReturningGuestNames(new Set((returningRes.names || []).map((n: string) => n.toLowerCase())))
       const newLovesMap: Record<string, string> = {}
@@ -592,6 +596,18 @@ export default function GuestsPage() {
       <Sidebar />
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }} className='guest-main'>
         {assignmentConfirmation && <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000 }}>{assignmentConfirmation}</div>}
+
+        {/* Row-limit warning banner */}
+        {!guestLimitDismissed && guestLimitStatus && (guestLimitStatus.truncated || guestLimitStatus.nearingLimit) && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 20px', background: guestLimitStatus.truncated ? '#fef2f2' : '#fffbeb', borderBottom: `1px solid ${guestLimitStatus.truncated ? '#fca5a5' : '#fcd34d'}`, color: guestLimitStatus.truncated ? '#991b1b' : '#92400e', fontSize: 13, fontWeight: 500 }}>
+            <span>
+              {guestLimitStatus.truncated
+                ? `Not all guests are loading. The database has ${guestLimitStatus.count} guests but only ${guestLimitStatus.loaded} were returned. Raise Max Rows in Supabase Settings → API.`
+                : `Guest count is ${guestLimitStatus.count} of ${SUPABASE_MAX_ROWS}. Raise Max Rows in Supabase soon.`}
+            </span>
+            <button onClick={() => setGuestLimitDismissed(true)} style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, color: 'inherit', opacity: 0.7, padding: '2px 4px' }}>✕</button>
+          </div>
+        )}
 
         {/* Header */}
         <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)', paddingBottom: 16, paddingLeft: 24, paddingRight: 24, position: 'sticky', top: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>

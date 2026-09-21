@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { supabase, WARN_THRESHOLD } from '@/lib/supabase'
 
 export async function POST(req: NextRequest) {
   try {
@@ -61,19 +61,26 @@ export async function GET() {
   try {
     const today = new Date().toLocaleString('en-CA', { timeZone: 'America/Phoenix' }).split(',')[0]
 
-    const { data, error } = await supabase
-      .from('horse_assignments')
-      .select(`
-        *,
-        guests (
-          id,
-          name,
-          room_number,
-          check_out_date
-        )
-      `)
-      .eq('status', 'active')
-      .eq('incompatible', false)
+    const [{ data, error }, { count }] = await Promise.all([
+      supabase
+        .from('horse_assignments')
+        .select(`
+          *,
+          guests (
+            id,
+            name,
+            room_number,
+            check_out_date
+          )
+        `)
+        .eq('status', 'active')
+        .eq('incompatible', false),
+      supabase
+        .from('horse_assignments')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
+        .eq('incompatible', false),
+    ])
 
     if (error) throw error
 
@@ -83,7 +90,15 @@ export async function GET() {
       return a.guests.check_out_date >= today
     })
 
-    return NextResponse.json({ assignments: active })
+    const loaded = (data || []).length
+    const totalCount = count ?? loaded
+    const truncated = totalCount > loaded
+    const nearingLimit = !truncated && totalCount >= WARN_THRESHOLD
+
+    return NextResponse.json({
+      assignments: active,
+      rowLimitStatus: { count: totalCount, loaded, truncated, nearingLimit },
+    })
   } catch (err) {
     console.error('GET assignments error:', err)
     return NextResponse.json({ error: 'Failed to fetch assignments' }, { status: 500 })

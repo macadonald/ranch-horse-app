@@ -40,3 +40,6 @@ export type DailyRiderCount = {
   date: string
   rider_count: number
 }
+
+export const SUPABASE_MAX_ROWS = 5000
+export const WARN_THRESHOLD = 4500
