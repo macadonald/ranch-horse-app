@@ -23,6 +23,14 @@ type DraftRow = {
   needsReview: boolean
   flagged: boolean
   noHorseReason?: 'triple_cap' | 'no_match'
+  suggestion_id?: string | null
+}
+
+type TopCandidate = {
+  rank: number
+  horse_name: string
+  score: number
+  components: { dir: number; weight: number; age: number; draft: number }
 }
 
 type HorseStatEntry = {
@@ -247,6 +255,19 @@ export async function POST(req: NextRequest) {
     })
     const sorted = [...heavyGuests, ...kidsOnlyGuests, ...remainingGuests]
 
+    // ── Candidate tracking for logging ──
+    const guestCandidates = new Map<string, { pass: 1 | 2 | 3; topCandidates: TopCandidate[] }>()
+
+    const pickTop5 = (
+      arr: { horse: DbHorse; dirScore: number; weightScore: number; ageScore: number; draftBonus: number }[]
+    ): TopCandidate[] =>
+      arr.slice(0, 5).map((c, i) => ({
+        rank: i + 1,
+        horse_name: c.horse.name,
+        score: Math.round((c.dirScore + c.weightScore + c.ageScore + c.draftBonus) * 1000) / 1000,
+        components: { dir: c.dirScore, weight: c.weightScore, age: c.ageScore, draft: c.draftBonus },
+      }))
+
     // ── Pass 1: assign each guest a unique unshared horse ──
     const draft: DraftRow[] = []
     const usedInPass1 = new Set<string>()
@@ -302,6 +323,7 @@ export async function POST(req: NextRequest) {
       const effectiveCandidates = smallCandidates.length > 0 ? smallCandidates : candidates
 
       if (effectiveCandidates.length > 0) {
+        guestCandidates.set(guest.id, { pass: 1, topCandidates: pickTop5(effectiveCandidates) })
         usedInPass1.add(effectiveCandidates[0].horse.name)
         draft.push({ guest, suggestedHorse: effectiveCandidates[0].horse.name, isDouble: false, needsReview: false, flagged: false })
       } else {
@@ -317,7 +339,7 @@ export async function POST(req: NextRequest) {
 
     for (const guest of pass2Queue) {
       const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
-      if (gIdx === -1) { pass3Queue.push(guest); pass3Reasons.set(guest.id, 'no_match'); continue }
+      if (gIdx === -1) { guestCandidates.set(guest.id, { pass: 3, topCandidates: [] }); pass3Queue.push(guest); pass3Reasons.set(guest.id, 'no_match'); continue }
       const guestPastRides = pastRideMap[guest.name.toLowerCase()] || {}
       const gFragilityShift2 = fragilityShift(guest.age)
       const isKid2 = !!(guest.age != null && guest.age < 13)
@@ -373,12 +395,14 @@ export async function POST(req: NextRequest) {
       const effectiveCandidates2 = smallCandidates2.length > 0 ? smallCandidates2 : candidates2
 
       if (effectiveCandidates2.length > 0) {
+        guestCandidates.set(guest.id, { pass: 2, topCandidates: pickTop5(effectiveCandidates2) })
         const best = effectiveCandidates2[0]
         pass2Assigned.add(best.horse.name)
         if (!runtimeDoubleMap[best.horse.name]) runtimeDoubleMap[best.horse.name] = []
         runtimeDoubleMap[best.horse.name].push({ checkOut: guest.check_out_date || '' })
         draft.push({ guest, suggestedHorse: best.horse.name, isDouble: true, needsReview: false, flagged: false })
       } else {
+        guestCandidates.set(guest.id, { pass: 3, topCandidates: [] })
         const wouldFitWithoutCap = eligibleHorses.some(h => {
           if (!((dbAssignedMap[h.name]?.length ?? 0) > 0 || usedInPass1.has(h.name))) return false
           if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) return false
@@ -400,7 +424,43 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[assign-all] done in ${Date.now() - t0}ms — ${draft.length} assignments, ${pass3Queue.length} flagged`)
-    return NextResponse.json({ draft, pastRideMap }, { headers: { 'Cache-Control': 'no-store' } })
+
+    // ── Silent logging (non-fatal) ────────────────────────────────────────────
+    let runId: string | null = null
+    try {
+      const { data: runRow, error: runErr } = await supabase
+        .from('assign_all_runs')
+        .insert({ guest_count: draft.length })
+        .select('id')
+        .single()
+      if (runErr) throw runErr
+      runId = (runRow as { id: string }).id
+
+      const suggestionRows = draft.map(row => {
+        const cd = guestCandidates.get(row.guest.id) ?? { pass: 3 as const, topCandidates: [] }
+        return {
+          run_id: runId,
+          guest_id: row.guest.id,
+          pass: cd.pass,
+          suggested_horse: row.suggestedHorse ?? null,
+          no_horse_reason: row.noHorseReason ?? null,
+          top_candidates: cd.topCandidates,
+        }
+      })
+
+      const { data: inserted, error: sugErr } = await supabase
+        .from('assign_all_suggestions')
+        .insert(suggestionRows)
+        .select('id, guest_id')
+      if (sugErr) throw sugErr
+
+      const idByGuestId = new Map((inserted as { id: string; guest_id: string }[]).map(s => [s.guest_id, s.id]))
+      draft.forEach(row => { row.suggestion_id = idByGuestId.get(row.guest.id) ?? null })
+    } catch (logErr) {
+      console.error('[assign-all] logging failed (non-fatal):', logErr)
+    }
+
+    return NextResponse.json({ draft, pastRideMap, run_id: runId }, { headers: { 'Cache-Control': 'no-store' } })
 
   } catch (err) {
     console.error('[assign-all] unhandled exception:', err)

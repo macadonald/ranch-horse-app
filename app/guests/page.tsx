@@ -78,6 +78,7 @@ type DraftRow = {
   needsReview: boolean
   flagged: boolean
   noHorseReason?: 'triple_cap' | 'no_match'
+  suggestion_id?: string | null
 }
 
 function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: string[] }) {
@@ -542,7 +543,7 @@ export default function GuestsPage() {
         return
       }
       setAssignAllPct(80)
-      const { draft, pastRideMap } = await res.json()
+      const { draft, pastRideMap } = await res.json() as { draft: DraftRow[]; pastRideMap: Record<string, Record<string, PastRideDetail>>; run_id: string | null }
       setAssignAllPastRideMap(pastRideMap)
       const displayDraft = [...draft].sort((a: DraftRow, b: DraftRow) => {
         const wA = a.guest.weight ?? 0
@@ -579,6 +580,13 @@ export default function GuestsPage() {
       toSave.map(async r => {
         await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false }) })
         await logHistory(r.guest.name, r.guest.id, r.suggestedHorse!, 'primary', 'assign_all')
+        if (r.suggestion_id) {
+          fetch('/api/assign-all/confirm', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ suggestion_id: r.suggestion_id, final_horse: r.suggestedHorse }),
+          }).catch(e => console.error('[assign-all confirm]', e))
+        }
       })
     )
     await fetchGuests(); setAssignAllPhase('idle'); setDraftRows([])

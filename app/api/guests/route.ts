@@ -60,6 +60,9 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'No id' }, { status: 400 })
+    // Explicit delete of horse_assignments first (belt-and-suspenders before the
+    // FK cascade migration runs in environments where it hasn't been applied yet).
+    await supabase.from('horse_assignments').delete().eq('guest_id', id)
     const { error } = await supabase.from('guests').delete().eq('id', id)
     if (error) throw error
     return NextResponse.json({ success: true })

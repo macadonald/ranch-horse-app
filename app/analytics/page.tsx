@@ -5,17 +5,9 @@ import { GuestAnalyticsPanel, type AnalyticsGuest } from '@/components/GuestAnal
 import { HorseAnalyticsPanel } from '@/components/HorseAnalyticsPanel'
 import { DbHorse } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
+import { WEIGHT_BANDS } from '@/lib/weightBands'
 
 type AnalyticsView = 'correlations' | 'guests' | 'horses'
-
-// ─── Weight buckets ───────────────────────────────────────────────────────────
-
-const WT_BUCKETS = [
-  { label: 'Under 150', min: 0,   max: 149 },
-  { label: '150–180',   min: 150, max: 180 },
-  { label: '181–210',   min: 181, max: 210 },
-  { label: '210+',      min: 211, max: Infinity },
-]
 
 const LEVELS = ['B', 'AB', 'I', 'AI', 'A']
 const LEVEL_LABELS: Record<string, string> = {
@@ -23,12 +15,6 @@ const LEVEL_LABELS: Record<string, string> = {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getWtBucket(weight: number | null | undefined): string | null {
-  if (!weight) return null
-  const b = WT_BUCKETS.find(bk => weight >= bk.min && weight <= bk.max)
-  return b ? b.label : null
-}
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
@@ -103,7 +89,7 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
     rate: number
     top3: { name: string; count: number }[]
   }
-  const wtRows: WtRow[] = WT_BUCKETS.map(bk => {
+  const wtRows: WtRow[] = WEIGHT_BANDS.map(bk => {
     const horseAssignCounts: Record<string, number> = {}
     let total = 0, flags = 0
     gwa.forEach(g => {
@@ -170,7 +156,7 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
 
   // ── Section 4: Best Match Finder ──────────────────────────────────────────
 
-  const selectedBucket = WT_BUCKETS.find(b => b.label === matchWeight) || null
+  const selectedBucket = WEIGHT_BANDS.find(b => b.label === matchWeight) || null
   const matchResults = (() => {
     if (!matchWeight && !matchLevel && !matchGender) return null
     const horseScore: Record<string, { total: number; success: number }> = {}
@@ -289,7 +275,7 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
           <select value={matchWeight} onChange={e => setMatchWeight(e.target.value)} style={selectStyle}>
             <option value=''>Any weight</option>
-            {WT_BUCKETS.map(b => <option key={b.label} value={b.label}>{b.label} lbs</option>)}
+            {WEIGHT_BANDS.map(b => <option key={b.label} value={b.label}>{b.label} lbs</option>)}
           </select>
           <select value={matchLevel} onChange={e => setMatchLevel(e.target.value)} style={selectStyle}>
             <option value=''>Any level</option>

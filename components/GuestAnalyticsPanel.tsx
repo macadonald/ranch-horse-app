@@ -1,4 +1,5 @@
 'use client'
+import { WEIGHT_BANDS, getWeightBand } from '@/lib/weightBands'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,7 +68,10 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
   // 2. Rider breakdown
   let maleCount = 0, femaleCount = 0
   const ageRanges  = [{ label: 'Under 18', count: 0 }, { label: '18–30', count: 0 }, { label: '31–45', count: 0 }, { label: '46–60', count: 0 }, { label: '60+', count: 0 }]
-  const wtRanges   = [{ label: 'Under 150', count: 0 }, { label: '150–180', count: 0 }, { label: '181–210', count: 0 }, { label: '211–250', count: 0 }, { label: '250+', count: 0 }]
+  const wtRanges = [
+    ...WEIGHT_BANDS.map(b => ({ label: b.label, count: 0 })),
+    { label: 'No weight', count: 0 },
+  ]
   const lvlCounts: Record<string, number> = {}
 
   gwa.forEach(g => {
@@ -80,12 +84,12 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
       else if (g.age <= 60) ageRanges[3].count++
       else ageRanges[4].count++
     }
-    if (g.weight) {
-      if (g.weight < 150) wtRanges[0].count++
-      else if (g.weight <= 180) wtRanges[1].count++
-      else if (g.weight <= 210) wtRanges[2].count++
-      else if (g.weight <= 250) wtRanges[3].count++
-      else wtRanges[4].count++
+    const band = getWeightBand((g.weight as unknown as number | null))
+    if (band) {
+      const idx = wtRanges.findIndex(r => r.label === band.label)
+      if (idx !== -1) wtRanges[idx].count++
+    } else {
+      wtRanges[wtRanges.length - 1].count++ // "No weight"
     }
     if (g.riding_level) lvlCounts[g.riding_level] = (lvlCounts[g.riding_level] || 0) + 1
   })
