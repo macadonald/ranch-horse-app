@@ -619,7 +619,7 @@ export default function GuestsPage() {
 
         {/* Header */}
         <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)', paddingBottom: 16, paddingLeft: 24, paddingRight: 24, position: 'sticky', top: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Guests</h1>
               <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>{activeGuests.length} active · Tucson: {today}</p>
@@ -629,18 +629,20 @@ export default function GuestsPage() {
               <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null); setSelectedHistoryGuest(null); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
               <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); setSelectedHistoryGuest(null); setSelectedArchived(null); fetchArchivedGuests(); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
             </div>
-          </div>
-          <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input
               placeholder={guestViewMode === 'history' ? 'Search past guests...' : 'Search name or room...'}
               value={guestViewMode === 'history' ? historySearch : search}
               onChange={e => guestViewMode === 'history' ? (setHistorySearch(e.target.value), setCurrentHistoryPage(1)) : setSearch(e.target.value)}
               style={{ fontSize: 13, width: 200 }}
             />
-            {guestViewMode === 'active' && <>
+            {guestViewMode === 'active' && (
               <button onClick={() => { const next = !guestGridView; setGuestGridView(next); localStorage.setItem('guestGridView', next ? 'grid' : 'list') }} style={{ padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 {guestGridView ? '≡ List' : '⊞ Grid'}
               </button>
+            )}
+          </div>
+          <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+            {guestViewMode === 'active' && <>
               {!isViewer && <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>}
               <button onClick={() => { setShowAnalytics(v => !v); setSelectedGuest(null) }} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: showAnalytics ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: showAnalytics ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Analytics</button>
               {!isViewer && <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>}
