@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import { WEIGHT_BANDS, getWeightBand } from '@/lib/weightBands'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,7 +25,72 @@ export type AnalyticsGuest = {
   age: number; weight: number; gender: string; riding_level: string
   checked_out?: boolean; checked_out_at?: string | null
   repeat_guest?: boolean
+  room_number?: string | null
   horse_assignments?: AnalyticsAssignment[]
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function stayEndOf(g: AnalyticsGuest): string | null {
+  if (g.check_out_date) return g.check_out_date
+  if (g.checked_out_at) return g.checked_out_at.slice(0, 10)
+  return null
+}
+
+function nightsBetween(a: string, b: string): number {
+  return Math.round(
+    (new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 86400000
+  )
+}
+
+function isUsable(g: AnalyticsGuest): boolean {
+  const end = stayEndOf(g)
+  if (!g.check_in_date || !end) return false
+  const n = nightsBetween(g.check_in_date, end)
+  return n >= 1 && n <= 21
+}
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function getSundayStr(date: Date): string {
+  const d = new Date(date)
+  d.setDate(d.getDate() - d.getDay())
+  return toDateStr(d)
+}
+
+function weekLabel(sundayStr: string): string {
+  const d = new Date(sundayStr + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function monthLabel(yyyyMM: string): string {
+  const d = new Date(yyyyMM + '-01T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+}
+
+// ─── Color constants ──────────────────────────────────────────────────────────
+
+const WT_COLORS = ['#818cf8', '#6366f1', '#4f46e5', '#7c3aed', '#6d28d9', '#5b21b6', '#9ca3af']
+
+const AGE_SEGS_DEF = [
+  { label: 'Kids (<13)',     color: '#a78bfa' },
+  { label: 'Teens (13–17)', color: '#34d399' },
+  { label: 'Adults (18–64)',color: '#60a5fa' },
+  { label: '65+',           color: '#fbbf24' },
+  { label: 'No age',        color: '#d1d5db' },
+]
+
+const STAY_BUCKET_COLORS = ['#bae6fd', '#38bdf8', '#0284c7', '#075985']
+
+type PartyType = 'Solo' | 'Couple' | 'Family' | 'Group'
+const PARTY_TYPES: PartyType[] = ['Solo', 'Couple', 'Family', 'Group']
+const PARTY_COLORS: Record<PartyType, string> = {
+  Solo:   '#6366f1',
+  Couple: '#ec4899',
+  Family: '#f59e0b',
+  Group:  '#10b981',
 }
 
 // ─── AnalyticsBarRow ──────────────────────────────────────────────────────────
@@ -42,6 +108,25 @@ export function AnalyticsBarRow({ label, count, max, labelWidth = 90 }: { label:
   )
 }
 
+// ─── Stacked bar helper ───────────────────────────────────────────────────────
+
+function StackedBar({ segments, total, height = 12 }: {
+  segments: { color: string; count: number }[]
+  total: number
+  height?: number
+}) {
+  if (total === 0) return <div style={{ height, background: 'var(--color-border)', borderRadius: 3 }} />
+  return (
+    <div style={{ display: 'flex', height, borderRadius: 3, overflow: 'hidden', background: 'var(--color-border)' }}>
+      {segments.map((s, i) => {
+        const pct = (s.count / total) * 100
+        if (pct <= 0) return null
+        return <div key={i} style={{ width: `${pct}%`, background: s.color }} />
+      })}
+    </div>
+  )
+}
+
 // ─── GuestAnalyticsPanel ─────────────────────────────────────────────────────
 
 export function GuestAnalyticsPanel({ guests, today, onBack }: {
@@ -49,6 +134,8 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
   today: string
   onBack?: () => void
 }) {
+  const [showAllWeeks, setShowAllWeeks] = useState(false)
+
   // Only guests with at least one horse assignment
   const gwa = guests.filter(g => g.horse_assignments && g.horse_assignments.length > 0)
   const n = gwa.length
@@ -90,7 +177,7 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
       const idx = wtRanges.findIndex(r => r.label === band.label)
       if (idx !== -1) wtRanges[idx].count++
     } else {
-      wtRanges[wtRanges.length - 1].count++ // "No weight"
+      wtRanges[wtRanges.length - 1].count++
     }
     if (g.riding_level) lvlCounts[g.riding_level] = (lvlCounts[g.riding_level] || 0) + 1
   })
@@ -122,7 +209,7 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
     })
     .sort((a, b) => b.count - a.count)
 
-  // 4. Busiest checkout days
+  // 4. Busiest checkout days — DOW
   const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const dowCounts: Record<number, number> = {}
   const womCounts: Record<number, number> = {}
@@ -132,32 +219,199 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
     const dow = d.getDay(); dowCounts[dow] = (dowCounts[dow] || 0) + 1
     const wom = Math.ceil(d.getDate() / 7); womCounts[wom] = (womCounts[wom] || 0) + 1
   })
-  const sortedDays  = Object.entries(dowCounts).sort(([, a], [, b]) => b - a).map(([d, c]) => ({ label: DOW[+d], count: c }))
-  const sortedWeeks = Object.entries(womCounts).sort(([, a], [, b]) => b - a).map(([w, c]) => ({ label: `Week ${w}`, count: c }))
+  const sortedDays = Object.entries(dowCounts).sort(([, a], [, b]) => b - a).map(([d, c]) => ({ label: DOW[+d], count: c }))
   const maxDay = Math.max(...sortedDays.map(d => d.count), 1)
-  const maxWom = Math.max(...sortedWeeks.map(w => w.count), 1)
 
-  // 6. Repeat vs new (all guests, active + checked-out)
+  // WOM per-day normalization
+  const womCalDays: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+  const allCODates = gwa.map(g => g.check_out_date).filter(Boolean) as string[]
+  if (allCODates.length > 0) {
+    const earliestCO = allCODates.reduce((a, b) => a < b ? a : b)
+    const latestCO   = allCODates.reduce((a, b) => a > b ? a : b)
+    const cur = new Date(earliestCO.slice(0, 7) + '-01T12:00:00')
+    const endM = new Date(latestCO.slice(0, 7) + '-01T12:00:00')
+    while (cur <= endM) {
+      const daysInMonth = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate()
+      for (let day = 1; day <= daysInMonth; day++) {
+        const wom = Math.ceil(day / 7)
+        womCalDays[wom] = (womCalDays[wom] || 0) + 1
+      }
+      cur.setMonth(cur.getMonth() + 1)
+    }
+  }
+  const sortedWeeksPerDay = [1, 2, 3, 4, 5]
+    .filter(w => (womCounts[w] || 0) > 0 || womCalDays[w] > 0)
+    .map(w => ({
+      label: `Week ${w}`,
+      count: womCounts[w] || 0,
+      calDays: womCalDays[w] || 0,
+      perDay: womCalDays[w] > 0 ? (womCounts[w] || 0) / womCalDays[w] : 0,
+    }))
+    .sort((a, b) => b.perDay - a.perDay)
+  const maxPerDay = Math.max(...sortedWeeksPerDay.map(w => w.perDay), 0.001)
+
+  // 5. Length of stay — usable guests
+  const usableGuests = guests.filter(isUsable)
+  const stays: number[] = usableGuests.map(g => nightsBetween(g.check_in_date, stayEndOf(g)!))
+  const avgStay = stays.length ? (stays.reduce((a, b) => a + b, 0) / stays.length).toFixed(1) : null
+  const stayCounts: Record<number, number> = {}
+  stays.forEach(s => { stayCounts[s] = (stayCounts[s] || 0) + 1 })
+  const mostCommonStay = stays.length ? Object.entries(stayCounts).sort(([, a], [, b]) => b - a)[0] : null
+
+  // Stay by month
+  const stayByMonth: Record<string, number[]> = {}
+  usableGuests.forEach(g => {
+    const mm = g.check_in_date.slice(0, 7)
+    if (!stayByMonth[mm]) stayByMonth[mm] = []
+    stayByMonth[mm].push(nightsBetween(g.check_in_date, stayEndOf(g)!))
+  })
+  const sortedStayMonths = Object.keys(stayByMonth).sort()
+  function stayBucketOf(n: number): 0 | 1 | 2 | 3 {
+    if (n <= 2) return 0
+    if (n <= 4) return 1
+    if (n <= 6) return 2
+    return 3
+  }
+  const STAY_BUCKETS = ['1–2 nights', '3–4 nights', '5–6 nights', '7+ nights']
+
+  // 6. Repeat vs new (all guests)
   const repeatCount = guests.filter(g => g.repeat_guest === true).length
   const guestTotal  = guests.length
   const newCount    = guestTotal - repeatCount
   const repeatPct   = guestTotal > 0 ? Math.round((repeatCount / guestTotal) * 100) : 0
   const newPct      = guestTotal > 0 ? 100 - repeatPct : 0
 
-  // 5. Length of stay
-  const stays: number[] = []
-  gwa.forEach(g => {
-    if (!g.check_in_date || !g.check_out_date) return
-    const nights = Math.round((new Date(g.check_out_date + 'T12:00:00').getTime() - new Date(g.check_in_date + 'T12:00:00').getTime()) / 86400000)
-    if (nights > 0 && nights < 60) stays.push(nights)
+  // Repeat vs First-time comparison (usable guests)
+  const repeatUsable = usableGuests.filter(g => g.repeat_guest === true)
+  const newUsable    = usableGuests.filter(g => g.repeat_guest !== true)
+
+  function avgOf(arr: number[]): string {
+    if (!arr.length) return '—'
+    return (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)
+  }
+  function mostCommonStr(arr: string[]): string {
+    if (!arr.length) return '—'
+    const c: Record<string, number> = {}
+    arr.forEach(v => { c[v] = (c[v] || 0) + 1 })
+    return Object.entries(c).sort(([, a], [, b]) => b - a)[0][0]
+  }
+
+  function comparisonStats(grp: AnalyticsGuest[]) {
+    const ns   = grp.map(g => nightsBetween(g.check_in_date, stayEndOf(g)!))
+    const wts  = grp.filter(g => g.weight > 0).map(g => g.weight)
+    const ages = grp.filter(g => g.age > 0).map(g => g.age)
+    const lvls = grp.filter(g => g.riding_level).map(g => g.riding_level)
+    const incompPct = grp.length > 0
+      ? Math.round((grp.filter(g => (g.horse_assignments || []).some(a => a.incompatible)).length / grp.length) * 100)
+      : 0
+    return {
+      avgNights: avgOf(ns),
+      avgWeight: avgOf(wts),
+      avgAge:    avgOf(ages),
+      topLevel:  mostCommonStr(lvls),
+      incompPct,
+    }
+  }
+  const repeatStats = comparisonStats(repeatUsable)
+  const newStats    = comparisonStats(newUsable)
+
+  // 7. Guest Mix by Week
+  const usableForWeek = guests.filter(g => g.check_in_date && stayEndOf(g))
+  const weekMap: Record<string, {
+    wtSegs: number[]   // indexed by WEIGHT_BANDS + "No weight"
+    ageSegs: number[]  // [Kids, Teens, Adults, 65+, NoAge]
+    firstTime: number
+    repeat: number
+  }> = {}
+
+  usableForWeek.forEach(g => {
+    const cin  = new Date(g.check_in_date + 'T12:00:00')
+    const cout = new Date(stayEndOf(g)! + 'T12:00:00')
+    // Enumerate each week the guest overlaps
+    const startSun = getSundayStr(cin)
+    let cur = new Date(startSun + 'T12:00:00')
+    while (cur <= cout) {
+      const key = toDateStr(cur)
+      if (!weekMap[key]) weekMap[key] = { wtSegs: Array(7).fill(0), ageSegs: Array(5).fill(0), firstTime: 0, repeat: 0 }
+      const wk = weekMap[key]
+      // weight bucket
+      const band = getWeightBand(g.weight as unknown as number | null)
+      if (band) {
+        const idx = WEIGHT_BANDS.findIndex(b => b.key === band.key)
+        if (idx !== -1) wk.wtSegs[idx]++
+      } else {
+        wk.wtSegs[6]++
+      }
+      // age bucket
+      if (!g.age) {
+        wk.ageSegs[4]++
+      } else if (g.age < 13) {
+        wk.ageSegs[0]++
+      } else if (g.age < 18) {
+        wk.ageSegs[1]++
+      } else if (g.age < 65) {
+        wk.ageSegs[2]++
+      } else {
+        wk.ageSegs[3]++
+      }
+      // first vs repeat
+      if (g.repeat_guest === true) wk.repeat++; else wk.firstTime++
+      cur.setDate(cur.getDate() + 7)
+    }
   })
-  const avgStay = stays.length ? (stays.reduce((a, b) => a + b, 0) / stays.length).toFixed(1) : null
-  const stayCounts: Record<number, number> = {}
-  stays.forEach(s => { stayCounts[s] = (stayCounts[s] || 0) + 1 })
-  const mostCommonStay = stays.length ? Object.entries(stayCounts).sort(([, a], [, b]) => b - a)[0] : null
+
+  const allWeekKeys = Object.keys(weekMap).sort().reverse()
+  const SHOW_WEEKS = 12
+  const visibleWeekKeys = showAllWeeks ? allWeekKeys : allWeekKeys.slice(0, SHOW_WEEKS)
+  const maxWeekTotal = Math.max(...allWeekKeys.map(k => {
+    const wk = weekMap[k]
+    return wk.wtSegs.reduce((a, b) => a + b, 0)
+  }), 1)
+
+  // 8. Party Composition
+  const partyMap: Record<string, AnalyticsGuest[]> = {}
+  guests.forEach(g => {
+    if (!g.room_number || !g.check_in_date) return
+    const key = `${g.room_number.trim()}__${g.check_in_date}`
+    if (!partyMap[key]) partyMap[key] = []
+    partyMap[key].push(g)
+  })
+
+  function classifyParty(members: AnalyticsGuest[]): PartyType {
+    if (members.length === 1) return 'Solo'
+    const hasKnownMinor = members.some(m => m.age > 0 && m.age < 18)
+    if (hasKnownMinor) return 'Family'
+    if (members.length === 2) return 'Couple'
+    return 'Group'
+  }
+
+  const partyByMonth: Record<string, Record<PartyType, number>> = {}
+  const partyCountsAll: Record<PartyType, number> = { Solo: 0, Couple: 0, Family: 0, Group: 0 }
+  const partySizes: number[] = []
+
+  Object.values(partyMap).forEach(members => {
+    const type = classifyParty(members)
+    const mm = members[0].check_in_date.slice(0, 7)
+    if (!partyByMonth[mm]) partyByMonth[mm] = { Solo: 0, Couple: 0, Family: 0, Group: 0 }
+    partyByMonth[mm][type]++
+    partyCountsAll[type]++
+    partySizes.push(members.length)
+  })
+
+  const sortedPartyMonths = Object.keys(partyByMonth).sort()
+  const totalParties = partySizes.length
+  const avgPartySize = totalParties > 0 ? (partySizes.reduce((a, b) => a + b, 0) / totalParties).toFixed(1) : '—'
+  const partyGuestsWithRoom = guests.filter(g => g.room_number && g.check_in_date).length
 
   const backBtn = { fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)' as const, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '999px', padding: '6px 14px', cursor: 'pointer' as const, marginBottom: 14, display: 'inline-block' }
   const sec = { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '14px 16px', marginBottom: 14 }
+  const subLabel = { fontSize: 12, fontWeight: 600 as const, color: 'var(--color-text-2)' as const, marginBottom: 6, marginTop: 14 as const }
+  const legendDot = (color: string, label: string) => (
+    <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--color-text-3)' }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
+      {label}
+    </span>
+  )
 
   if (n === 0) return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
@@ -222,7 +476,103 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
         </div>
       </div>
 
-      {/* 3. Flags to watch */}
+      {/* 3. Guest Mix by Week */}
+      <div style={sec}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Guest Mix by Week</div>
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+          Based on {usableForWeek.length} of {guests.length} guests with check-in and check-out dates
+        </p>
+        {visibleWeekKeys.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Not enough data yet.</p>
+        ) : (
+          <>
+            {/* Weight legend */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 6 }}>Weight</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginBottom: 8 }}>
+              {WEIGHT_BANDS.map((b, i) => legendDot(WT_COLORS[i], b.label))}
+              {legendDot(WT_COLORS[6], 'No weight')}
+            </div>
+            {visibleWeekKeys.map(key => {
+              const wk = weekMap[key]
+              const wtTotal = wk.wtSegs.reduce((a, b) => a + b, 0)
+              return (
+                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 52, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{weekLabel(key)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <StackedBar
+                      segments={wk.wtSegs.map((count, i) => ({ color: WT_COLORS[i], count }))}
+                      total={maxWeekTotal}
+                      height={10}
+                    />
+                  </div>
+                  <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{wtTotal}</div>
+                </div>
+              )
+            })}
+
+            {/* Age legend */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 6, marginTop: 14 }}>Age</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginBottom: 8 }}>
+              {AGE_SEGS_DEF.map(s => legendDot(s.color, s.label))}
+            </div>
+            {visibleWeekKeys.map(key => {
+              const wk = weekMap[key]
+              const ageTotal = wk.ageSegs.reduce((a, b) => a + b, 0)
+              return (
+                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 52, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{weekLabel(key)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <StackedBar
+                      segments={wk.ageSegs.map((count, i) => ({ color: AGE_SEGS_DEF[i].color, count }))}
+                      total={maxWeekTotal}
+                      height={10}
+                    />
+                  </div>
+                  <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{ageTotal}</div>
+                </div>
+              )
+            })}
+
+            {/* First vs Repeat */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 6, marginTop: 14 }}>First-time vs Repeat</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginBottom: 8 }}>
+              {legendDot('#93c5fd', 'First-time')}
+              {legendDot('#34d399', 'Repeat')}
+            </div>
+            {visibleWeekKeys.map(key => {
+              const wk = weekMap[key]
+              const frTotal = wk.firstTime + wk.repeat
+              return (
+                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 52, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{weekLabel(key)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <StackedBar
+                      segments={[
+                        { color: '#93c5fd', count: wk.firstTime },
+                        { color: '#34d399', count: wk.repeat },
+                      ]}
+                      total={maxWeekTotal}
+                      height={10}
+                    />
+                  </div>
+                  <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{frTotal}</div>
+                </div>
+              )
+            })}
+
+            {allWeekKeys.length > SHOW_WEEKS && (
+              <button
+                onClick={() => setShowAllWeeks(v => !v)}
+                style={{ marginTop: 8, fontSize: 12, color: 'var(--color-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              >
+                {showAllWeeks ? 'Show less' : `Show all ${allWeekKeys.length} weeks`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 4. Flags to watch */}
       <div style={sec}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Flags to Watch</div>
         <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Horses with 3+ not a fit flags from different guests</p>
@@ -242,45 +592,151 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
         ))}
       </div>
 
-      {/* 4. Busiest checkout days */}
+      {/* 5. Busiest checkout days */}
       <div style={sec}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Busiest Checkout Days</div>
         {sortedDays.length === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Not enough data yet.</p>
         ) : (
           <>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 6 }}>Day of week</div>
+            <div style={subLabel}>Day of week</div>
             {sortedDays.map(d => <AnalyticsBarRow key={d.label} label={d.label} count={d.count} max={maxDay} labelWidth={80} />)}
-            {sortedWeeks.length > 0 && <>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 6, marginTop: 14 }}>Week of month</div>
-              {sortedWeeks.map(w => <AnalyticsBarRow key={w.label} label={w.label} count={w.count} max={maxWom} />)}
-            </>}
+            {sortedWeeksPerDay.length > 0 && (
+              <>
+                <div style={{ ...subLabel, marginTop: 14 }}>Week of month <span style={{ fontWeight: 400, color: 'var(--color-text-3)' }}>(adjusted per day)</span></div>
+                {sortedWeeksPerDay.map(w => {
+                  const barPct = maxPerDay > 0 ? Math.max((w.perDay / maxPerDay) * 100, w.count > 0 ? 2 : 0) : 0
+                  return (
+                    <div key={w.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <div style={{ width: 56, fontSize: 12, color: 'var(--color-text-2)', flexShrink: 0, textAlign: 'right' }}>{w.label}</div>
+                      <div style={{ flex: 1, height: 14, background: 'var(--color-bg)', borderRadius: 3, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--color-accent)', borderRadius: 3 }} />
+                      </div>
+                      <div style={{ width: 110, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-2)' }}>{w.perDay.toFixed(1)}/day</span>
+                        <span style={{ marginLeft: 4 }}>· {w.count}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+                <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 6 }}>Adjusted per day — week 5 only covers days 29–31.</p>
+              </>
+            )}
           </>
         )}
       </div>
 
-      {/* 5. Length of stay */}
+      {/* 6. Length of stay */}
       <div style={sec}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Length of Stay</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Length of Stay</div>
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+          Based on {usableGuests.length} of {guests.length} guests with usable dates
+        </p>
         {!avgStay ? (
           <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Not enough data yet.</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: 26, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{avgStay}</span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>avg nights · {stays.length} guests</span>
-            </div>
-            {mostCommonStay && (
-              <div style={{ fontSize: 13, color: 'var(--color-text-2)' }}>
-                Most common stay: <strong>{mostCommonStay[0]} night{+mostCommonStay[0] !== 1 ? 's' : ''}</strong>
-                <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 6 }}>({mostCommonStay[1]} guests)</span>
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 26, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{avgStay}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>avg nights · {stays.length} guests</span>
               </div>
+              {mostCommonStay && (
+                <div style={{ fontSize: 13, color: 'var(--color-text-2)' }}>
+                  Most common stay: <strong>{mostCommonStay[0]} night{+mostCommonStay[0] !== 1 ? 's' : ''}</strong>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 6 }}>({mostCommonStay[1]} guests)</span>
+                </div>
+              )}
+            </div>
+
+            {sortedStayMonths.length > 0 && (
+              <>
+                <div style={subLabel}>By check-in month</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginBottom: 8 }}>
+                  {STAY_BUCKETS.map((b, i) => legendDot(STAY_BUCKET_COLORS[i], b))}
+                </div>
+                {sortedStayMonths.map(mm => {
+                  const ns = stayByMonth[mm]
+                  const buckets = [0, 0, 0, 0]
+                  ns.forEach(n => { buckets[stayBucketOf(n)]++ })
+                  const avg = (ns.reduce((a, b) => a + b, 0) / ns.length).toFixed(1)
+                  return (
+                    <div key={mm} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{monthLabel(mm)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <StackedBar
+                          segments={buckets.map((count, i) => ({ color: STAY_BUCKET_COLORS[i], count }))}
+                          total={ns.length}
+                          height={10}
+                        />
+                      </div>
+                      <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-2)' }}>{avg}n</span>
+                        <span style={{ marginLeft: 3 }}>· {ns.length}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
             )}
-          </div>
+          </>
         )}
       </div>
 
-      {/* 6. Repeat vs New */}
+      {/* 7. Party Composition */}
+      <div style={sec}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Party Composition</div>
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+          Based on {partyGuestsWithRoom} of {guests.length} guests with room number and check-in date
+        </p>
+        {totalParties === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Not enough data yet.</p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              {PARTY_TYPES.map(pt => (
+                <div key={pt} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '8px 12px', minWidth: 70, textAlign: 'center' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: PARTY_COLORS[pt], margin: '0 auto 4px' }} />
+                  <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{partyCountsAll[pt]}</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>{pt}</div>
+                </div>
+              ))}
+              <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '8px 12px', minWidth: 70, textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{avgPartySize}</div>
+                <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>avg size</div>
+              </div>
+            </div>
+
+            {sortedPartyMonths.length > 0 && (
+              <>
+                <div style={subLabel}>By month</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginBottom: 8 }}>
+                  {PARTY_TYPES.map(pt => legendDot(PARTY_COLORS[pt], pt))}
+                </div>
+                {sortedPartyMonths.map(mm => {
+                  const row = partyByMonth[mm]
+                  const total = PARTY_TYPES.reduce((s, pt) => s + row[pt], 0)
+                  return (
+                    <div key={mm} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{monthLabel(mm)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <StackedBar
+                          segments={PARTY_TYPES.map(pt => ({ color: PARTY_COLORS[pt], count: row[pt] }))}
+                          total={total}
+                          height={10}
+                        />
+                      </div>
+                      <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{total}</div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 8. Repeat vs New */}
       <div style={sec}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Repeat vs New Guests</div>
         {guestTotal === 0 ? (
@@ -309,7 +765,36 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
                 <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{newPct}% of all guests</div>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8 }}>{guestTotal} total guests · active + checked out</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8, marginBottom: 14 }}>{guestTotal} total guests · active + checked out</div>
+
+            {/* Comparison table */}
+            {(repeatUsable.length > 0 || newUsable.length > 0) && (
+              <>
+                <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 8 }}>
+                  Based on {usableGuests.length} of {guests.length} guests with usable dates
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', fontSize: 12 }}>
+                  {/* Header */}
+                  <div style={{ padding: '7px 10px', background: 'var(--color-bg)', fontWeight: 600, color: 'var(--color-text-3)', borderBottom: '1px solid var(--color-border)' }}></div>
+                  <div style={{ padding: '7px 10px', background: 'var(--color-bg)', fontWeight: 600, color: '#34d399', borderBottom: '1px solid var(--color-border)', borderLeft: '1px solid var(--color-border)', textAlign: 'center' }}>Repeat ({repeatUsable.length})</div>
+                  <div style={{ padding: '7px 10px', background: 'var(--color-bg)', fontWeight: 600, color: '#93c5fd', borderBottom: '1px solid var(--color-border)', borderLeft: '1px solid var(--color-border)', textAlign: 'center' }}>First-time ({newUsable.length})</div>
+                  {/* Rows */}
+                  {[
+                    { label: 'Avg nights',   r: repeatStats.avgNights, f: newStats.avgNights },
+                    { label: 'Avg weight',   r: repeatStats.avgWeight, f: newStats.avgWeight },
+                    { label: 'Avg age',      r: repeatStats.avgAge,    f: newStats.avgAge },
+                    { label: 'Top level',    r: repeatStats.topLevel,  f: newStats.topLevel },
+                    { label: '% incompatible', r: `${repeatStats.incompPct}%`, f: `${newStats.incompPct}%` },
+                  ].map((row, i) => (
+                    <>
+                      <div key={`l${i}`} style={{ padding: '6px 10px', color: 'var(--color-text-2)', borderBottom: '1px solid var(--color-border)', background: i % 2 === 0 ? 'transparent' : 'var(--color-bg)' }}>{row.label}</div>
+                      <div key={`r${i}`} style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid var(--color-border)', borderLeft: '1px solid var(--color-border)', background: i % 2 === 0 ? 'transparent' : 'var(--color-bg)', fontWeight: 600 }}>{row.r}</div>
+                      <div key={`f${i}`} style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid var(--color-border)', borderLeft: '1px solid var(--color-border)', background: i % 2 === 0 ? 'transparent' : 'var(--color-bg)', fontWeight: 600 }}>{row.f}</div>
+                    </>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
