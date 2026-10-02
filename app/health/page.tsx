@@ -870,7 +870,7 @@ function QuickFlagForm({ onSave, extraNames = [] }: {
           <HorseAutocomplete value={horseName} onChange={setHorseName} autoFocus={false} extraNames={extraNames} />
         </div>
         <div style={{ flex: '0 0 auto' }}>
-          <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Type</label>
+          <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Flag as:</label>
           <div style={{ display: 'flex', gap: 5 }}>
             {(['lame', 'stiff_sore', 'injured'] as const).map(type => {
               const s = TYPE_STYLES[type]

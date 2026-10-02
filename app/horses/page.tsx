@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { useRole } from '@/lib/auth-context'
 import { DbHorse, HorseSize, LEVEL_LABELS } from '@/lib/horses'
@@ -994,8 +994,16 @@ export default function HorsesPage() {
   const [editingAnimal, setEditingAnimal] = useState<OtherAnimal | null>(null)
   const [promotingAnimal, setPromotingAnimal] = useState<OtherAnimal | null>(null)
 
-  const fetchHorses = useCallback(async () => {
-    setHorsesLoading(true)
+  const [notice, setNotice] = useState<{ message: string; isError: boolean } | null>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function showNotice(message: string, isError = false) {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    setNotice({ message, isError })
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 2500)
+  }
+
+  const fetchHorses = useCallback(async (silent = false) => {
+    if (!silent) setHorsesLoading(true)
     try {
       const res = await fetch('/api/horses')
       const data = await res.json()
@@ -1023,29 +1031,44 @@ export default function HorsesPage() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: horse.id, is_active: !horse.is_active }),
     })
-    fetchHorses()
+    fetchHorses(true)
   }
 
   async function setFlag(horse: DbHorse, flagType: BlockingType, notes: string) {
     setFlagModal(null)
-    await fetch('/api/horse-flags', {
+    const res = await fetch('/api/horse-flags', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ horse_name: horse.name, flag_type: flagType, notes: notes || null }),
     })
-    await fetchHorses()
+    if (res.ok) {
+      showNotice(`${FLAG_DISPLAY[flagType]} flag saved for ${horse.name}`)
+    } else {
+      showNotice(`Failed to flag ${horse.name}`, true)
+    }
+    await fetchHorses(true)
   }
 
   async function clearFlag(horse: DbHorse, flagType: BlockingType) {
-    await fetch(`/api/horse-flags?horse_name=${encodeURIComponent(horse.name)}&flag_type=${flagType}`, { method: 'DELETE' })
-    await fetchHorses()
+    const res = await fetch(`/api/horse-flags?horse_name=${encodeURIComponent(horse.name)}&flag_type=${flagType}`, { method: 'DELETE' })
+    if (res.ok) {
+      showNotice(`Flag cleared for ${horse.name}`)
+    } else {
+      showNotice(`Failed to clear flag for ${horse.name}`, true)
+    }
+    await fetchHorses(true)
   }
 
   async function markFit(horse: DbHorse) {
-    await fetch(`/api/horse-flags?horse_name=${encodeURIComponent(horse.name)}&all=true`, { method: 'DELETE' })
+    const res = await fetch(`/api/horse-flags?horse_name=${encodeURIComponent(horse.name)}&all=true`, { method: 'DELETE' })
     await Promise.all((horse.shoe_flags || []).map(sf =>
       fetch(`/api/shoe-needs?id=${sf.id}`, { method: 'DELETE' })
     ))
-    await fetchHorses()
+    if (res.ok) {
+      showNotice(`Fit — all flags cleared for ${horse.name}`)
+    } else {
+      showNotice(`Failed to clear flags for ${horse.name}`, true)
+    }
+    await fetchHorses(true)
   }
 
   function handleFlagClick(horse: DbHorse, flagType: BlockingType) {
@@ -1065,7 +1088,7 @@ export default function HorsesPage() {
         body: JSON.stringify({ horse_name: horse.name, what_needed: shoeType }),
       })
     }
-    await fetchHorses()
+    await fetchHorses(true)
   }
 
   async function saveHorse(form: EditHorseForm) {
@@ -1098,7 +1121,7 @@ export default function HorsesPage() {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed to update horse') }
     }
     setShowEditModal(false); setEditingHorse(null)
-    await fetchHorses()
+    await fetchHorses(true)
   }
 
   async function demoteHorse(horse: DbHorse) {
@@ -1109,7 +1132,7 @@ export default function HorsesPage() {
       body: JSON.stringify({ name: horse.name, group_name: 'Retirees', notes: horse.notes || null }),
     })
     await fetch(`/api/horses?id=${horse.id}`, { method: 'DELETE' })
-    await fetchHorses()
+    await fetchHorses(true)
   }
 
   async function handleOtherDelete(animal: OtherAnimal) {
@@ -1118,7 +1141,7 @@ export default function HorsesPage() {
   }
 
   async function handleOtherSaved() {
-    setShowOtherModal(false); setEditingAnimal(null); await Promise.all([fetchAnimals(), fetchHorses()])
+    setShowOtherModal(false); setEditingAnimal(null); await Promise.all([fetchAnimals(), fetchHorses(true)])
   }
 
   const q = search.toLowerCase()
@@ -1391,6 +1414,20 @@ export default function HorsesPage() {
 
       </main>
 
+      {/* Flag confirmation toast */}
+      {notice && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          padding: '10px 18px', borderRadius: 'var(--radius-md)', fontSize: 13, fontWeight: 600,
+          background: notice.isError ? '#dc2626' : '#1d4ed8', color: '#fff',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+          zIndex: 500, whiteSpace: 'nowrap',
+          animation: 'rosterNoticeIn 0.2s ease',
+        }}>
+          {notice.message}
+        </div>
+      )}
+
       {/* Edit modal */}
       {showEditModal && (
         <EditHorseModal
@@ -1426,6 +1463,7 @@ export default function HorsesPage() {
 
       <style dangerouslySetInnerHTML={{ __html: `
         .horse-list-row:hover { background: var(--color-bg) !important; }
+        @keyframes rosterNoticeIn { from { opacity: 0; transform: translateX(-50%) translateY(8px) } to { opacity: 1; transform: translateX(-50%) translateY(0) } }
         @media (max-width: 768px) {
           main > div[style*="padding"] { padding: 12px !important; }
         }
