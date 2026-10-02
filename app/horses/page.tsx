@@ -168,7 +168,7 @@ type EditHorseForm = {
   is_draft: boolean; takes_kids: boolean
 }
 
-function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today, isViewer }: {
+function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today, isViewer, notice }: {
   horse: Partial<DbHorse> | null; mode: 'new' | 'edit' | 'promote'
   onSave: (form: EditHorseForm) => Promise<void>; onClose: () => void
   onFlagClick?: (flagType: BlockingType) => void
@@ -176,6 +176,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
   onMarkFit?: () => void
   today?: string
   isViewer?: boolean
+  notice?: { message: string; isError: boolean } | null
 }) {
   const isNew = mode === 'new'
   const isPromote = mode === 'promote'
@@ -339,6 +340,18 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
                     Mark Fit ✓ — Clear all flags
                   </button>
                 )}
+              </div>
+            )}
+            {notice && (
+              <div style={{
+                marginTop: 10, padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                fontSize: 12, fontWeight: 500,
+                background: notice.isError ? 'var(--color-danger-bg)' : 'var(--color-success-bg)',
+                color: notice.isError ? 'var(--color-danger)' : 'var(--color-success)',
+                border: `1px solid ${notice.isError ? 'var(--color-danger-border)' : 'var(--color-success-border)'}`,
+                animation: 'rosterNoticeIn 0.2s ease',
+              }}>
+                {notice.message}
               </div>
             )}
           </div>
@@ -1414,20 +1427,6 @@ export default function HorsesPage() {
 
       </main>
 
-      {/* Flag confirmation toast */}
-      {notice && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          padding: '10px 18px', borderRadius: 'var(--radius-md)', fontSize: 13, fontWeight: 600,
-          background: notice.isError ? '#dc2626' : '#1d4ed8', color: '#fff',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-          zIndex: 500, whiteSpace: 'nowrap',
-          animation: 'rosterNoticeIn 0.2s ease',
-        }}>
-          {notice.message}
-        </div>
-      )}
-
       {/* Edit modal */}
       {showEditModal && (
         <EditHorseModal
@@ -1436,6 +1435,7 @@ export default function HorsesPage() {
           onClose={() => { setShowEditModal(false); setEditingHorse(null); setPromotingAnimal(null) }}
           today={today}
           isViewer={isViewer}
+          notice={notice}
           onFlagClick={editMode === 'edit' && editingHorse ? (type => { handleFlagClick(editingHorse as DbHorse, type) }) : undefined}
           onShoeClick={editMode === 'edit' && editingHorse ? (st => { handleShoeClick(editingHorse as DbHorse, st) }) : undefined}
           onMarkFit={editMode === 'edit' && editingHorse ? (() => { markFit(editingHorse as DbHorse) }) : undefined}
@@ -1463,7 +1463,7 @@ export default function HorsesPage() {
 
       <style dangerouslySetInnerHTML={{ __html: `
         .horse-list-row:hover { background: var(--color-bg) !important; }
-        @keyframes rosterNoticeIn { from { opacity: 0; transform: translateX(-50%) translateY(8px) } to { opacity: 1; transform: translateX(-50%) translateY(0) } }
+        @keyframes rosterNoticeIn { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: translateY(0) } }
         @media (max-width: 768px) {
           main > div[style*="padding"] { padding: 12px !important; }
         }
