@@ -29,7 +29,7 @@ type Assignment = {
   incompatible: boolean; requested_by_guest: boolean; reason: string
 }
 
-type SwapTarget = { horseName: string; assignmentId: string }
+type SwapTarget = { horseName: string; assignmentId: string; assignmentType: string }
 
 type Guest = {
   id: string; name: string; room_number: string; check_in_date: string
@@ -167,12 +167,16 @@ export default function GuestsPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [returningGuestNames, setReturningGuestNames] = useState<Set<string>>(new Set())
   const [swapTarget, setSwapTarget] = useState<SwapTarget | null>(null)
-  const [swapStep, setSwapStep] = useState<1 | 2>(1)
+  const [swapStep, setSwapStep] = useState<1 | 2 | 3>(1)
   const [swapCategory, setSwapCategory] = useState<'guest_request' | 'horse_issue' | 'staff' | null>(null)
   const [swapReason, setSwapReason] = useState<string | null>(null)
   const [swapNote, setSwapNote] = useState('')
   const [swapHealthFlag, setSwapHealthFlag] = useState(true)
   const [swapSaving, setSwapSaving] = useState(false)
+  const [swapMatches, setSwapMatches] = useState<Match[]>([])
+  const [swapMatchLoading, setSwapMatchLoading] = useState(false)
+  const [swapPickSaving, setSwapPickSaving] = useState(false)
+  const [swapPickError, setSwapPickError] = useState<string | null>(null)
   const [assignAllPastRideMap, setAssignAllPastRideMap] = useState<Record<string, Record<string, PastRideDetail>>>({})
   // Active / History view toggle
   const [guestViewMode, setGuestViewMode] = useState<'active' | 'history'>('active')
@@ -193,6 +197,7 @@ export default function GuestsPage() {
   const [guestLimitDismissed, setGuestLimitDismissed] = useState(false)
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const matchAbortRef = useRef<AbortController | null>(null)
+  const swapAbortRef = useRef<AbortController | null>(null)
 
   const today = getTucsonToday()
   const tomorrowStr = getTucsonTomorrow()
@@ -350,6 +355,29 @@ export default function GuestsPage() {
     } catch (err) { if ((err as Error).name !== 'AbortError') console.error(err) } finally { if (!abort.signal.aborted) setMatchLoading(false) }
   }
 
+  async function runSwapMatch(guest: Guest, swappedHorse: string) {
+    if (!guest.age || !guest.weight || !guest.height || !guest.riding_level) return
+    swapAbortRef.current?.abort()
+    const abort = new AbortController()
+    swapAbortRef.current = abort
+    setSwapMatchLoading(true); setSwapMatches([])
+    try {
+      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: `${guest.notes || ''}${guest.horse_request ? ' Horse request: ' + guest.horse_request : ''}`, guestId: guest.id, dismissedHorses: [swappedHorse] }), signal: abort.signal })
+      if (!res.body) { const data = await res.json(); if (data.matches) setSwapMatches(data.matches); return }
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n'); buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try { const parsed = JSON.parse(line.slice(6)); if (parsed.type === 'match') setSwapMatches(prev => [...prev, parsed.match]) } catch {}
+        }
+      }
+    } catch (err) { if ((err as Error).name !== 'AbortError') console.error(err) }
+    finally { if (!abort.signal.aborted) setSwapMatchLoading(false) }
+  }
+
   async function dismissHorse(name: string) {
     const newDismissed = [...dismissedHorses, name]; setDismissedHorses(newDismissed); setMatches(prev => prev.filter(m => m.name !== name))
     if (!selectedGuest) return
@@ -386,6 +414,23 @@ export default function GuestsPage() {
     } catch (err) { console.error(err) } finally { setAssigningHorse(null) }
   }
 
+  async function assignSwapHorse(horseName: string) {
+    if (!selectedGuest || !swapTarget) return
+    const { assignmentType } = swapTarget
+    const guest = selectedGuest
+    setSwapPickSaving(true); setSwapPickError(null)
+    try {
+      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guest.id, horse_name: horseName, assignment_type: assignmentType, status: 'active', incompatible: false, requested_by_guest: false }) })
+      await logHistory(guest.name, guest.id, horseName, assignmentType, 'manual')
+      await Promise.all([fetchGuests(), fetchGuestHistory(guest.id)])
+      resetSwap()
+      runMatch(guest, dismissedHorses)
+    } catch (err) {
+      setSwapPickError('Failed to assign horse. Please try again.')
+      console.error(err)
+    } finally { setSwapPickSaving(false) }
+  }
+
   async function removeAssignment(id: string) { try { await fetch(`/api/assignments?id=${id}`, { method: 'DELETE' }); await fetchGuests() } catch (err) { console.error(err) } }
 
   async function updateAssignmentType(assignmentId: string, currentType: string) {
@@ -396,12 +441,17 @@ export default function GuestsPage() {
   }
 
   function resetSwap() {
+    swapAbortRef.current?.abort()
     setSwapTarget(null)
     setSwapStep(1)
     setSwapCategory(null)
     setSwapReason(null)
     setSwapNote('')
     setSwapHealthFlag(true)
+    setSwapMatches([])
+    setSwapMatchLoading(false)
+    setSwapPickSaving(false)
+    setSwapPickError(null)
   }
 
   async function performSwap() {
@@ -453,7 +503,8 @@ export default function GuestsPage() {
 
       await fetchGuests()
       await fetchGuestHistory(selectedGuest.id)
-      resetSwap()
+      setSwapStep(3)
+      runSwapMatch(selectedGuest, horseName)
     } catch (err) { console.error(err) }
     finally { setSwapSaving(false) }
   }
@@ -825,7 +876,7 @@ export default function GuestsPage() {
                               <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
                               <button onClick={() => updateAssignmentType(a.id, a.assignment_type)} title="Tap to cycle: primary → secondary → additional" style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600, cursor: 'pointer', border: 'none' }}>{a.assignment_type} ↻</button>
                             </div>
-                            <button onClick={() => setSwapTarget({ horseName: a.horse_name, assignmentId: a.id })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Swap horse</button>
+                            <button onClick={() => setSwapTarget({ horseName: a.horse_name, assignmentId: a.id, assignmentType: a.assignment_type })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Swap horse</button>
                             <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
                           </div>
                         )
@@ -1214,7 +1265,7 @@ export default function GuestsPage() {
       {/* Swap horse modal */}
       {swapTarget && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
-          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 420 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: swapStep === 3 ? 600 : 420 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
               <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Swap horse — {swapTarget.horseName}</h3>
               <button onClick={resetSwap} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', lineHeight: 1 }}>✕</button>
@@ -1303,6 +1354,80 @@ export default function GuestsPage() {
                   >
                     {swapSaving ? 'Swapping...' : 'Confirm swap'}
                   </button>
+                </div>
+              </>
+            )}
+
+            {swapStep === 3 && swapTarget && (
+              <>
+                <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 14 }}>
+                  Pick a replacement for <strong>{swapTarget.horseName}</strong> ({swapTarget.assignmentType})
+                </p>
+
+                <div style={{ maxHeight: 400, overflowY: 'auto', marginBottom: 12 }}>
+                  {/* Free horses group */}
+                  {swapMatches.filter(m => m.availability === 'available').length > 0 && (
+                    <>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, position: 'sticky', top: 0, background: 'var(--color-surface)', paddingBottom: 4 }}>Free horses</p>
+                      {swapMatches.filter(m => m.availability === 'available').map(m => (
+                        <div key={m.name} style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 8, background: 'var(--color-bg)' }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 15 }}>🐴</span>
+                            <div style={{ flex: 1 }}><span style={{ fontWeight: 600, fontSize: 13 }}>{m.name}</span></div>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: m.fit === 'exact' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: m.fit === 'exact' ? 'var(--color-success)' : 'var(--color-warning)' }}>{m.fit === 'exact' ? 'Exact' : 'Adjacent'}</span>
+                              {m.shoeWarning === 'red' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600, border: '1px solid #fca5a5' }}>🔴 Shoes</span>}
+                              {m.shoeWarning === 'amber' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d' }}>🟠 Shoes</span>}
+                            </div>
+                          </div>
+                          <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: 8 }}>{m.reason}</p>
+                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapPickSaving} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapPickSaving ? 'not-allowed' : 'pointer', opacity: swapPickSaving ? 0.6 : 1 }}>{swapPickSaving ? 'Assigning...' : 'Assign'}</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Would share group */}
+                  {swapMatches.filter(m => m.availability === 'single_assigned').length > 0 && (
+                    <>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-warning)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, marginTop: swapMatches.filter(m => m.availability === 'available').length > 0 ? 12 : 0, position: 'sticky', top: 0, background: 'var(--color-surface)', paddingBottom: 4 }}>Would share (1 rider already)</p>
+                      {swapMatches.filter(m => m.availability === 'single_assigned').map(m => (
+                        <div key={m.name} style={{ border: '1px solid var(--color-warning-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 8, background: 'var(--color-warning-bg)' }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 15 }}>🐴</span>
+                            <div style={{ flex: 1 }}><span style={{ fontWeight: 600, fontSize: 13 }}>{m.name}</span></div>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>1 rider</span>
+                              <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: m.fit === 'exact' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: m.fit === 'exact' ? 'var(--color-success)' : 'var(--color-warning)' }}>{m.fit === 'exact' ? 'Exact' : 'Adjacent'}</span>
+                              {m.shoeWarning === 'red' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', fontWeight: 600, border: '1px solid #fca5a5' }}>🔴 Shoes</span>}
+                              {m.shoeWarning === 'amber' && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fcd34d' }}>🟠 Shoes</span>}
+                            </div>
+                          </div>
+                          <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 6 : 8 }}>{m.reason}</p>
+                          {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 8 }}>⚠ {m.warning}</p>}
+                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapPickSaving} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapPickSaving ? 'not-allowed' : 'pointer', opacity: swapPickSaving ? 0.6 : 1 }}>{swapPickSaving ? 'Assigning...' : 'Assign'}</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {swapMatchLoading && (
+                    <p style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: '8px 0', fontStyle: 'italic' }}>
+                      {swapMatches.length === 0 ? 'Finding matches...' : 'Finding more...'}
+                    </p>
+                  )}
+
+                  {!swapMatchLoading && swapMatches.filter(m => m.availability !== 'double_assigned').length === 0 && (
+                    <p style={{ fontSize: 13, color: 'var(--color-text-3)', textAlign: 'center', padding: '24px 0' }}>No suitable horses found.</p>
+                  )}
+                </div>
+
+                {swapPickError && (
+                  <p style={{ fontSize: 12, color: 'var(--color-danger)', marginBottom: 10 }}>{swapPickError}</p>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={resetSwap} style={{ padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Skip — assign later</button>
                 </div>
               </>
             )}
