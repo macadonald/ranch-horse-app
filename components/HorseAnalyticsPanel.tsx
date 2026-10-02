@@ -128,7 +128,7 @@ export function HorseTrends({ horseName }: { horseName: string }) {
       {doesntWorkList.length > 0 && (
         <div style={{ marginBottom: 14, padding: '9px 11px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 'var(--radius-sm)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#c2410c', marginBottom: topReason ? 2 : 0 }}>
-            ⚠ {doesntWorkList.length} incompatible flag{doesntWorkList.length !== 1 ? 's' : ''} from {doesntWorkList.length} guest{doesntWorkList.length !== 1 ? 's' : ''}
+            ⚠ {doesntWorkList.length} not a fit flag{doesntWorkList.length !== 1 ? 's' : ''} from {doesntWorkList.length} guest{doesntWorkList.length !== 1 ? 's' : ''}
           </div>
           {topReason && <div style={{ fontSize: 11, color: '#9a3412' }}>Most common: {topReason}</div>}
         </div>

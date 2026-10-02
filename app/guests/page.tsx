@@ -27,8 +27,9 @@ const LEVEL_LABELS: Record<string, string> = {
 type Assignment = {
   id: string; horse_name: string; assignment_type: string; status: string
   incompatible: boolean; requested_by_guest: boolean; reason: string
-  loves_horse?: boolean
 }
+
+type SwapTarget = { horseName: string; assignmentId: string }
 
 type Guest = {
   id: string; name: string; room_number: string; check_in_date: string
@@ -165,9 +166,13 @@ export default function GuestsPage() {
   const [guestHistory, setGuestHistory] = useState<HistoryRecord[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [returningGuestNames, setReturningGuestNames] = useState<Set<string>>(new Set())
-  const [lovesMap, setLovesMap] = useState<Record<string, string>>({})
-  const [doesntWorkTarget, setDoesntWorkTarget] = useState<{ horseName: string; assignmentId: string } | null>(null)
-  const [doesntWorkReason, setDoesntWorkReason] = useState('')
+  const [swapTarget, setSwapTarget] = useState<SwapTarget | null>(null)
+  const [swapStep, setSwapStep] = useState<1 | 2>(1)
+  const [swapCategory, setSwapCategory] = useState<'guest_request' | 'horse_issue' | 'staff' | null>(null)
+  const [swapReason, setSwapReason] = useState<string | null>(null)
+  const [swapNote, setSwapNote] = useState('')
+  const [swapHealthFlag, setSwapHealthFlag] = useState(true)
+  const [swapSaving, setSwapSaving] = useState(false)
   const [assignAllPastRideMap, setAssignAllPastRideMap] = useState<Record<string, Record<string, PastRideDetail>>>({})
   // Active / History view toggle
   const [guestViewMode, setGuestViewMode] = useState<'active' | 'history'>('active')
@@ -204,12 +209,6 @@ export default function GuestsPage() {
       if (guestRes.rowLimitStatus) { setGuestLimitStatus(guestRes.rowLimitStatus); setGuestLimitDismissed(false) }
       setDbHorses(horsesRes.horses || [])
       setReturningGuestNames(new Set((returningRes.names || []).map((n: string) => n.toLowerCase())))
-      const newLovesMap: Record<string, string> = {}
-      for (const item of returningRes.lovesItems || []) {
-        newLovesMap[(item.guest_name as string).toLowerCase()] = item.horse_name
-      }
-      setLovesMap(newLovesMap)
-
       // Auto-checkout guests whose check_out_date is in the past
       const tucsonToday = getTucsonToday()
       const overdue = allGuests.filter(g => g.check_out_date && g.check_out_date < tucsonToday && !g.checked_out)
@@ -261,40 +260,6 @@ export default function GuestsPage() {
         body: JSON.stringify({ guest_name: guestName, guest_id: guestId, horse_name: horseName, assignment_type: assignmentType, assigned_date: today, source })
       })
     } catch {}
-  }
-
-  async function setLovesHorse(assignmentId: string, horseName: string, currentLoves: boolean) {
-    if (!selectedGuest) return
-    const newLoves = !currentLoves
-    // Optimistic update — toggle immediately so the button responds without waiting for the DB round-trip
-    setGuests(prev => prev.map(g => g.id === selectedGuest.id ? {
-      ...g,
-      horse_assignments: g.horse_assignments?.map(ha => ha.id === assignmentId ? { ...ha, loves_horse: newLoves } : ha)
-    } : g))
-    // Write to horse_assignments so the value comes back with the guest on next load
-    await fetch('/api/assignments', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: assignmentId, loves_horse: newLoves })
-    })
-    // Also write to assignment_history for long-term memory across stays
-    let histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
-    if (!histRec) {
-      try {
-        const res = await fetch('/api/assignment-history', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ guest_name: selectedGuest.name, guest_id: selectedGuest.id, horse_name: horseName, assignment_type: 'primary', assigned_date: today, source: 'loves_toggle' })
-        })
-        const data = await res.json()
-        histRec = data.record
-      } catch {}
-    }
-    if (histRec) {
-      await fetch('/api/assignment-history', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: histRec.id, loves_horse: newLoves })
-      })
-    }
-    await fetchGuestHistory(selectedGuest.id)
   }
 
   async function clearDoesntWork(horseName: string, assignmentId: string) {
@@ -430,23 +395,67 @@ export default function GuestsPage() {
     await fetchGuests()
   }
 
-  async function markIncompatible(horseName: string, assignmentId: string, reason?: string) {
-    if (!selectedGuest) return
+  function resetSwap() {
+    setSwapTarget(null)
+    setSwapStep(1)
+    setSwapCategory(null)
+    setSwapReason(null)
+    setSwapNote('')
+    setSwapHealthFlag(true)
+  }
+
+  async function performSwap() {
+    if (!selectedGuest || !swapTarget || !swapCategory) return
+    const { horseName, assignmentId } = swapTarget
+    setSwapSaving(true)
     try {
+      const incompatible = swapCategory === 'guest_request'
       await fetch('/api/assignments', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: assignmentId, incompatible: true, status: 'removed', reason: reason || null })
-      })
-      const histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
-      if (histRec) {
-        await fetch('/api/assignment-history', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: histRec.id, doesnt_work: true, doesnt_work_reason: reason || null })
+        body: JSON.stringify({
+          id: assignmentId,
+          incompatible,
+          status: 'removed',
+          swap_category: swapCategory,
+          swap_reason: swapReason || null,
+          reason: swapNote.trim() || null,
+          removed_at: new Date().toISOString(),
         })
+      })
+
+      // Legacy doesnt_work write — Guest request only
+      if (swapCategory === 'guest_request') {
+        const histRec = guestHistory.find(h => h.horse_name === horseName && !h.doesnt_work)
+        if (histRec) {
+          await fetch('/api/assignment-history', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: histRec.id, doesnt_work: true, doesnt_work_reason: swapNote.trim() || null })
+          })
+        }
       }
-      await fetchGuests(); await fetchGuestHistory(selectedGuest.id)
-      setDoesntWorkTarget(null); setDoesntWorkReason('')
+
+      // Health flag for Horse issue → Lame or Sore (does not block swap on failure)
+      if (swapHealthFlag && swapCategory === 'horse_issue' && (swapReason === 'lame' || swapReason === 'sore')) {
+        const flagType = swapReason === 'lame' ? 'lame' : 'stiff_sore'
+        try {
+          const flagsRes = await fetch('/api/lame').then(r => r.json())
+          const alreadyActive = (flagsRes.flags || []).some(
+            (f: any) => f.horse_name === horseName && f.flag_type === flagType && f.status === 'active'
+          )
+          if (!alreadyActive) {
+            await fetch('/api/lame', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ horse_name: horseName, flag_type: flagType, notes: swapNote.trim() || null })
+            })
+          }
+        } catch { /* health flag failure must not block swap */ }
+      }
+
+      await fetchGuests()
+      await fetchGuestHistory(selectedGuest.id)
+      resetSwap()
     } catch (err) { console.error(err) }
+    finally { setSwapSaving(false) }
   }
 
   async function deleteGuest(id: string) {
@@ -665,13 +674,12 @@ export default function GuestsPage() {
                       const _activeAssigns = guest.horse_assignments?.filter(a => a.status === 'active' && !a.incompatible) ?? []
                       const primary = _activeAssigns.find(a => a.assignment_type === 'primary') ?? _activeAssigns.find(a => a.assignment_type === 'secondary') ?? _activeAssigns[0]
                       const isReturning = returningGuestNames.has(guest.name.toLowerCase())
-                      const lovesHorse = lovesMap[guest.name.toLowerCase()]
                       if (guestGridView) {
                         return (
                           <div key={guest.id} onClick={() => openGuest(guest)} style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', border: `1px solid ${selectedGuest?.id === guest.id ? 'var(--color-accent)' : 'var(--color-border)'}`, background: 'var(--color-surface)', cursor: 'pointer' }}>
                             <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{guest.name}</div>
                             <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>Rm {guest.room_number}</div>
-                            {primary && <div style={{ fontSize: 10, color: 'var(--color-accent)', marginTop: 2 }}>🐴 {primary.horse_name}{lovesHorse === primary.horse_name ? ' ❤️' : ''}</div>}
+                            {primary && <div style={{ fontSize: 10, color: 'var(--color-accent)', marginTop: 2 }}>🐴 {primary.horse_name}</div>}
                             {!primary && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 2 }}>Unassigned</div>}
                             <div style={{ marginTop: 3, display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                               <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 600 }}>{guest.riding_level}</span>
@@ -688,7 +696,7 @@ export default function GuestsPage() {
                             <div style={{ minWidth: 0, flex: 1 }}>
                               <div style={{ fontWeight: 600, fontSize: 14 }}>{guest.name}</div>
                               <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 1 }}>Room {guest.room_number} · {LEVEL_LABELS[guest.riding_level] || guest.riding_level}{guest.gender ? ' · ' + guest.gender : ''}</div>
-                              {primary && <div style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 2, fontWeight: 500 }}>🐴 {primary.horse_name}{lovesHorse === primary.horse_name ? ' ❤️' : ''}</div>}
+                              {primary && <div style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 2, fontWeight: 500 }}>🐴 {primary.horse_name}</div>}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', flexShrink: 0, marginLeft: 6 }}>
                               {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
@@ -810,8 +818,6 @@ export default function GuestsPage() {
                     <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Horses</h3>
                     {activeAssignments.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>None assigned yet</p>
                       : activeAssignments.map((a, i) => {
-                        const histRec = guestHistory.find(h => h.horse_name === a.horse_name && !h.doesnt_work)
-                        const isLoved = a.loves_horse ?? histRec?.loves_horse ?? false
                         return (
                           <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 7, background: 'var(--color-bg)' }}>
                             <span style={{ fontSize: 16 }}>🐴</span>
@@ -819,9 +825,7 @@ export default function GuestsPage() {
                               <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
                               <button onClick={() => updateAssignmentType(a.id, a.assignment_type)} title="Tap to cycle: primary → secondary → additional" style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600, cursor: 'pointer', border: 'none' }}>{a.assignment_type} ↻</button>
                             </div>
-                            {/* Loves this horse toggle — always shown for any active assignment */}
-                            <button onClick={() => setLovesHorse(a.id, a.horse_name, isLoved)} title={isLoved ? 'Remove loves signal' : 'Mark as loves this horse'} style={{ fontSize: 15, background: isLoved ? '#fda4af' : 'var(--color-bg)', border: '1px solid', borderColor: isLoved ? '#fb7185' : 'var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: '2px 7px', lineHeight: 1.3 }}>❤️</button>
-                            <button onClick={() => setDoesntWorkTarget({ horseName: a.horse_name, assignmentId: a.id })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Doesn&apos;t work</button>
+                            <button onClick={() => setSwapTarget({ horseName: a.horse_name, assignmentId: a.id })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Swap horse</button>
                             <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
                           </div>
                         )
@@ -830,7 +834,7 @@ export default function GuestsPage() {
                     {/* Doesn't work pills with clear option */}
                     {incompatibleHorses.length > 0 && (
                       <div style={{ marginTop: 10 }}>
-                        <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Doesn&apos;t work with:</p>
+                        <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Not a fit:</p>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                           {incompatibleHorses.map(a => (
                             <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
@@ -869,7 +873,7 @@ export default function GuestsPage() {
                       : <>{matches.map((m, i) => {
                         const isDouble = m.availability === 'double_assigned'; const isSingle = m.availability === 'single_assigned'
                         return (
-                          <div key={m.name} style={{ border: `1px solid ${m.lovesThisHorse ? '#fda4af' : isDouble ? 'var(--color-warning-border)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '11px 13px', marginBottom: 9, background: m.lovesThisHorse ? '#fff1f2' : isDouble ? 'var(--color-warning-bg)' : 'var(--color-bg)' }}>
+                          <div key={m.name} style={{ border: `1px solid ${isDouble ? 'var(--color-warning-border)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '11px 13px', marginBottom: 9, background: isDouble ? 'var(--color-warning-bg)' : 'var(--color-bg)' }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 7 }}>
                               <span style={{ fontSize: 16 }}>🐴</span>
                               <div style={{ flex: 1 }}><span style={{ fontWeight: 600, fontSize: 13 }}>{m.name}</span></div>
@@ -878,8 +882,7 @@ export default function GuestsPage() {
                                 <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: m.fit === 'exact' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: m.fit === 'exact' ? 'var(--color-success)' : 'var(--color-warning)' }}>{m.fit === 'exact' ? 'Exact' : 'Adjacent'}</span>
                                 {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>Double</span>}
                                 {isSingle && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Assigned</span>}
-                                {m.lovesThisHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fda4af', color: '#9f1239', fontWeight: 600, border: '1px solid #fb7185' }}>❤️ Loves</span>}
-                                {m.rodeThisBefore && !m.lovesThisHorse && (
+                                {m.rodeThisBefore && (
                                   <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd' }}>
                                     {m.pastMatchQuality === 1 ? '✓ Good match' : '🔄 Rode before'}
                                   </span>
@@ -907,8 +910,7 @@ export default function GuestsPage() {
                         : guestHistory.map(rec => (
                           <div key={rec.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--color-border)' }}>
                             <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>🐴 {rec.horse_name}</span>
-                            {rec.loves_horse && <span style={{ fontSize: 13 }}>❤️</span>}
-                            {rec.match_quality === 1 && !rec.loves_horse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600 }}>Good match</span>}
+                            {rec.match_quality === 1 && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600 }}>Good match</span>}
                             <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{rec.assigned_date}</span>
                             {rec.doesnt_work && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>{rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "Didn't work"}</span>}
                           </div>
@@ -949,7 +951,6 @@ export default function GuestsPage() {
                     // Only treat as "has ride records" when there are real horse names — guests with empty horse_assignments
                     // always appear in archivedGuests, so agRaw alone isn't enough to know rides exist.
                     const ag = agRaw?.records.some(r => r.horse_name && r.horse_name !== '—') ? agRaw : null
-                    const lovesRecs = agRaw?.records.filter(r => r.loves_horse) || []
                     const doesntWorkRecs = agRaw?.records.filter(r => r.doesnt_work) || []
                     const goodRecs = agRaw?.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse) || []
                     const uniqueHorses = agRaw?.records.map(r => r.horse_name).filter((n, i, a) => a.indexOf(n) === i) || []
@@ -968,7 +969,6 @@ export default function GuestsPage() {
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-3)', paddingTop: 2 }}>{(g.checked_out_at || '').slice(0, 10)}</div>
                         <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start', paddingTop: 2, justifyContent: 'flex-end' }}>
-                          {lovesRecs.length > 0 && <span title={`Loves: ${lovesRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 12 }}>❤️</span>}
                           {goodRecs.length > 0 && <span title={`Good match: ${goodRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 700 }}>✓</span>}
                           {doesntWorkRecs.length > 0 && <span title={`Didn't work: ${doesntWorkRecs.map(r => r.horse_name).join(', ')}`} style={{ fontSize: 11, color: '#dc2626', fontWeight: 700 }}>✗</span>}
                         </div>
@@ -1020,12 +1020,10 @@ export default function GuestsPage() {
                     </p>
                     {/* Signal summary line */}
                     {(() => {
-                      const lv = selectedArchived.records.filter(r => r.loves_horse).map(r => r.horse_name)
                       const dw = selectedArchived.records.filter(r => r.doesnt_work).map(r => r.horse_name)
                       const gm = selectedArchived.records.filter(r => !r.doesnt_work && r.match_quality === 1 && !r.loves_horse).map(r => r.horse_name)
-                      return (lv.length > 0 || dw.length > 0 || gm.length > 0) ? (
+                      return (dw.length > 0 || gm.length > 0) ? (
                         <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
-                          {lv.length > 0 && <span style={{ fontSize: 12, color: '#9f1239', fontWeight: 600 }}>❤️ Loves: {lv.filter((n, i, a) => a.indexOf(n) === i).join(', ')}</span>}
                           {gm.length > 0 && <span style={{ fontSize: 12, color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match: {gm.filter((n, i, a) => a.indexOf(n) === i).join(', ')}</span>}
                           {dw.length > 0 && <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>✗ Didn't work: {dw.filter((n, i, a) => a.indexOf(n) === i).join(', ')}</span>}
                         </div>
@@ -1081,8 +1079,7 @@ export default function GuestsPage() {
                             <td style={{ padding: '9px 8px', fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{rec.assigned_date}</td>
                             <td style={{ padding: '9px 8px', fontSize: 13, fontWeight: 500 }}>{rec.horse_name}</td>
                             <td style={{ padding: '9px 8px', fontSize: 12 }}>
-                              {rec.loves_horse && <span style={{ color: '#e11d48', fontWeight: 600 }}>❤️ Loves</span>}
-                              {rec.match_quality === 1 && !rec.loves_horse && <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match</span>}
+                              {rec.match_quality === 1 && <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ Good match</span>}
                               {rec.doesnt_work && <span style={{ color: '#dc2626', fontWeight: 600 }}>{rec.doesnt_work_reason ? `✗ ${rec.doesnt_work_reason}` : "✗ Didn't work"}</span>}
                             </td>
                             <td style={{ padding: '9px 8px', fontSize: 11, color: 'var(--color-text-3)', textTransform: 'capitalize' }}>{rec.assignment_type}</td>
@@ -1214,17 +1211,101 @@ export default function GuestsPage() {
 
       {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)} />}
 
-      {/* Doesn't work reason modal */}
-      {doesntWorkTarget && (
+      {/* Swap horse modal */}
+      {swapTarget && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
-          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 360 }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Why doesn&apos;t {doesntWorkTarget.horseName} work?</h3>
-            <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12 }}>Optional — leave blank if no specific reason</p>
-            <input placeholder="e.g. Too spirited, scared of them, fell off..." value={doesntWorkReason} onChange={e => setDoesntWorkReason(e.target.value)} onKeyDown={e => e.key === 'Enter' && markIncompatible(doesntWorkTarget.horseName, doesntWorkTarget.assignmentId, doesntWorkReason)} autoFocus style={{ width: '100%', fontSize: 13, marginBottom: 14 }} />
-            <div style={{ display: 'flex', gap: 9 }}>
-              <button onClick={() => { setDoesntWorkTarget(null); setDoesntWorkReason('') }} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
-              <button onClick={() => markIncompatible(doesntWorkTarget.horseName, doesntWorkTarget.assignmentId, doesntWorkReason)} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Mark — Doesn&apos;t Work</button>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 420 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>Swap horse — {swapTarget.horseName}</h3>
+              <button onClick={resetSwap} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', lineHeight: 1 }}>✕</button>
             </div>
+
+            {swapStep === 1 && (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 14 }}>Why are we swapping?</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+                  {([
+                    { key: 'guest_request', label: 'Guest request' },
+                    { key: 'horse_issue',   label: 'Horse issue' },
+                    { key: 'staff',         label: 'Staff decision' },
+                  ] as const).map(cat => (
+                    <button
+                      key={cat.key}
+                      onClick={() => setSwapCategory(cat.key)}
+                      style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', border: `2px solid ${swapCategory === cat.key ? 'var(--color-accent)' : 'var(--color-border)'}`, background: swapCategory === cat.key ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: swapCategory === cat.key ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: swapCategory === cat.key ? 600 : 400, cursor: 'pointer', textAlign: 'left' }}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 9 }}>
+                  <button onClick={resetSwap} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
+                  <button onClick={() => swapCategory && setSwapStep(2)} disabled={!swapCategory} style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: swapCategory ? 'pointer' : 'not-allowed', opacity: swapCategory ? 1 : 0.5 }}>Next →</button>
+                </div>
+              </>
+            )}
+
+            {swapStep === 2 && swapCategory && (
+              <>
+                <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+                  {swapCategory === 'guest_request' ? 'Guest request' : swapCategory === 'horse_issue' ? 'Horse issue' : 'Staff decision'}
+                  {swapCategory !== 'staff' && ' — select a reason'}
+                </p>
+
+                {swapCategory === 'guest_request' && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                    {([
+                      { key: 'too_much_horse',    label: 'Too much horse' },
+                      { key: 'too_slow',           label: 'Too slow' },
+                      { key: 'behavior',           label: 'Behavior issue' },
+                      { key: 'guest_preference',   label: 'Guest preference' },
+                      { key: 'other',              label: 'Other' },
+                    ] as const).map(r => (
+                      <button key={r.key} onClick={() => setSwapReason(r.key)} style={{ padding: '4px 11px', borderRadius: 999, border: `1px solid ${swapReason === r.key ? 'var(--color-accent)' : 'var(--color-border)'}`, background: swapReason === r.key ? 'var(--color-accent)' : 'var(--color-surface)', color: swapReason === r.key ? '#fff' : 'var(--color-text-2)', fontSize: 12, cursor: 'pointer', fontWeight: swapReason === r.key ? 600 : 400 }}>{r.label}</button>
+                    ))}
+                  </div>
+                )}
+
+                {swapCategory === 'horse_issue' && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                    {([
+                      { key: 'lame',         label: 'Lame' },
+                      { key: 'sore',         label: 'Sore' },
+                      { key: 'other_health', label: 'Other health' },
+                    ] as const).map(r => (
+                      <button key={r.key} onClick={() => setSwapReason(r.key)} style={{ padding: '4px 11px', borderRadius: 999, border: `1px solid ${swapReason === r.key ? 'var(--color-accent)' : 'var(--color-border)'}`, background: swapReason === r.key ? 'var(--color-accent)' : 'var(--color-surface)', color: swapReason === r.key ? '#fff' : 'var(--color-text-2)', fontSize: 12, cursor: 'pointer', fontWeight: swapReason === r.key ? 600 : 400 }}>{r.label}</button>
+                    ))}
+                  </div>
+                )}
+
+                {swapCategory === 'horse_issue' && (swapReason === 'lame' || swapReason === 'sore') && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
+                    <input type="checkbox" checked={swapHealthFlag} onChange={e => setSwapHealthFlag(e.target.checked)} style={{ width: 15, height: 15, flexShrink: 0 }} />
+                    Also flag {swapTarget.horseName} on the Health tab ({swapReason === 'lame' ? 'Lame' : 'Stiff/Sore'})
+                  </label>
+                )}
+
+                <textarea
+                  placeholder="Optional note..."
+                  value={swapNote}
+                  onChange={e => setSwapNote(e.target.value)}
+                  rows={2}
+                  style={{ width: '100%', fontSize: 13, marginBottom: 14, resize: 'vertical', boxSizing: 'border-box' }}
+                />
+
+                <div style={{ display: 'flex', gap: 9 }}>
+                  <button onClick={() => { setSwapStep(1); setSwapReason(null) }} style={{ padding: '9px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>← Back</button>
+                  <button onClick={resetSwap} style={{ padding: '9px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
+                  <button
+                    onClick={performSwap}
+                    disabled={swapSaving || (swapCategory !== 'staff' && !swapReason)}
+                    style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: (swapSaving || (swapCategory !== 'staff' && !swapReason)) ? 'not-allowed' : 'pointer', opacity: (swapSaving || (swapCategory !== 'staff' && !swapReason)) ? 0.5 : 1 }}
+                  >
+                    {swapSaving ? 'Swapping...' : 'Confirm swap'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1273,7 +1354,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
   const [saveError, setSaveError] = useState<string | null>(null)
   const [count, setCount] = useState(0)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
-  const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string; loves: boolean } | null>(null)
+  const [returningInfo, setReturningInfo] = useState<{ lastHorse: string; lastDate: string } | null>(null)
   const dragStartedInsideModal = useRef(false)
   const modalContentRef = useRef<HTMLDivElement>(null)
   const [saveBlocked, setSaveBlocked] = useState(false)
@@ -1293,8 +1374,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
       const res = await fetch(`/api/assignment-history?check_returning=${encodeURIComponent(name)}`).then(r => r.json())
       if (res.isReturning && res.records?.[0]) {
         const rec = res.records[0]
-        const lovesRec = res.records.find((r: { loves_horse: boolean }) => r.loves_horse)
-        setReturningInfo({ lastHorse: lovesRec?.horse_name || rec.horse_name, lastDate: rec.assigned_date, loves: !!lovesRec })
+          setReturningInfo({ lastHorse: rec.horse_name, lastDate: rec.assigned_date })
       } else { setReturningInfo(null) }
     } catch { setReturningInfo(null) }
   }
@@ -1337,8 +1417,8 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
         {lastSaved && <div style={{ background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: 'var(--color-success)', fontWeight: 500 }}>✓ {lastSaved} saved — enter next guest</div>}
         {saveError && <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>⚠ {saveError}</div>}
         {returningInfo && (
-          <div style={{ background: returningInfo.loves ? '#fff1f2' : '#ede9fe', border: `1px solid ${returningInfo.loves ? '#fda4af' : '#c4b5fd'}`, borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: returningInfo.loves ? '#9f1239' : '#6d28d9', fontWeight: 500 }}>
-            {returningInfo.loves ? '❤️' : '🔄'} Returning guest! {returningInfo.loves ? `Loves ${returningInfo.lastHorse}` : `Last rode ${returningInfo.lastHorse}`} on {returningInfo.lastDate}
+          <div style={{ background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#6d28d9', fontWeight: 500 }}>
+            🔄 Returning guest! Last rode {returningInfo.lastHorse} on {returningInfo.lastDate}
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, paddingBottom: 80 }}>

@@ -32,16 +32,14 @@ export async function GET() {
     await supabase.from('horses').upsert(seeds, { onConflict: 'name', ignoreDuplicates: true })
   }
 
-  const [horsesResult, statusFlagsResult, lameFlagsResult, shoeResult] = await Promise.all([
+  const [horsesResult, statusFlagsResult, shoeResult] = await Promise.all([
     supabase.from('horses').select('*').order('name'),
     supabase.from('horse_status_flags').select('*').eq('status', 'active'),
-    supabase.from('horse_lame_flags').select('*').eq('status', 'active'),
     supabase.from('shoe_needs').select('*'),
   ])
 
   const horses = horsesResult.data || []
   const statusFlags = statusFlagsResult.data || []
-  const lameFlags = lameFlagsResult.data || []
   const shoeNeeds = shoeResult.data || []
 
   // Build shoe map (by horse name)
@@ -51,29 +49,8 @@ export async function GET() {
     shoeMap[n.horse_name].push({ id: n.id, what_needed: n.what_needed, notes: n.notes ?? null })
   })
 
-  // Convert legacy lame flags to DbHorseFlag shape
-  const legacyFlagsByHorse: Record<string, any[]> = {}
-  lameFlags.forEach((f: any) => {
-    const mapped = {
-      id: f.id,
-      horse_name: f.horse_name,
-      flag_type: f.flag_type === 'stiff_sore' ? 'injured' : 'lame',
-      notes: f.notes ?? null,
-      flagged_at: f.flagged_at,
-      day_off_date: null,
-      status: f.status,
-      legacy: true,
-    }
-    if (!legacyFlagsByHorse[f.horse_name]) legacyFlagsByHorse[f.horse_name] = []
-    legacyFlagsByHorse[f.horse_name].push(mapped)
-  })
-
   const enriched = horses.map((h: any) => {
-    const newFlags = statusFlags.filter((f: any) => f.horse_name === h.name && isFlagActive(f, today))
-    // Include legacy flags that don't duplicate an existing new flag of the same type
-    const newFlagTypes = new Set(newFlags.map((f: any) => f.flag_type))
-    const legacy = (legacyFlagsByHorse[h.name] || []).filter((f: any) => !newFlagTypes.has(f.flag_type))
-    const flags = [...newFlags, ...legacy]
+    const flags = statusFlags.filter((f: any) => f.horse_name === h.name && isFlagActive(f, today))
     const shoe_flags = shoeMap[h.name] || []
     return { ...h, flags, shoe_flags }
   })
@@ -130,7 +107,7 @@ export async function DELETE(req: NextRequest) {
   // Get horse name before deleting (for flag cleanup)
   const { data: horse } = await supabase.from('horses').select('name').eq('id', id).single()
   if (horse?.name) {
-    await supabase.from('horse_status_flags').update({ status: 'resolved' }).eq('horse_name', horse.name)
+    await supabase.from('horse_status_flags').update({ status: 'resolved', resolved_at: new Date().toISOString() }).eq('horse_name', horse.name)
   }
   const { error } = await supabase.from('horses').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
+const HEALTH_FLAG_TYPES = ['lame', 'stiff_sore', 'injured']
+
 export async function GET() {
   const { data, error } = await supabase
-    .from('horse_lame_flags')
+    .from('horse_status_flags')
     .select('*')
+    .in('flag_type', HEALTH_FLAG_TYPES)
     .order('flagged_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -28,7 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
   const { data, error } = await supabase
-    .from('horse_lame_flags')
+    .from('horse_status_flags')
     .insert({
       horse_name,
       flag_type,
@@ -46,8 +49,11 @@ export async function PUT(req: NextRequest) {
   const body = await req.json()
   const { id, ...fields } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+  if (fields.status === 'resolved' && !fields.resolved_at) {
+    fields.resolved_at = new Date().toISOString()
+  }
   const { data, error } = await supabase
-    .from('horse_lame_flags')
+    .from('horse_status_flags')
     .update(fields)
     .eq('id', id)
     .select()
@@ -60,7 +66,10 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-  const { error } = await supabase.from('horse_lame_flags').delete().eq('id', id)
+  const { error } = await supabase
+    .from('horse_status_flags')
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+    .eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

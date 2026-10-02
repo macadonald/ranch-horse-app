@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   // Resolve any existing active flag of the same type for this horse
   await supabase
     .from('horse_status_flags')
-    .update({ status: 'resolved' })
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
     .eq('horse_name', horse_name)
     .eq('flag_type', flag_type)
     .eq('status', 'active')
@@ -44,34 +44,28 @@ export async function DELETE(req: NextRequest) {
   const all = searchParams.get('all') === 'true'
 
   if (id) {
-    // Try horse_status_flags first (new system)
-    const { error: e1 } = await supabase
+    const { error } = await supabase
       .from('horse_status_flags')
-      .update({ status: 'resolved' })
+      .update({ status: 'resolved', resolved_at: new Date().toISOString() })
       .eq('id', id)
-    if (!e1) return NextResponse.json({ success: true })
-    // Fall back to legacy horse_lame_flags
-    const { error: e2 } = await supabase
-      .from('horse_lame_flags')
-      .update({ status: 'resolved' })
-      .eq('id', id)
-    if (e2) return NextResponse.json({ error: e2.message }, { status: 500 })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
   }
 
   if (horseName) {
     if (all) {
-      // Mark Fit — clear ALL active flags for this horse in both tables
-      await Promise.all([
-        supabase.from('horse_status_flags').update({ status: 'resolved' }).eq('horse_name', horseName).eq('status', 'active'),
-        supabase.from('horse_lame_flags').update({ status: 'resolved' }).eq('horse_name', horseName).eq('status', 'active'),
-      ])
+      await supabase
+        .from('horse_status_flags')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+        .eq('horse_name', horseName)
+        .eq('status', 'active')
     } else if (flagType) {
-      // Clear a specific flag type
-      await Promise.all([
-        supabase.from('horse_status_flags').update({ status: 'resolved' }).eq('horse_name', horseName).eq('flag_type', flagType).eq('status', 'active'),
-        supabase.from('horse_lame_flags').update({ status: 'resolved' }).eq('horse_name', horseName).eq('flag_type', flagType).eq('status', 'active'),
-      ])
+      await supabase
+        .from('horse_status_flags')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+        .eq('horse_name', horseName)
+        .eq('flag_type', flagType)
+        .eq('status', 'active')
     }
     return NextResponse.json({ success: true })
   }

@@ -148,7 +148,7 @@ export const LEVEL_LABELS: Record<string, string> = {
 export interface DbHorseFlag {
   id: string
   horse_name: string
-  flag_type: 'lame' | 'injured' | 'day_off' | 'in_training' | 'retired'
+  flag_type: 'lame' | 'injured' | 'stiff_sore' | 'day_off' | 'in_training' | 'retired'
   notes: string | null
   flagged_at: string
   day_off_date: string | null

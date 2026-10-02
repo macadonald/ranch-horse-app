@@ -224,7 +224,7 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
       {/* 3. Flags to watch */}
       <div style={sec}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Flags to Watch</div>
-        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Horses with 3+ doesn&apos;t-work flags from different guests</p>
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Horses with 3+ not a fit flags from different guests</p>
         {flaggedHorses.length === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No horses have reached that threshold yet.</p>
         ) : flaggedHorses.map(h => (

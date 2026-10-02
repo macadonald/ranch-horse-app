@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const today = getTucsonToday()
 
     // Parallel Supabase fetches
-    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, lameFlagsResult, guestResult, historyResult, patternResult] = await Promise.all([
+    const [riderCountResult, assignmentsResult, shoeNeedsResult, horsesResult, statusFlagsResult, guestResult, historyResult, patternResult] = await Promise.all([
       supabase.from('daily_rider_counts').select('rider_count').eq('date', today).single(),
       supabase.from('horse_assignments')
         .select('horse_name, assignment_type, guests(name, room_number, check_out_date)')
@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
       supabase.from('shoe_needs').select('horse_name, what_needed'),
       supabase.from('horses').select('*').eq('is_active', true).eq('is_deceased', false),
       supabase.from('horse_status_flags').select('horse_name, flag_type, day_off_date').eq('status', 'active'),
-      supabase.from('horse_lame_flags').select('horse_name').eq('status', 'active'),
       guestId ? supabase.from('guests').select('overestimates_level').eq('id', guestId).single() : Promise.resolve({ data: null }),
       guestId ? supabase.from('horse_assignments').select('horse_name, incompatible').eq('guest_id', guestId).gte('assigned_at', '2026-05-11') : Promise.resolve({ data: [] }),
       // Pattern learning: all non-incompatible assignments with guest rider profiles
@@ -63,8 +62,6 @@ export async function POST(req: NextRequest) {
         flagBlocked.add(f.horse_name)
       }
     })
-    ;(lameFlagsResult.data || []).forEach((f: any) => flagBlocked.add(f.horse_name))
-
     const riderCount = riderCountResult.data?.rider_count || 0
 
     // Build past-ride map from history (for learning cutoff >= 2026-05-11)

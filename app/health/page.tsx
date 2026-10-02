@@ -22,7 +22,7 @@ import {
 type LameFlag = {
   id: string
   horse_name: string
-  flag_type: 'lame' | 'stiff_sore'
+  flag_type: 'lame' | 'stiff_sore' | 'injured'
   notes: string | null
   flagged_at: string
   resolved_at: string | null
@@ -803,22 +803,28 @@ function WatchGroup({
 
 function LameFlagCard({ flag, onMarkFit }: { flag: LameFlag; onMarkFit: () => Promise<void> }) {
   const [markingFit, setMarkingFit] = useState(false)
-  const isLame     = flag.flag_type === 'lame'
-  const borderColor = isLame ? '#dc2626' : '#d97706'
-  const flagDate   = new Date(flag.flagged_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const isLame    = flag.flag_type === 'lame'
+  const isInjured = flag.flag_type === 'injured'
+  const borderColor = isLame ? '#dc2626' : isInjured ? '#ea580c' : '#d97706'
+  const bgColor     = isLame ? '#fef2f2' : isInjured ? '#fff7ed' : '#fffbeb'
+  const badgeBg     = isLame ? '#fee2e2' : isInjured ? '#ffedd5' : '#fef3c7'
+  const badgeColor  = isLame ? '#dc2626' : isInjured ? '#c2410c' : '#92400e'
+  const badgeBorder = isLame ? '#fca5a5' : isInjured ? '#fdba74' : '#fcd34d'
+  const label       = isLame ? 'Lame' : isInjured ? 'Injured' : 'Stiff/Sore'
+  const flagDate    = new Date(flag.flagged_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   async function handleMarkFit() { setMarkingFit(true); await onMarkFit(); setMarkingFit(false) }
 
   return (
-    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${borderColor}`, background: isLame ? '#fef2f2' : '#fffbeb', padding: '10px 12px', marginBottom: 7 }}>
+    <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', borderLeft: `4px solid ${borderColor}`, background: bgColor, padding: '10px 12px', marginBottom: 7 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
         <span style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>🐴 {flag.horse_name}</span>
-        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0, background: isLame ? '#fee2e2' : '#fef3c7', color: isLame ? '#dc2626' : '#92400e', border: `1px solid ${isLame ? '#fca5a5' : '#fcd34d'}` }}>
-          {isLame ? 'Lame' : 'Stiff/Sore'}
+        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0, background: badgeBg, color: badgeColor, border: `1px solid ${badgeBorder}` }}>
+          {label}
         </span>
         <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>Flagged {flagDate}</span>
         <div style={{ flex: 1 }} />
-        <button onClick={handleMarkFit} disabled={markingFit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: isLame ? '#fee2e2' : '#fef3c7', color: isLame ? '#dc2626' : '#92400e', fontWeight: 700, cursor: markingFit ? 'not-allowed' : 'pointer', opacity: markingFit ? 0.6 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
+        <button onClick={handleMarkFit} disabled={markingFit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: badgeBg, color: badgeColor, fontWeight: 700, cursor: markingFit ? 'not-allowed' : 'pointer', opacity: markingFit ? 0.6 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
           {markingFit ? '...' : '✓ Mark fit'}
         </button>
       </div>
@@ -830,14 +836,20 @@ function LameFlagCard({ flag, onMarkFit }: { flag: LameFlag; onMarkFit: () => Pr
 // ─── Quick flag form ──────────────────────────────────────────────────────────
 
 function QuickFlagForm({ onSave, extraNames = [] }: {
-  onSave: (horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) => Promise<void>
+  onSave: (horseName: string, flagType: 'lame' | 'stiff_sore' | 'injured', notes: string) => Promise<void>
   extraNames?: string[]
 }) {
   const [horseName, setHorseName] = useState('')
-  const [flagType, setFlagType]   = useState<'lame' | 'stiff_sore'>('lame')
+  const [flagType, setFlagType]   = useState<'lame' | 'stiff_sore' | 'injured'>('lame')
   const [notes, setNotes]         = useState('')
   const [saving, setSaving]       = useState(false)
   const [error, setError]         = useState<string | null>(null)
+
+  const TYPE_STYLES: Record<string, { active: { border: string; bg: string; color: string }; label: string }> = {
+    lame:       { active: { border: '#dc2626', bg: '#fee2e2', color: '#dc2626' }, label: 'Lame' },
+    stiff_sore: { active: { border: '#d97706', bg: '#fef3c7', color: '#92400e' }, label: 'Stiff/Sore' },
+    injured:    { active: { border: '#ea580c', bg: '#ffedd5', color: '#c2410c' }, label: 'Injured' },
+  }
 
   async function handleSave() {
     if (!horseName) return
@@ -860,11 +872,15 @@ function QuickFlagForm({ onSave, extraNames = [] }: {
         <div style={{ flex: '0 0 auto' }}>
           <label style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>Type</label>
           <div style={{ display: 'flex', gap: 5 }}>
-            {(['lame', 'stiff_sore'] as const).map(type => (
-              <button key={type} onClick={() => setFlagType(type)} style={{ padding: '5px 11px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${flagType === type ? (type === 'lame' ? '#dc2626' : '#d97706') : 'var(--color-border)'}`, background: flagType === type ? (type === 'lame' ? '#fee2e2' : '#fef3c7') : 'var(--color-surface)', color: flagType === type ? (type === 'lame' ? '#dc2626' : '#92400e') : 'var(--color-text-2)' }}>
-                {type === 'lame' ? 'Lame' : 'Stiff/Sore'}
-              </button>
-            ))}
+            {(['lame', 'stiff_sore', 'injured'] as const).map(type => {
+              const s = TYPE_STYLES[type]
+              const isActive = flagType === type
+              return (
+                <button key={type} onClick={() => setFlagType(type)} style={{ padding: '5px 11px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${isActive ? s.active.border : 'var(--color-border)'}`, background: isActive ? s.active.bg : 'var(--color-surface)', color: isActive ? s.active.color : 'var(--color-text-2)' }}>
+                  {s.label}
+                </button>
+              )
+            })}
           </div>
         </div>
         <div style={{ flex: '1 1 140px', minWidth: 120 }}>
@@ -885,11 +901,12 @@ function QuickFlagForm({ onSave, extraNames = [] }: {
 function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVetRequired, extraNames = [] }: {
   activeFlags: LameFlag[]; vetIssues: HorseHealthIssue[]
   onMarkFit: (flag: LameFlag) => Promise<void>
-  onLameFlag: (horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) => Promise<void>
+  onLameFlag: (horseName: string, flagType: 'lame' | 'stiff_sore' | 'injured', notes: string) => Promise<void>
   onViewVetRequired: () => void; extraNames?: string[]
 }) {
-  const lameFlags  = activeFlags.filter(f => f.flag_type === 'lame')
-  const stiffFlags = activeFlags.filter(f => f.flag_type === 'stiff_sore')
+  const lameFlags    = activeFlags.filter(f => f.flag_type === 'lame')
+  const stiffFlags   = activeFlags.filter(f => f.flag_type === 'stiff_sore')
+  const injuredFlags = activeFlags.filter(f => f.flag_type === 'injured')
 
   return (
     <div>
@@ -904,6 +921,17 @@ function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVet
         {lameFlags.length === 0
           ? <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as lame</p>
           : lameFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />)}
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Injured · {injuredFlags.length}</div>
+          <div style={{ flex: 1, height: 1, background: '#fdba74' }} />
+          {injuredFlags.length > 0 && <span style={{ fontSize: 11, color: '#ea580c', fontWeight: 500 }}>Out of pool</span>}
+        </div>
+        {injuredFlags.length === 0
+          ? <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as injured</p>
+          : injuredFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />)}
       </div>
 
       <div style={{ marginBottom: 24 }}>
@@ -1146,7 +1174,7 @@ export default function HealthPage() {
     await fetchData()
   }
 
-  async function handleLameFlag(horseName: string, flagType: 'lame' | 'stiff_sore', notes: string) {
+  async function handleLameFlag(horseName: string, flagType: 'lame' | 'stiff_sore' | 'injured', notes: string) {
     const res = await fetch('/api/lame', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horse_name: horseName, flag_type: flagType, notes: notes || null }) })
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to flag') }
     await fetchData()

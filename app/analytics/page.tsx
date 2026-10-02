@@ -326,7 +326,7 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
       <div style={SEC_STYLE}>
         <SectionHeader title="Weight × Reassignment Rate" />
         <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
-          How often guests in each weight range receive a doesn&apos;t-work flag
+          How often guests in each weight range receive a not a fit flag
         </p>
         {wtRows.map(row => (
           <div key={row.label} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--color-border)' }}>
