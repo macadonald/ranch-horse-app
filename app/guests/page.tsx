@@ -704,7 +704,7 @@ export default function GuestsPage() {
           <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
             {guestViewMode === 'active' && <>
               {!isViewer && <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>}
-              <button onClick={() => { setShowAnalytics(v => !v); setSelectedGuest(null) }} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: showAnalytics ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: showAnalytics ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Analytics</button>
+              <button onClick={() => { setShowAnalytics(v => !v); setSelectedGuest(null) }} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: showAnalytics ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: showAnalytics ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Insights</button>
               {!isViewer && <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>}
             </>}
           </div>

@@ -15,13 +15,14 @@ export type AnalyticsAssignment = {
   id: string; horse_name: string; assignment_type: string; status: string
   incompatible: boolean; requested_by_guest: boolean; reason: string
   loves_horse?: boolean
+  assigned_at?: string | null; removed_at?: string | null
 }
 
 export type AnalyticsGuest = {
   id: string; name: string
   check_in_date: string; check_out_date: string
   age: number; weight: number; gender: string; riding_level: string
-  checked_out?: boolean
+  checked_out?: boolean; checked_out_at?: string | null
   repeat_guest?: boolean
   horse_assignments?: AnalyticsAssignment[]
 }

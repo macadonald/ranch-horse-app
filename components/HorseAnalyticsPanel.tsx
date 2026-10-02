@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { DbHorse, LEVEL_LABELS } from '@/lib/horses'
+import { WEIGHT_BANDS } from '@/lib/weightBands'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -8,7 +9,8 @@ export type GuestRider = {
   id: string; name: string
   weight: number | null; age: number | null
   gender: string; riding_level: string; check_out_date: string; check_in_date?: string
-  horse_assignments?: { horse_name: string; incompatible: boolean; reason: string | null; status: string }[]
+  checked_out?: boolean; checked_out_at?: string | null
+  horse_assignments?: { horse_name: string; incompatible: boolean; reason: string | null; status: string; removed_at?: string | null; assigned_at?: string | null }[]
 }
 
 // ─── HorseAnalyticsBar ────────────────────────────────────────────────────────
@@ -174,6 +176,7 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
 }) {
   const [fetchedGuests, setFetchedGuests] = useState<GuestRider[]>([])
   const [loading, setLoading] = useState(propGuests === undefined)
+  const [showAllIdle, setShowAllIdle] = useState(false)
 
   useEffect(() => {
     if (propGuests !== undefined) { setLoading(false); return }
@@ -271,6 +274,68 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
   function avgOf(nums: number[]): number | null {
     return nums.length > 0 ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null
   }
+  function maxOf(nums: number[]): number | null {
+    return nums.length > 0 ? Math.max(...nums) : null
+  }
+
+  // ── Part 3: Idle streaks ───────────────────────────────────────────────────
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Phoenix' })
+  const IDLE_SHOW = 15
+
+  const idleRows = horses.map(h => {
+    const activeFlags = (h.flags || []).filter(f =>
+      f.status === 'active' && ['lame', 'injured', 'retired', 'in_training'].includes(f.flag_type)
+    )
+    let workingNow = false
+    let lastWorked: string | null = null
+    guests.forEach(g => {
+      if (!g.check_in_date || g.check_in_date > today) return
+      ;(g.horse_assignments || []).forEach(a => {
+        if (a.horse_name !== h.name || a.incompatible) return
+        if (a.status === 'active' && !g.checked_out) { workingNow = true; return }
+        const cands: string[] = [today]
+        if (g.check_out_date) cands.push(g.check_out_date)
+        if (a.removed_at) cands.push(a.removed_at.slice(0, 10))
+        const end = cands.reduce((m, d) => d < m ? d : m)
+        if (!lastWorked || end > lastWorked) lastWorked = end
+      })
+    })
+    const idleDays = workingNow ? 0 : lastWorked
+      ? Math.max(0, Math.round((new Date(today + 'T12:00:00').getTime() - new Date(lastWorked + 'T12:00:00').getTime()) / 86400000))
+      : null
+    return { horse: h, workingNow, lastWorked, idleDays, activeFlags }
+  }).sort((a, b) => {
+    if (a.workingNow !== b.workingNow) return a.workingNow ? 1 : -1
+    if (a.idleDays === null && b.idleDays === null) return a.horse.name.localeCompare(b.horse.name)
+    if (a.idleDays === null) return 1
+    if (b.idleDays === null) return -1
+    return b.idleDays - a.idleDays
+  })
+  const displayedIdleRows = showAllIdle ? idleRows : idleRows.slice(0, IDLE_SHOW)
+  const FLAG_LABELS: Record<string, string> = { lame: 'Lame', injured: 'Injured', retired: 'Retired', in_training: 'In training' }
+
+  // ── Part 4: Draft usage ───────────────────────────────────────────────────
+  const WAVE5_DATE = '2026-09-10'
+  const draftSet = new Set(horses.filter(h => h.is_draft).map(h => h.name))
+
+  const draftBandRows = WEIGHT_BANDS.map(bk => {
+    let bT = 0, bD = 0, aT = 0, aD = 0
+    guests.forEach(g => {
+      if (!g.weight || g.weight < bk.min || g.weight > bk.max) return
+      ;(g.horse_assignments || []).forEach(a => {
+        if (a.incompatible || !a.assigned_at) return
+        const d = a.assigned_at.slice(0, 10)
+        const isDraft = draftSet.has(a.horse_name)
+        if (d < WAVE5_DATE) { bT++; if (isDraft) bD++ }
+        else { aT++; if (isDraft) aD++ }
+      })
+    })
+    return { label: bk.label, before: { total: bT, draft: bD }, after: { total: aT, draft: aD } }
+  })
+  function draftCell(d: { total: number; draft: number }): string {
+    if (d.total === 0) return '—'
+    return `${Math.round((d.draft / d.total) * 100)}% · ${d.draft} of ${d.total}`
+  }
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
@@ -334,23 +399,25 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
           <div style={{ marginBottom: 28 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Rider Profile by Horse</div>
             <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 50px 1fr', gap: 8, padding: '8px 14px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
-                {['Horse', 'Avg wt', 'Level', 'Gender'].map(col => (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 50px 1fr', gap: 8, padding: '8px 14px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
+                {['Horse', 'Avg wt', 'Max wt', 'Level', 'Gender'].map(col => (
                   <div key={col} style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{col}</div>
                 ))}
               </div>
               {riderTypeStats.map((s, i) => {
                 const avgWt  = avgOf(s.weights)
+                const maxWt  = maxOf(s.weights)
                 const topLvl = topOf(s.levels)
                 const gSplit = genderSplitOf(s.genders)
                 return (
                   <div
                     key={s.name}
                     onClick={onSelectHorse ? () => onSelectHorse(s.horse) : undefined}
-                    style={{ display: 'grid', gridTemplateColumns: '1fr 60px 50px 1fr', gap: 8, padding: '9px 14px', borderBottom: i < riderTypeStats.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: onSelectHorse ? 'pointer' : 'default', alignItems: 'center' }}
+                    style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 50px 1fr', gap: 8, padding: '9px 14px', borderBottom: i < riderTypeStats.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: onSelectHorse ? 'pointer' : 'default', alignItems: 'center' }}
                   >
                     <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{avgWt != null ? `${avgWt} lb` : '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{maxWt != null ? `${maxWt} lb` : '—'}</div>
                     <div><span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', fontWeight: 600 }}>{topLvl}</span></div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-2)' }}>{gSplit}</div>
                   </div>
@@ -391,7 +458,45 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
             )}
           </div>
 
-          {/* ── Section 5: Top 10 · Last 60 Days ── */}
+          {/* ── Section 5: Idle Streaks ── */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Idle Streaks</div>
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+              {displayedIdleRows.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--color-text-3)' }}>No horse data</div>
+              ) : (
+                <>
+                  {displayedIdleRows.map((row, i) => (
+                    <div
+                      key={row.horse.name}
+                      style={{ padding: '9px 14px', borderBottom: i < displayedIdleRows.length - 1 ? '1px solid var(--color-border)' : 'none', display: 'flex', alignItems: 'center', gap: 10, background: (!row.workingNow && row.idleDays != null && row.idleDays >= 7) ? '#fffbeb' : 'transparent' }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>{row.horse.name}</span>
+                        {row.activeFlags.map(f => (
+                          <span key={f.id} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>
+                            {FLAG_LABELS[f.flag_type] ?? f.flag_type}
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap', color: row.workingNow ? 'var(--color-success)' : (row.idleDays != null && row.idleDays >= 7) ? '#d97706' : 'var(--color-text-2)' }}>
+                        {row.workingNow ? 'Working now' : row.idleDays === null ? 'No rides yet' : row.idleDays === 0 ? 'Today' : `${row.idleDays} day${row.idleDays !== 1 ? 's' : ''}`}
+                      </div>
+                    </div>
+                  ))}
+                  {idleRows.length > IDLE_SHOW && (
+                    <div style={{ padding: '10px 14px', textAlign: 'center', borderTop: '1px solid var(--color-border)' }}>
+                      <button onClick={() => setShowAllIdle(v => !v)} style={{ fontSize: 12, color: 'var(--color-accent)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                        {showAllIdle ? 'Show less ↑' : `Show all ${idleRows.length} ↓`}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ── Section 6: Top 10 · Last 60 Days ── */}
           <div style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Top 10 · Last 60 Days</div>
             <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
@@ -414,6 +519,27 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
                   </div>
                 )
               })}
+            </div>
+          </div>
+          {/* ── Section 7: Draft Usage ── */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Draft Usage</div>
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+              Before / after Sep 10, 2026 (Wave 5) · Draft preference starts at 200 lbs and reaches full strength at 260 lbs.
+            </p>
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, padding: '8px 14px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
+                {['Weight', 'Before Sep 10', 'After Sep 10'].map(col => (
+                  <div key={col} style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{col}</div>
+                ))}
+              </div>
+              {draftBandRows.map((row, i) => (
+                <div key={row.label} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, padding: '9px 14px', borderBottom: i < draftBandRows.length - 1 ? '1px solid var(--color-border)' : 'none', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{row.label} lbs</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{draftCell(row.before)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{draftCell(row.after)}</div>
+                </div>
+              ))}
             </div>
           </div>
         </>
