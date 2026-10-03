@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import { categorizeWork, isFullSet, WORK_LABELS as WORK_CAT_LABELS, type WorkCategory } from '@/lib/shoeWork'
-import { median } from '@/lib/shoeWorkload'
+import { computeShoeWorkload, type WorkloadGuest } from '@/lib/shoeWorkload'
+import { getTucsonToday } from '@/lib/timezone'
 
 type ShoeNeed = {
   id: string
@@ -39,6 +40,26 @@ type HealthIssue = {
   type: string
   status: string
   opened_at: string
+}
+
+type WlHorse = { name: string; is_active: boolean; is_deceased: boolean; farrier: string | null }
+type OtherAnimalRow = { id: string; name: string; group_name: string; farrier: string | null }
+type ScheduleItem = {
+  name: string
+  farrierFirst: string | null
+  lastFS: string | null
+  lastFSStr: string | null
+  curDays: number | null
+  avgDays: number | null
+  estDaysLeft: number | null
+  estDateStr: string | null
+  estBasis: 'own' | 'herd' | null
+  curGD: number | null
+  usualGDForBar: number | null
+  sinceLastFS: { label: string; date: string } | null
+  workingMore: boolean
+  wearsFaster: boolean
+  isOtherAnimal: boolean
 }
 
 const SHOE_TYPE_COLORS: Record<string, { bg: string; border: string; color: string; label: string }> = {
@@ -155,6 +176,9 @@ export function ShoeAnalyticsPanel() {
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
+  const [wlHorses, setWlHorses] = useState<WlHorse[]>([])
+  const [wlGuests, setWlGuests] = useState<WorkloadGuest[]>([])
+  const [wlOtherAnimals, setWlOtherAnimals] = useState<OtherAnimalRow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -162,10 +186,16 @@ export function ShoeAnalyticsPanel() {
       fetch('/api/shoe-needs').then(r => r.json()),
       fetch('/api/farrier-visits').then(r => r.json()),
       fetch('/api/health').then(r => r.json()),
-    ]).then(([n, v, h]) => {
+      fetch('/api/horses').then(r => r.json()),
+      fetch('/api/guests').then(r => r.json()),
+      fetch('/api/other-animals').then(r => r.json()),
+    ]).then(([n, v, h, horses, guests, animals]) => {
       if (n.status === 'fulfilled') setNeeds(n.value.needs || [])
       if (v.status === 'fulfilled') setVisits(v.value.visits || [])
       if (h.status === 'fulfilled') setHealthIssues(h.value.issues || [])
+      if (horses.status === 'fulfilled') setWlHorses(horses.value.horses || [])
+      if (guests.status === 'fulfilled') setWlGuests(guests.value.guests || [])
+      if (animals.status === 'fulfilled') setWlOtherAnimals(animals.value.animals || [])
       setLoading(false)
     })
   }, [])
@@ -173,12 +203,13 @@ export function ShoeAnalyticsPanel() {
   const [horseSort, setHorseSort] = useState<'name' | 'last_shod' | 'days_since' | 'overdue'>('overdue')
   const [horseAnalyticsPage, setHorseAnalyticsPage] = useState(1)
   const HORSE_ANALYTICS_PAGE_SIZE = 20
+  const SCH_PAGE_SIZE = 20
   const [timelineHorse, setTimelineHorse] = useState('')
   const [timelineFrom, setTimelineFrom] = useState('')
   const [timelineTo, setTimelineTo] = useState('')
+  const [schSort, setSchSort] = useState<'est_next' | 'days_since'>('est_next')
+  const [schPage, setSchPage] = useState(1)
   const MS_PER_DAY = 24 * 60 * 60 * 1000
-  const FS_PAGE_SIZE = 20
-  const [fsPage, setFsPage] = useState(1)
 
   const allHorseNames = useMemo(() =>
     Array.from(new Set(visits.flatMap(v => v.farrier_visit_horses.map(h => h.horse_name)))).sort()
@@ -292,37 +323,155 @@ export function ShoeAnalyticsPanel() {
     return true
   }), [timelineEntries, timelineHorse, timelineFrom, timelineTo])
 
-  const fullSetGaps = useMemo(() => {
+  const scheduleData = useMemo(() => {
+    const today = getTucsonToday()
+    const todayMs = new Date(today + 'T12:00:00').getTime()
     const MS = 24 * 60 * 60 * 1000
-    const datesByKey: Record<string, string[]> = {}
-    const displayName: Record<string, string> = {}
+
+    function fmtDate(d: string) {
+      return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+    function fmtEst(daysLeft: number): string {
+      if (daysLeft <= 0) return 'Due now (est.)'
+      return `~${new Date(todayMs + Math.round(daysLeft) * MS).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (est.)`
+    }
+
+    const workload = computeShoeWorkload(wlHorses, visits, wlGuests, today)
+
+    // full-set dates per key (for sinceLastFS and other animal intervals)
+    const fullSetsByKey: Record<string, string[]> = {}
     const sortedAsc = [...visits].sort((a, b) => a.visit_date.localeCompare(b.visit_date))
     sortedAsc.forEach(v => {
       v.farrier_visit_horses.forEach(h => {
         if (isFullSet(h.work_done)) {
           const key = h.horse_name.trim().toLowerCase()
-          if (!datesByKey[key]) { datesByKey[key] = []; displayName[key] = h.horse_name.trim() }
-          if (datesByKey[key][datesByKey[key].length - 1] !== v.visit_date) datesByKey[key].push(v.visit_date)
+          if (!fullSetsByKey[key]) fullSetsByKey[key] = []
+          if (fullSetsByKey[key][fullSetsByKey[key].length - 1] !== v.visit_date) {
+            fullSetsByKey[key].push(v.visit_date)
+          }
         }
       })
     })
-    const rows = Object.entries(datesByKey).map(([key, dates]) => {
-      const lastFS = dates[dates.length - 1]
-      const daysSince = Math.round((Date.now() - new Date(lastFS + 'T12:00:00').getTime()) / MS)
-      let avgGap: number | null = null
+
+    const farrierByKey: Record<string, string | null> = {}
+    wlHorses.forEach(h => { farrierByKey[h.name.trim().toLowerCase()] = h.farrier })
+
+    const horses: ScheduleItem[] = workload.horseWorkload.map(h => {
+      const key = h.name.trim().toLowerCase()
+
+      // Most recent non-full-set visit after lastFS
+      let sinceLastFS: { label: string; date: string } | null = null
+      const sinceLastFSVisit = h.lastFS
+        ? visits.reduce<{ work_done: string; visit_date: string } | null>((best, v) => {
+            if (v.visit_date <= h.lastFS!) return best
+            const vh = v.farrier_visit_horses.find(
+              vh => vh.horse_name.trim().toLowerCase() === key && !isFullSet(vh.work_done)
+            )
+            if (!vh) return best
+            return !best || v.visit_date > best.visit_date ? { work_done: vh.work_done, visit_date: v.visit_date } : best
+          }, null)
+        : null
+      if (sinceLastFSVisit) {
+        const cat = categorizeWork(sinceLastFSVisit.work_done)
+        sinceLastFS = { label: WORK_CAT_LABELS[cat] ?? sinceLastFSVisit.work_done, date: fmtDate(sinceLastFSVisit.visit_date) }
+      }
+
+      const farrier = farrierByKey[key] ?? null
+      const farrierFirst = farrier ? farrier.split(/\s+/)[0] : null
+
+      // "Working more than usual": 14-day pace >= 1.25× usual pace
+      const usualGD = h.completedCycles >= 2 ? h.avgGD : workload.herdMedGD
+      const usualDays = h.completedCycles >= 2 ? h.avgDays : workload.herdMedDays
+      const usualPace = (usualGD !== null && usualDays !== null && usualDays > 0) ? usualGD / usualDays : null
+      const workingMore = usualPace !== null && usualPace > 0 && h.pace !== null && h.pace >= 1.25 * usualPace
+
+      // Workload bar target
+      const usualGDForBar = h.completedCycles >= 2 ? h.avgGD : workload.herdMedGD
+
+      const estDateStr = h.estDaysLeft !== null ? fmtEst(h.estDaysLeft) : null
+      const lastFSStr = h.lastFS ? fmtDate(h.lastFS) : null
+
+      return {
+        name: h.name,
+        farrierFirst,
+        lastFS: h.lastFS,
+        lastFSStr,
+        curDays: h.curDays,
+        avgDays: h.avgDays,
+        estDaysLeft: h.estDaysLeft,
+        estDateStr,
+        estBasis: h.estBasis,
+        curGD: h.curGD,
+        usualGDForBar,
+        sinceLastFS,
+        workingMore,
+        wearsFaster: h.wearsFaster,
+        isOtherAnimal: false,
+      }
+    })
+
+    // Other animals: use wlOtherAnimals as source of truth, visit data from fullSetsByKey
+    const otherAnimals: ScheduleItem[] = wlOtherAnimals.map(a => {
+      const key = a.name.trim().toLowerCase()
+      const dates = fullSetsByKey[key] || []
+      const lastFS = dates.length > 0 ? dates[dates.length - 1] : null
+      const daysSince = lastFS ? Math.round((todayMs - new Date(lastFS + 'T12:00:00').getTime()) / MS) : null
+      let avgDays: number | null = null
       if (dates.length >= 2) {
         let tot = 0
         for (let i = 1; i < dates.length; i++) {
           tot += Math.round((new Date(dates[i] + 'T12:00:00').getTime() - new Date(dates[i - 1] + 'T12:00:00').getTime()) / MS)
         }
-        avgGap = tot / (dates.length - 1)
+        avgDays = tot / (dates.length - 1)
       }
-      return { name: displayName[key], lastFS, daysSince, avgGap }
+
+      let estDaysLeft: number | null = null
+      let estBasis: 'own' | 'herd' | null = null
+      if (avgDays !== null && daysSince !== null) {
+        estDaysLeft = avgDays - daysSince
+        estBasis = 'own'
+      } else if (workload.herdMedDays !== null && daysSince !== null) {
+        estDaysLeft = workload.herdMedDays - daysSince
+        estBasis = 'herd'
+      }
+
+      const farrier = a.farrier
+      const farrierFirst = farrier ? farrier.split(/\s+/)[0] : null
+      const estDateStr = estDaysLeft !== null ? fmtEst(estDaysLeft) : null
+      const lastFSStr = lastFS ? fmtDate(lastFS) : null
+
+      return {
+        name: a.name,
+        farrierFirst,
+        lastFS,
+        lastFSStr,
+        curDays: daysSince,
+        avgDays,
+        estDaysLeft,
+        estDateStr,
+        estBasis,
+        curGD: null,
+        usualGDForBar: null,
+        sinceLastFS: null,
+        workingMore: false,
+        wearsFaster: false,
+        isOtherAnimal: true,
+      }
     })
-    rows.sort((a, b) => b.daysSince - a.daysSince)
-    const herdMedian = median(rows.filter(r => r.avgGap !== null).map(r => r.avgGap as number))
-    return { rows, herdMedian }
-  }, [visits])
+
+    return { horses, otherAnimals, herdMedDays: workload.herdMedDays }
+  }, [visits, wlHorses, wlGuests, wlOtherAnimals])
+
+  const sortedSchedule = useMemo(() => {
+    const items = [...scheduleData.horses, ...scheduleData.otherAnimals]
+    return items.sort((a, b) => {
+      if (schSort === 'est_next') return (a.estDaysLeft ?? Infinity) - (b.estDaysLeft ?? Infinity)
+      return (b.curDays ?? -1) - (a.curDays ?? -1)
+    })
+  }, [scheduleData, schSort])
+
+  const schTotalPages = Math.max(1, Math.ceil(sortedSchedule.length / SCH_PAGE_SIZE))
+  const pagedSchedule = sortedSchedule.slice((schPage - 1) * SCH_PAGE_SIZE, schPage * SCH_PAGE_SIZE)
 
   if (loading) {
     return (
@@ -457,50 +606,111 @@ export function ShoeAnalyticsPanel() {
         </section>
       )}
 
-      {/* Days between full sets */}
-      {fullSetGaps.rows.length > 0 && (
-        <section id="shoe-panel-fs-top" style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>Days between full sets</div>
-          {fullSetGaps.herdMedian !== null && (
-            <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 10 }}>
-              Most horses go about {Math.round(fullSetGaps.herdMedian)} days between full sets.
-            </p>
-          )}
-          {fullSetGaps.rows.slice((fsPage - 1) * FS_PAGE_SIZE, fsPage * FS_PAGE_SIZE).map(r => {
-            const usualGap = r.avgGap !== null ? r.avgGap : fullSetGaps.herdMedian
-            const isWarn = usualGap !== null && r.daysSince > usualGap
-            return (
-              <div key={r.name} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', marginBottom: 4,
-                background: isWarn ? 'var(--color-warning-bg)' : 'var(--color-bg)',
-                borderRadius: 'var(--radius-sm)',
-                border: isWarn ? '1px solid var(--color-warning-border)' : '1px solid var(--color-border)',
+      {/* Shoeing schedule */}
+      <section id="shoe-panel-sch-top" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)' }}>Shoeing schedule</div>
+          <div style={{ display: 'flex', gap: 5 }}>
+            {(['est_next', 'days_since'] as const).map(s => (
+              <button key={s} onClick={() => { setSchSort(s); setSchPage(1) }} style={{
+                padding: '2px 8px', borderRadius: 999, fontSize: 11, cursor: 'pointer',
+                border: schSort === s ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                background: schSort === s ? 'var(--color-accent-bg)' : 'transparent',
+                color: schSort === s ? 'var(--color-accent)' : 'var(--color-text-3)',
+                fontWeight: schSort === s ? 600 : 400,
               }}>
-                <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 80 }}>{r.name}</span>
-                <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>
-                  {new Date(r.lastFS + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </span>
-                <span style={{ fontSize: 11, color: isWarn ? 'var(--color-warning)' : 'var(--color-text-3)', flexShrink: 0, minWidth: 50, textAlign: 'right' }}>
-                  {r.daysSince}d ago
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0, minWidth: 48, textAlign: 'right' }}>
-                  {r.avgGap !== null ? `~${Math.round(r.avgGap)}d` : '—'}
-                </span>
+                {s === 'est_next' ? 'Next up' : 'Longest since'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {scheduleData.herdMedDays !== null && (
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 3 }}>
+            Most horses go about {Math.round(scheduleData.herdMedDays)} days between full sets.
+          </p>
+        )}
+        <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 14, fontStyle: 'italic' }}>
+          1 guest-day = one day a guest was assigned to this horse.
+        </p>
+
+        {pagedSchedule.map(item => {
+          const isDueNow = item.estDaysLeft !== null && item.estDaysLeft <= 0
+          const isDueSoon = !isDueNow && item.estDaysLeft !== null && item.estDaysLeft <= 14
+          return (
+            <div key={item.name} style={{
+              padding: '10px 12px',
+              background: 'var(--color-bg)',
+              borderRadius: 'var(--radius-md)',
+              border: `1px solid ${isDueNow ? 'var(--color-warning-border)' : isDueSoon ? 'var(--color-warning-border)' : 'var(--color-border)'}`,
+              marginBottom: 8,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{item.name}</span>
+                {item.farrierFirst && (
+                  <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{item.farrierFirst} only</span>
+                )}
               </div>
-            )
-          })}
-          {fullSetGaps.rows.length > FS_PAGE_SIZE && (() => {
-            const fsTotalPages = Math.ceil(fullSetGaps.rows.length / FS_PAGE_SIZE)
-            return (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                <button type="button" onClick={() => { setFsPage(p => Math.max(1, p - 1)); document.getElementById('shoe-panel-fs-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={fsPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: fsPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: fsPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
-                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {fsPage} of {fsTotalPages}</span>
-                <button type="button" onClick={() => { setFsPage(p => Math.min(fsTotalPages, p + 1)); document.getElementById('shoe-panel-fs-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={fsPage === fsTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: fsPage === fsTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: fsPage === fsTotalPages ? 'default' : 'pointer' }}>Next →</button>
+
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>
+                Last full set:{' '}
+                {item.lastFSStr ? `${item.lastFSStr} (${item.curDays}d ago)` : 'None on record'}
               </div>
-            )
-          })()}
-        </section>
-      )}
+
+              {item.sinceLastFS && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>
+                  Since then: {item.sinceLastFS.label} on {item.sinceLastFS.date}
+                </div>
+              )}
+
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: item.curGD !== null ? 6 : 4 }}>
+                Usually goes:{' '}
+                {item.avgDays !== null
+                  ? `~${Math.round(item.avgDays)} days between full sets`
+                  : `Not enough history yet${scheduleData.herdMedDays !== null ? ` (herd typical: ~${Math.round(scheduleData.herdMedDays)}d)` : ''}`}
+              </div>
+
+              {!item.isOtherAnimal && item.curGD !== null && item.usualGDForBar !== null && item.usualGDForBar > 0 && (
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                    Workload since last full set: {item.curGD} of usual {Math.round(item.usualGDForBar)} guest-days
+                  </div>
+                  <div style={{ height: 6, borderRadius: 999, background: 'var(--color-border)', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${Math.min(100, (item.curGD / item.usualGDForBar) * 100)}%`,
+                      height: '100%',
+                      background: item.curGD > item.usualGDForBar ? '#ef4444' : 'var(--color-accent)',
+                      borderRadius: 999,
+                      minWidth: item.curGD > 0 ? 3 : 0,
+                    }} />
+                  </div>
+                </div>
+              )}
+
+              {item.estDateStr && (
+                <div style={{ fontSize: 11, color: isDueNow ? '#dc2626' : 'var(--color-text-3)', fontWeight: isDueNow ? 600 : 400, marginBottom: (!item.isOtherAnimal && (item.workingMore || item.wearsFaster)) ? 4 : 0 }}>
+                  Next full set: {item.estDateStr}
+                  {item.estBasis && <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}> · {item.estBasis === 'own' ? 'own history' : 'herd avg'}</span>}
+                </div>
+              )}
+
+              {!item.isOtherAnimal && (item.workingMore || item.wearsFaster) && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
+                  {item.workingMore && <span style={{ fontSize: 11, color: '#c2410c' }}>🟠 Working more than usual</span>}
+                  {item.wearsFaster && <span style={{ fontSize: 11, color: '#dc2626' }}>🔴 Goes through shoes fast</span>}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {sortedSchedule.length > SCH_PAGE_SIZE && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
+            <button type="button" onClick={() => { setSchPage(p => Math.max(1, p - 1)); document.getElementById('shoe-panel-sch-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={schPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: schPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: schPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+            <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {schPage} of {schTotalPages}</span>
+            <button type="button" onClick={() => { setSchPage(p => Math.min(schTotalPages, p + 1)); document.getElementById('shoe-panel-sch-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={schPage === schTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: schPage === schTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: schPage === schTotalPages ? 'default' : 'pointer' }}>Next →</button>
+          </div>
+        )}
+      </section>
 
       {/* Farrier visit timeline */}
       <section>
