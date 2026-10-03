@@ -172,6 +172,196 @@ function HorseAnalyticsRow({ horse }: {
   )
 }
 
+function SchItem({ item, herdMedDays, expanded, onToggle }: {
+  item: ScheduleItem
+  herdMedDays: number | null
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const isDueNow = item.estDaysLeft !== null && item.estDaysLeft <= 0
+  const isDueSoon = !isDueNow && item.estDaysLeft !== null && item.estDaysLeft <= 14
+  const borderColor = isDueNow || isDueSoon ? 'var(--color-warning-border)' : 'var(--color-border)'
+  const dotColor = isDueNow ? '#dc2626' : isDueSoon ? '#f59e0b' : '#22c55e'
+  const nextStr = item.estDaysLeft === null ? null
+    : item.estDaysLeft <= 0 ? 'Due now'
+    : (item.estDateStr?.replace(' (est.)', '') ?? null)
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+          padding: '9px 12px', background: 'var(--color-bg)', cursor: 'pointer',
+          borderRadius: expanded ? 'var(--radius-md) var(--radius-md) 0 0' : 'var(--radius-md)',
+          border: `1px solid ${borderColor}`,
+        }}
+      >
+        <div style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />
+        <span style={{ fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{item.name}</span>
+        {item.farrierFirst && (
+          <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-surface)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', fontWeight: 500, flexShrink: 0 }}>
+            {item.farrierFirst}
+          </span>
+        )}
+        <span style={{ fontSize: 12, color: 'var(--color-text-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {item.lastFSStr ? `Last full set ${item.lastFSStr} · ${item.curDays}d ago` : 'No history'}
+        </span>
+        {nextStr && (
+          <span style={{ fontSize: 12, color: isDueNow ? '#dc2626' : 'var(--color-text-3)', fontWeight: isDueNow ? 700 : 400, flexShrink: 0 }}>
+            {isDueNow ? nextStr : `Next: ${nextStr}`}
+          </span>
+        )}
+        {!item.isOtherAnimal && item.workingMore && <span style={{ fontSize: 12, flexShrink: 0 }}>🟠</span>}
+        {!item.isOtherAnimal && item.wearsFaster && <span style={{ fontSize: 12, flexShrink: 0 }}>🔴</span>}
+        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0 }}>{expanded ? '▾' : '▸'}</span>
+      </button>
+
+      {expanded && (
+        <div style={{
+          padding: '10px 12px 12px', background: 'var(--color-bg)',
+          borderRadius: '0 0 var(--radius-md) var(--radius-md)',
+          border: `1px solid ${borderColor}`, borderTop: 'none',
+        }}>
+          {/* Header: name, badges, flag labels */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>{item.name}</span>
+            {item.farrierFirst && (
+              <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-surface)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', fontWeight: 500 }}>
+                {item.farrierFirst}
+              </span>
+            )}
+            {item.isOtherAnimal && (
+              <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#7c3aed', border: '1px solid #c4b5fd', fontWeight: 500 }}>
+                Other
+              </span>
+            )}
+            {!item.isOtherAnimal && item.workingMore && (
+              <span style={{ fontSize: 11, color: '#c2410c' }}>🟠 Working more than usual</span>
+            )}
+            {!item.isOtherAnimal && item.wearsFaster && (
+              <span style={{ fontSize: 11, color: '#dc2626' }}>🔴 Goes through shoes fast</span>
+            )}
+          </div>
+
+          {/* Three labeled facts */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: '1 1 calc(33% - 8px)', minWidth: 120 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em', marginBottom: 2 }}>Last full set</div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-2)' }}>{item.lastFSStr ?? '—'}</div>
+              {item.curDays !== null && item.lastFSStr && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{item.curDays} days ago</div>
+              )}
+            </div>
+            <div style={{ flex: '1 1 calc(33% - 8px)', minWidth: 120 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em', marginBottom: 2 }}>Usually goes</div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-2)' }}>
+                {item.avgDays !== null ? `~${Math.round(item.avgDays)} days` : 'Not enough history'}
+              </div>
+              {item.avgDays === null && herdMedDays !== null && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>herd typical: ~{Math.round(herdMedDays)}d</div>
+              )}
+            </div>
+            <div style={{ flex: '1 1 calc(33% - 8px)', minWidth: 120 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em', marginBottom: 2 }}>Next full set</div>
+              <div style={{ fontSize: 13, color: isDueNow ? '#dc2626' : 'var(--color-text-2)', fontWeight: isDueNow ? 700 : 400 }}>
+                {item.estDateStr ?? '—'}
+              </div>
+              {item.estBasis && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{item.estBasis === 'own' ? 'own history' : 'herd avg'}</div>
+              )}
+            </div>
+          </div>
+
+          {/* Since then */}
+          {item.sinceLastFS && (
+            <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: (!item.isOtherAnimal && item.curGD !== null && item.usualGDForBar !== null && item.usualGDForBar > 0) ? 8 : 0 }}>
+              Since then: {item.sinceLastFS.label} on {item.sinceLastFS.date}
+            </div>
+          )}
+
+          {/* Workload bar (horses only) */}
+          {!item.isOtherAnimal && item.curGD !== null && item.usualGDForBar !== null && item.usualGDForBar > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                Workload since last full set: {item.curGD} of usual {Math.round(item.usualGDForBar)} guest-days
+              </div>
+              <div style={{ height: 6, borderRadius: 999, background: 'var(--color-border)', overflow: 'hidden' }}>
+                <div style={{
+                  width: `${Math.min(100, (item.curGD / item.usualGDForBar) * 100)}%`,
+                  height: '100%',
+                  background: item.curGD > item.usualGDForBar ? '#ef4444' : 'var(--color-accent)',
+                  borderRadius: 999,
+                  minWidth: item.curGD > 0 ? 3 : 0,
+                }} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SchGroup({ title, items, defaultOpen, herdMedDays, expandedItems, onToggleItem, limitTo20 }: {
+  title: string
+  items: ScheduleItem[]
+  defaultOpen: boolean
+  herdMedDays: number | null
+  expandedItems: Set<string>
+  onToggleItem: (name: string) => void
+  limitTo20?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const [showAll, setShowAll] = useState(false)
+  if (items.length === 0) return null
+  const displayItems = limitTo20 && !showAll ? items.slice(0, 20) : items
+  const count = items.length
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
+          padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer',
+          borderTop: '1px solid var(--color-border)', marginBottom: open ? 6 : 0,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-3)' }}>{title}</span>
+        <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-surface)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}>
+          {count} {count === 1 ? 'horse' : 'horses'}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-text-muted)' }}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <>
+          {displayItems.map(item => (
+            <SchItem
+              key={item.name}
+              item={item}
+              herdMedDays={herdMedDays}
+              expanded={expandedItems.has(item.name)}
+              onToggle={() => onToggleItem(item.name)}
+            />
+          ))}
+          {limitTo20 && !showAll && items.length > 20 && (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              style={{ fontSize: 12, color: 'var(--color-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0', display: 'block', width: '100%', textAlign: 'center' }}
+            >
+              Show all {items.length} →
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export function ShoeAnalyticsPanel() {
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
@@ -203,12 +393,9 @@ export function ShoeAnalyticsPanel() {
   const [horseSort, setHorseSort] = useState<'name' | 'last_shod' | 'days_since' | 'overdue'>('overdue')
   const [horseAnalyticsPage, setHorseAnalyticsPage] = useState(1)
   const HORSE_ANALYTICS_PAGE_SIZE = 20
-  const SCH_PAGE_SIZE = 20
   const [timelineHorse, setTimelineHorse] = useState('')
   const [timelineFrom, setTimelineFrom] = useState('')
   const [timelineTo, setTimelineTo] = useState('')
-  const [schSort, setSchSort] = useState<'est_next' | 'days_since'>('est_next')
-  const [schPage, setSchPage] = useState(1)
   const [schOpen, setSchOpen] = useState(false)
   const [expandedSchItems, setExpandedSchItems] = useState<Set<string>>(new Set())
   const MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -464,18 +651,17 @@ export function ShoeAnalyticsPanel() {
     return { horses, otherAnimals, herdMedDays: workload.herdMedDays }
   }, [visits, wlHorses, wlGuests, wlOtherAnimals])
 
-  const sortedSchedule = useMemo(() => {
-    const items = [...scheduleData.horses, ...scheduleData.otherAnimals]
-    return items.sort((a, b) => {
-      if (schSort === 'est_next') return (a.estDaysLeft ?? Infinity) - (b.estDaysLeft ?? Infinity)
-      return (b.curDays ?? -1) - (a.curDays ?? -1)
-    })
-  }, [scheduleData, schSort])
-
-  const schTotalPages = Math.max(1, Math.ceil(sortedSchedule.length / SCH_PAGE_SIZE))
-  const pagedSchedule = sortedSchedule.slice((schPage - 1) * SCH_PAGE_SIZE, schPage * SCH_PAGE_SIZE)
-  const schDueNowCount = sortedSchedule.filter(i => i.estDaysLeft !== null && i.estDaysLeft <= 0).length
-  const schDueSoonCount = sortedSchedule.filter(i => i.estDaysLeft !== null && i.estDaysLeft > 0 && i.estDaysLeft <= 14).length
+  const schGroups = useMemo(() => {
+    const all = [...scheduleData.horses, ...scheduleData.otherAnimals]
+    const byEst = (a: ScheduleItem, b: ScheduleItem) => (a.estDaysLeft ?? Infinity) - (b.estDaysLeft ?? Infinity)
+    return {
+      dueNow: all.filter(i => i.estDaysLeft !== null && i.estDaysLeft <= 0).sort(byEst),
+      soon:   all.filter(i => i.estDaysLeft !== null && i.estDaysLeft > 0 && i.estDaysLeft <= 14).sort(byEst),
+      later:  all.filter(i => i.estDaysLeft === null || i.estDaysLeft > 14).sort(byEst),
+    }
+  }, [scheduleData])
+  const schDueNowCount = schGroups.dueNow.length
+  const schDueSoonCount = schGroups.soon.length
 
   if (loading) {
     return (
@@ -611,15 +797,14 @@ export function ShoeAnalyticsPanel() {
       )}
 
       {/* Shoeing schedule */}
-      <section id="shoe-panel-sch-top" style={{ marginBottom: 24 }}>
-        {/* Collapsible header */}
+      <section style={{ marginBottom: 24 }}>
         <button
           type="button"
           onClick={() => setSchOpen(o => !o)}
           style={{
             display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
             background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
-            marginBottom: schOpen ? 8 : 0,
+            marginBottom: schOpen ? 10 : 0,
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)' }}>Shoeing schedule</span>
@@ -630,7 +815,7 @@ export function ShoeAnalyticsPanel() {
           )}
           {schDueSoonCount > 0 && (
             <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>
-              {schDueSoonCount} due in 14d
+              {schDueSoonCount} due in the next 2 weeks
             </span>
           )}
           <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--color-text-muted)' }}>{schOpen ? '▾' : '▸'}</span>
@@ -638,145 +823,39 @@ export function ShoeAnalyticsPanel() {
 
         {schOpen && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
-              <div style={{ display: 'flex', gap: 5 }}>
-                {(['est_next', 'days_since'] as const).map(s => (
-                  <button key={s} onClick={() => { setSchSort(s); setSchPage(1) }} style={{
-                    padding: '2px 8px', borderRadius: 999, fontSize: 11, cursor: 'pointer',
-                    border: schSort === s ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                    background: schSort === s ? 'var(--color-accent-bg)' : 'transparent',
-                    color: schSort === s ? 'var(--color-accent)' : 'var(--color-text-3)',
-                    fontWeight: schSort === s ? 600 : 400,
-                  }}>
-                    {s === 'est_next' ? 'Next up' : 'Longest since'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {scheduleData.herdMedDays !== null && (
               <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 3 }}>
                 Most horses go about {Math.round(scheduleData.herdMedDays)} days between full sets.
               </p>
             )}
-            <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
+            <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 12, fontStyle: 'italic' }}>
               1 guest-day = one day a guest was assigned to this horse.
             </p>
-
-            {pagedSchedule.map(item => {
-              const isDueNow = item.estDaysLeft !== null && item.estDaysLeft <= 0
-              const isDueSoon = !isDueNow && item.estDaysLeft !== null && item.estDaysLeft <= 14
-              const isExpanded = expandedSchItems.has(item.name)
-              const compactEstStr = item.estDaysLeft === null ? null :
-                item.estDaysLeft <= 0 ? 'Due now' :
-                (item.estDateStr?.replace(' (est.)', '') ?? null)
-
-              return (
-                <div key={item.name} style={{ marginBottom: 4 }}>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedSchItems(prev => {
-                      const next = new Set(prev)
-                      if (next.has(item.name)) next.delete(item.name); else next.add(item.name)
-                      return next
-                    })}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
-                      padding: '6px 10px',
-                      background: 'var(--color-bg)',
-                      borderRadius: isExpanded ? 'var(--radius-md) var(--radius-md) 0 0' : 'var(--radius-md)',
-                      border: `1px solid ${isDueNow ? 'var(--color-warning-border)' : isDueSoon ? 'var(--color-warning-border)' : 'var(--color-border)'}`,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: isDueNow ? '#dc2626' : isDueSoon ? '#f59e0b' : '#22c55e' }} />
-                    <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.name}
-                    </span>
-                    {item.farrierFirst && (
-                      <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-surface)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', fontWeight: 500, flexShrink: 0 }}>
-                        {item.farrierFirst}
-                      </span>
-                    )}
-                    {compactEstStr && (
-                      <span style={{ fontSize: 11, color: isDueNow ? '#dc2626' : 'var(--color-text-3)', fontWeight: isDueNow ? 600 : 400, flexShrink: 0 }}>
-                        {isDueNow ? compactEstStr : `Next full set ${compactEstStr}`}
-                      </span>
-                    )}
-                    {!item.isOtherAnimal && item.workingMore && <span style={{ fontSize: 11, flexShrink: 0 }}>🟠</span>}
-                    {!item.isOtherAnimal && item.wearsFaster && <span style={{ fontSize: 11, flexShrink: 0 }}>🔴</span>}
-                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)', flexShrink: 0 }}>{isExpanded ? '▾' : '▸'}</span>
-                  </button>
-
-                  {isExpanded && (
-                    <div style={{
-                      padding: '8px 12px 10px',
-                      background: 'var(--color-bg)',
-                      borderRadius: '0 0 var(--radius-md) var(--radius-md)',
-                      border: `1px solid ${isDueNow ? 'var(--color-warning-border)' : isDueSoon ? 'var(--color-warning-border)' : 'var(--color-border)'}`,
-                      borderTop: 'none',
-                    }}>
-                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>
-                        Last full set:{' '}
-                        {item.lastFSStr ? `${item.lastFSStr} (${item.curDays}d ago)` : 'None on record'}
-                      </div>
-
-                      {item.sinceLastFS && (
-                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>
-                          Since then: {item.sinceLastFS.label} on {item.sinceLastFS.date}
-                        </div>
-                      )}
-
-                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: item.curGD !== null ? 6 : 4 }}>
-                        Usually goes:{' '}
-                        {item.avgDays !== null
-                          ? `~${Math.round(item.avgDays)} days between full sets`
-                          : `Not enough history yet${scheduleData.herdMedDays !== null ? ` (herd typical: ~${Math.round(scheduleData.herdMedDays)}d)` : ''}`}
-                      </div>
-
-                      {!item.isOtherAnimal && item.curGD !== null && item.usualGDForBar !== null && item.usualGDForBar > 0 && (
-                        <div style={{ marginBottom: 6 }}>
-                          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4 }}>
-                            Workload since last full set: {item.curGD} of usual {Math.round(item.usualGDForBar)} guest-days
-                          </div>
-                          <div style={{ height: 6, borderRadius: 999, background: 'var(--color-border)', overflow: 'hidden' }}>
-                            <div style={{
-                              width: `${Math.min(100, (item.curGD / item.usualGDForBar) * 100)}%`,
-                              height: '100%',
-                              background: item.curGD > item.usualGDForBar ? '#ef4444' : 'var(--color-accent)',
-                              borderRadius: 999,
-                              minWidth: item.curGD > 0 ? 3 : 0,
-                            }} />
-                          </div>
-                        </div>
-                      )}
-
-                      {item.estDateStr && (
-                        <div style={{ fontSize: 11, color: isDueNow ? '#dc2626' : 'var(--color-text-3)', fontWeight: isDueNow ? 600 : 400, marginBottom: (!item.isOtherAnimal && (item.workingMore || item.wearsFaster)) ? 4 : 0 }}>
-                          Next full set: {item.estDateStr}
-                          {item.estBasis && <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}> · {item.estBasis === 'own' ? 'own history' : 'herd avg'}</span>}
-                        </div>
-                      )}
-
-                      {!item.isOtherAnimal && (item.workingMore || item.wearsFaster) && (
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
-                          {item.workingMore && <span style={{ fontSize: 11, color: '#c2410c' }}>🟠 Working more than usual</span>}
-                          {item.wearsFaster && <span style={{ fontSize: 11, color: '#dc2626' }}>🔴 Goes through shoes fast</span>}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-
-            {sortedSchedule.length > SCH_PAGE_SIZE && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                <button type="button" onClick={() => { setSchPage(p => Math.max(1, p - 1)); document.getElementById('shoe-panel-sch-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={schPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: schPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: schPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
-                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {schPage} of {schTotalPages}</span>
-                <button type="button" onClick={() => { setSchPage(p => Math.min(schTotalPages, p + 1)); document.getElementById('shoe-panel-sch-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={schPage === schTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: schPage === schTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: schPage === schTotalPages ? 'default' : 'pointer' }}>Next →</button>
-              </div>
-            )}
+            <SchGroup
+              title="Due now"
+              items={schGroups.dueNow}
+              defaultOpen={true}
+              herdMedDays={scheduleData.herdMedDays}
+              expandedItems={expandedSchItems}
+              onToggleItem={name => setExpandedSchItems(prev => { const next = new Set(prev); if (next.has(name)) next.delete(name); else next.add(name); return next })}
+            />
+            <SchGroup
+              title="Next 2 weeks"
+              items={schGroups.soon}
+              defaultOpen={true}
+              herdMedDays={scheduleData.herdMedDays}
+              expandedItems={expandedSchItems}
+              onToggleItem={name => setExpandedSchItems(prev => { const next = new Set(prev); if (next.has(name)) next.delete(name); else next.add(name); return next })}
+            />
+            <SchGroup
+              title="Later"
+              items={schGroups.later}
+              defaultOpen={false}
+              herdMedDays={scheduleData.herdMedDays}
+              expandedItems={expandedSchItems}
+              onToggleItem={name => setExpandedSchItems(prev => { const next = new Set(prev); if (next.has(name)) next.delete(name); else next.add(name); return next })}
+              limitTo20
+            />
           </>
         )}
       </section>
