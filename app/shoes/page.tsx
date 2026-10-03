@@ -1744,7 +1744,7 @@ export default function ShoesPage() {
                         <span style={{ fontSize: 13, fontWeight: 600, minWidth: 52, flexShrink: 0 }}>{dateStr}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{horseLabel}</div>
-                          <button onClick={e => { e.stopPropagation(); setFarrierProfileName(visit.farrier_name) }} style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', textDecoration: 'underline', textDecorationColor: 'rgba(0,0,0,0.2)', textUnderlineOffset: 2 }}>{visit.farrier_name}</button>
+                          <button onClick={e => { e.stopPropagation(); setFarrierProfileName(visit.farrier_name) }} style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', textDecoration: 'none' }}>{visit.farrier_name}</button>
                         </div>
                         <span style={{ fontSize: 14, color: 'var(--color-text-3)', flexShrink: 0, display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>›</span>
                         {deletingVisitId === visit.id ? (

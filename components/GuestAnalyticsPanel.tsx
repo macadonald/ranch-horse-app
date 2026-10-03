@@ -84,13 +84,16 @@ const AGE_SEGS_DEF = [
 
 const STAY_BUCKET_COLORS = ['#bae6fd', '#38bdf8', '#0284c7', '#075985']
 
-type PartyType = 'Solo' | 'Couple' | 'Family' | 'Group'
-const PARTY_TYPES: PartyType[] = ['Solo', 'Couple', 'Family', 'Group']
+type PartyType = 'Solo' | 'Couple' | 'Parent & adult child' | 'Friends / siblings' | 'Unclear' | 'Family' | 'Group'
+const PARTY_TYPES: PartyType[] = ['Solo', 'Couple', 'Parent & adult child', 'Friends / siblings', 'Unclear', 'Family', 'Group']
 const PARTY_COLORS: Record<PartyType, string> = {
-  Solo:   '#6366f1',
-  Couple: '#ec4899',
-  Family: '#f59e0b',
-  Group:  '#10b981',
+  Solo:                   '#6366f1',
+  Couple:                 '#ec4899',
+  'Parent & adult child': '#f59e0b',
+  'Friends / siblings':   '#10b981',
+  Unclear:                '#d1d5db',
+  Family:                 '#f97316',
+  Group:                  '#06b6d4',
 }
 
 // ─── AnalyticsBarRow ──────────────────────────────────────────────────────────
@@ -381,18 +384,28 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
     if (members.length === 1) return 'Solo'
     const hasKnownMinor = members.some(m => m.age > 0 && m.age < 18)
     if (hasKnownMinor) return 'Family'
-    if (members.length === 2) return 'Couple'
-    return 'Group'
+    if (members.length >= 3) return 'Group'
+    // Exactly 2 adults
+    const [a, b] = members
+    const aAge = a.age > 0 ? a.age : null
+    const bAge = b.age > 0 ? b.age : null
+    const aGender = (a.gender || '').toLowerCase().trim()
+    const bGender = (b.gender || '').toLowerCase().trim()
+    if (aAge === null || bAge === null || !aGender || !bGender) return 'Unclear'
+    const ageDiff = Math.abs(aAge - bAge)
+    if (ageDiff >= 18) return 'Parent & adult child'
+    if (aGender !== bGender && ageDiff <= 15) return 'Couple'
+    return 'Friends / siblings'
   }
 
   const partyByMonth: Record<string, Record<PartyType, number>> = {}
-  const partyCountsAll: Record<PartyType, number> = { Solo: 0, Couple: 0, Family: 0, Group: 0 }
+  const partyCountsAll = Object.fromEntries(PARTY_TYPES.map(pt => [pt, 0])) as Record<PartyType, number>
   const partySizes: number[] = []
 
   Object.values(partyMap).forEach(members => {
     const type = classifyParty(members)
     const mm = members[0].check_in_date.slice(0, 7)
-    if (!partyByMonth[mm]) partyByMonth[mm] = { Solo: 0, Couple: 0, Family: 0, Group: 0 }
+    if (!partyByMonth[mm]) partyByMonth[mm] = Object.fromEntries(PARTY_TYPES.map(pt => [pt, 0])) as Record<PartyType, number>
     partyByMonth[mm][type]++
     partyCountsAll[type]++
     partySizes.push(members.length)
@@ -686,8 +699,11 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
       {/* 7. Party Composition */}
       <div style={sec}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Party Composition</div>
-        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>
           Based on {partyGuestsWithRoom} of {guests.length} guests with room number and check-in date
+        </p>
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12, fontStyle: 'italic' }}>
+          Best-guess grouping from age and gender. Couple = two adults of different genders within 15 years; Parent &amp; adult child = 18+ year gap; Unclear = missing age or gender.
         </p>
         {totalParties === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>Not enough data yet.</p>

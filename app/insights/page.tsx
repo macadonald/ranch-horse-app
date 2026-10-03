@@ -475,15 +475,17 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
 
 export default function InsightsPage() {
   const today = getTucsonToday()
-  const [view, setView]       = useState<AnalyticsView>(() => {
-    if (typeof window === 'undefined') return 'correlations'
-    const tab = new URLSearchParams(window.location.search).get('tab')
-    if (tab === 'shoes' || tab === 'guests' || tab === 'horses' || tab === 'correlations') return tab as AnalyticsView
-    return 'correlations'
-  })
+  const [view, setView]       = useState<AnalyticsView>('correlations')
   const [guests, setGuests]   = useState<AnalyticsGuest[]>([])
   const [horses, setHorses]   = useState<DbHorse[]>([])
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    if (tab === 'shoes' || tab === 'guests' || tab === 'horses' || tab === 'correlations') {
+      setView(tab as AnalyticsView)
+    }
+  }, [])
 
   useEffect(() => {
     Promise.all([
