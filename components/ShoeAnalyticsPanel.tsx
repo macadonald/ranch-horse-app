@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { categorizeWork, WORK_LABELS as WORK_CAT_LABELS, type WorkCategory } from '@/lib/shoeWork'
+import { categorizeWork, isFullSet, WORK_LABELS as WORK_CAT_LABELS, type WorkCategory } from '@/lib/shoeWork'
+import { getTucsonToday } from '@/lib/timezone'
 
 type ShoeNeed = {
   id: string
@@ -38,6 +39,25 @@ type HealthIssue = {
   type: string
   status: string
   opened_at: string
+}
+
+type WorkloadHorse = {
+  name: string
+  is_active: boolean
+  is_deceased: boolean
+}
+
+type WorkloadAssignment = {
+  horse_name: string
+  incompatible: boolean
+  removed_at: string | null
+}
+
+type WorkloadGuest = {
+  check_in_date: string | null
+  check_out_date: string | null
+  checked_out_at: string | null
+  horse_assignments: WorkloadAssignment[] | null
 }
 
 const SHOE_TYPE_COLORS: Record<string, { bg: string; border: string; color: string; label: string }> = {
@@ -89,6 +109,21 @@ function horseAvgIntervalDays(horseName: string, visits: FarrierVisit[]): number
 function formatMonth(ym: string): string {
   const d = new Date(ym + '-01T12:00:00')
   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+}
+
+function median(arr: number[]): number | null {
+  if (arr.length === 0) return null
+  const sorted = [...arr].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+function formatEstDate(daysLeft: number | null): string {
+  if (daysLeft === null) return '—'
+  if (daysLeft <= 0) return 'Due now (est.)'
+  const today = getTucsonToday()
+  const d = new Date(new Date(today + 'T12:00:00').getTime() + Math.round(daysLeft) * 24 * 60 * 60 * 1000)
+  return `~${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (est.)`
 }
 
 function MetricCard({ label, value, unit }: { label: string; value: string | number; unit?: string }) {
@@ -154,6 +189,8 @@ export function ShoeAnalyticsPanel() {
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
+  const [wlHorses, setWlHorses] = useState<WorkloadHorse[]>([])
+  const [wlGuests, setWlGuests] = useState<WorkloadGuest[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -161,10 +198,14 @@ export function ShoeAnalyticsPanel() {
       fetch('/api/shoe-needs').then(r => r.json()),
       fetch('/api/farrier-visits').then(r => r.json()),
       fetch('/api/health').then(r => r.json()),
-    ]).then(([n, v, h]) => {
+      fetch('/api/horses').then(r => r.json()),
+      fetch('/api/guests').then(r => r.json()),
+    ]).then(([n, v, h, horses, guests]) => {
       if (n.status === 'fulfilled') setNeeds(n.value.needs || [])
       if (v.status === 'fulfilled') setVisits(v.value.visits || [])
       if (h.status === 'fulfilled') setHealthIssues(h.value.issues || [])
+      if (horses.status === 'fulfilled') setWlHorses(horses.value.horses || [])
+      if (guests.status === 'fulfilled') setWlGuests(guests.value.guests || [])
       setLoading(false)
     })
   }, [])
@@ -172,9 +213,13 @@ export function ShoeAnalyticsPanel() {
   const [horseSort, setHorseSort] = useState<'name' | 'last_shod' | 'days_since' | 'overdue'>('overdue')
   const [horseAnalyticsPage, setHorseAnalyticsPage] = useState(1)
   const HORSE_ANALYTICS_PAGE_SIZE = 20
+  const WL_PAGE_SIZE = 20
   const [timelineHorse, setTimelineHorse] = useState('')
   const [timelineFrom, setTimelineFrom] = useState('')
   const [timelineTo, setTimelineTo] = useState('')
+  const [wlSort, setWlSort] = useState<'est_next' | 'avg_gd' | 'avg_days' | 'current_gd'>('est_next')
+  const [wlPage, setWlPage] = useState(1)
+  const [otherAnimalsOpen, setOtherAnimalsOpen] = useState(false)
   const MS_PER_DAY = 24 * 60 * 60 * 1000
 
   const allHorseNames = useMemo(() =>
@@ -288,6 +333,166 @@ export function ShoeAnalyticsPanel() {
     if (timelineTo && e.visit_date > timelineTo) return false
     return true
   }), [timelineEntries, timelineHorse, timelineFrom, timelineTo])
+
+  const workloadData = useMemo(() => {
+    const today = getTucsonToday()
+    const MS = 24 * 60 * 60 * 1000
+
+    // full-set dates per horse (ascending)
+    const fullSetsByHorse: Record<string, string[]> = {}
+    const sortedVisitsAsc = [...visits].sort((a, b) => a.visit_date.localeCompare(b.visit_date))
+    sortedVisitsAsc.forEach(v => {
+      v.farrier_visit_horses.forEach(h => {
+        if (isFullSet(h.work_done)) {
+          const key = h.horse_name.trim().toLowerCase()
+          if (!fullSetsByHorse[key]) fullSetsByHorse[key] = []
+          if (fullSetsByHorse[key][fullSetsByHorse[key].length - 1] !== v.visit_date) {
+            fullSetsByHorse[key].push(v.visit_date)
+          }
+        }
+      })
+    })
+
+    // compatible assignment windows per horse
+    const assignsByHorse: Record<string, Array<{ s: string; e: string }>> = {}
+    wlGuests.forEach(g => {
+      if (!g.check_in_date) return
+      let stayEnd = today
+      if (g.check_out_date && g.check_out_date < stayEnd) stayEnd = g.check_out_date
+      if (g.checked_out_at) {
+        const d = g.checked_out_at.slice(0, 10)
+        if (d < stayEnd) stayEnd = d
+      }
+      g.horse_assignments?.forEach(a => {
+        if (a.incompatible) return
+        let end = stayEnd
+        if (a.removed_at) {
+          const d = a.removed_at.slice(0, 10)
+          if (d < end) end = d
+        }
+        const key = a.horse_name.trim().toLowerCase()
+        if (!assignsByHorse[key]) assignsByHorse[key] = []
+        assignsByHorse[key].push({ s: g.check_in_date!, e: end })
+      })
+    })
+
+    function countGD(horseName: string, cycleStart: string, cycleEnd: string): number {
+      const key = horseName.trim().toLowerCase()
+      let total = 0
+      for (const a of assignsByHorse[key] || []) {
+        const start = a.s > cycleStart ? a.s : cycleStart
+        const end = a.e < cycleEnd ? a.e : cycleEnd
+        if (end >= start) {
+          total += Math.round((new Date(end + 'T12:00:00').getTime() - new Date(start + 'T12:00:00').getTime()) / MS) + 1
+        }
+      }
+      return total
+    }
+
+    const activeHorseKeys = new Set(
+      wlHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name.trim().toLowerCase())
+    )
+
+    const horseWorkload = wlHorses
+      .filter(h => h.is_active && !h.is_deceased)
+      .map(horse => {
+        const key = horse.name.trim().toLowerCase()
+        const dates = fullSetsByHorse[key] || []
+
+        const cycles: Array<{ gd: number; days: number; touchUps: number }> = []
+        for (let i = 0; i < dates.length - 1; i++) {
+          const cs = dates[i], ce = dates[i + 1]
+          let touchUps = 0
+          sortedVisitsAsc.forEach(v => {
+            if (v.visit_date > cs && v.visit_date < ce) {
+              v.farrier_visit_horses.forEach(h => {
+                if (h.horse_name.trim().toLowerCase() === key && !isFullSet(h.work_done)) touchUps++
+              })
+            }
+          })
+          cycles.push({
+            gd: countGD(horse.name, cs, ce),
+            days: Math.round((new Date(ce + 'T12:00:00').getTime() - new Date(cs + 'T12:00:00').getTime()) / MS),
+            touchUps,
+          })
+        }
+
+        const n = cycles.length
+        const avgDays = n > 0 ? cycles.reduce((s, c) => s + c.days, 0) / n : null
+        const avgGD = n > 0 ? cycles.reduce((s, c) => s + c.gd, 0) / n : null
+        const avgTU = n > 0 ? cycles.reduce((s, c) => s + c.touchUps, 0) / n : null
+
+        const lastFS = dates.length > 0 ? dates[dates.length - 1] : null
+        const curDays = lastFS ? Math.round((new Date(today + 'T12:00:00').getTime() - new Date(lastFS + 'T12:00:00').getTime()) / MS) : null
+        const curGD = lastFS ? countGD(horse.name, lastFS, today) : null
+
+        let pace: number | null = null
+        if (lastFS && curDays !== null) {
+          const todayMs = new Date(today + 'T12:00:00').getTime()
+          const raw14 = new Date(todayMs - 13 * MS).toISOString().slice(0, 10)
+          const winStart = raw14 > lastFS ? raw14 : lastFS
+          const winDays = Math.round((todayMs - new Date(winStart + 'T12:00:00').getTime()) / MS) + 1
+          if (winDays > 0) pace = countGD(horse.name, winStart, today) / winDays
+        }
+
+        return { name: horse.name, completedCycles: n, avgDays, avgGD, avgTU, lastFS, curDays, curGD, pace }
+      })
+
+    const qualified = horseWorkload.filter(h => h.completedCycles >= 2)
+    const herdMedDays = median(qualified.map(h => h.avgDays).filter((d): d is number => d !== null))
+    const herdMedGD = median(qualified.map(h => h.avgGD).filter((d): d is number => d !== null))
+
+    const withEst = horseWorkload.map(h => {
+      const targetGD = h.completedCycles >= 2 ? h.avgGD : herdMedGD
+      const fallDays = h.completedCycles >= 2 ? h.avgDays : herdMedDays
+      let estDaysLeft: number | null = null
+      let estBasis: 'own' | 'herd' | null = null
+
+      if (targetGD !== null && h.curGD !== null && h.pace !== null && h.pace > 0) {
+        estDaysLeft = (targetGD - h.curGD) / h.pace
+        estBasis = h.completedCycles >= 2 ? 'own' : 'herd'
+      } else if (fallDays !== null && h.curDays !== null) {
+        estDaysLeft = fallDays - h.curDays
+        estBasis = h.completedCycles >= 2 ? 'own' : 'herd'
+      }
+
+      const wearsFaster = h.completedCycles >= 2 && herdMedGD !== null && h.avgGD !== null && h.avgGD < 0.7 * herdMedGD
+      return { ...h, estDaysLeft, estBasis, wearsFaster }
+    })
+
+    // Other animals: appear in visits but not in horses table
+    const allVisitNames = Array.from(new Set(visits.flatMap(v => v.farrier_visit_horses.map(h => h.horse_name))))
+    const otherAnimals = allVisitNames
+      .filter(name => !activeHorseKeys.has(name.trim().toLowerCase()))
+      .sort()
+      .map(name => {
+        const key = name.trim().toLowerCase()
+        const dates = fullSetsByHorse[key] || []
+        const lastFS = dates.length > 0 ? dates[dates.length - 1] : null
+        const daysSince = lastFS ? Math.round((new Date(today + 'T12:00:00').getTime() - new Date(lastFS + 'T12:00:00').getTime()) / MS) : null
+        let avgDays: number | null = null
+        if (dates.length >= 2) {
+          let tot = 0
+          for (let i = 1; i < dates.length; i++) {
+            tot += Math.round((new Date(dates[i] + 'T12:00:00').getTime() - new Date(dates[i - 1] + 'T12:00:00').getTime()) / MS)
+          }
+          avgDays = tot / (dates.length - 1)
+        }
+        return { name, lastFS, daysSince, avgDays }
+      })
+
+    return { horseWorkload: withEst, herdMedDays, herdMedGD, qualifiedCount: qualified.length, otherAnimals }
+  }, [visits, wlHorses, wlGuests])
+
+  const sortedWorkload = useMemo(() => [...workloadData.horseWorkload].sort((a, b) => {
+    if (wlSort === 'est_next') return (a.estDaysLeft ?? Infinity) - (b.estDaysLeft ?? Infinity)
+    if (wlSort === 'avg_gd') return (b.avgGD ?? -1) - (a.avgGD ?? -1)
+    if (wlSort === 'avg_days') return (a.avgDays ?? Infinity) - (b.avgDays ?? Infinity)
+    return (b.curGD ?? -1) - (a.curGD ?? -1)
+  }), [workloadData.horseWorkload, wlSort])
+
+  const wlTotalPages = Math.max(1, Math.ceil(sortedWorkload.length / WL_PAGE_SIZE))
+  const pagedWorkload = sortedWorkload.slice((wlPage - 1) * WL_PAGE_SIZE, wlPage * WL_PAGE_SIZE)
 
   if (loading) {
     return (
@@ -421,6 +626,116 @@ export function ShoeAnalyticsPanel() {
           </div>
         </section>
       )}
+
+      {/* Shoes vs. workload */}
+      <section id="shoe-panel-workload-top" style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 12 }}>Shoes vs. Workload</div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }} className="analytics-summary-grid">
+          <MetricCard label="Median days / cycle" value={workloadData.herdMedDays !== null ? Math.round(workloadData.herdMedDays) : '—'} />
+          <MetricCard label="Median guest-days / cycle" value={workloadData.herdMedGD !== null ? Math.round(workloadData.herdMedGD) : '—'} />
+          <MetricCard label="Horses with 2+ cycles" value={workloadData.qualifiedCount} />
+        </div>
+
+        <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 12, fontStyle: 'italic' }}>
+          Guest-days = days a guest was assigned to the horse. Estimates use the horse's own history when it has 2+ full cycles, otherwise herd typical.
+        </p>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{workloadData.horseWorkload.length} horses</div>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+            {(['est_next', 'avg_gd', 'avg_days', 'current_gd'] as const).map(s => (
+              <button key={s} onClick={() => { setWlSort(s); setWlPage(1) }} style={{
+                padding: '2px 8px', borderRadius: 999, fontSize: 11, cursor: 'pointer',
+                border: wlSort === s ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                background: wlSort === s ? 'var(--color-accent-bg)' : 'transparent',
+                color: wlSort === s ? 'var(--color-accent)' : 'var(--color-text-3)',
+                fontWeight: wlSort === s ? 600 : 400,
+              }}>
+                {s === 'est_next' ? 'Est. next' : s === 'avg_gd' ? 'Avg guest-days' : s === 'avg_days' ? 'Avg days' : 'Current GD'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {pagedWorkload.map(h => {
+          const estStr = formatEstDate(h.estDaysLeft)
+          const isDueNow = h.estDaysLeft !== null && h.estDaysLeft <= 0
+          const isDueSoon = !isDueNow && h.estDaysLeft !== null && h.estDaysLeft <= 14
+          return (
+            <div key={h.name} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 5 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, marginTop: 5, background: isDueNow ? '#dc2626' : isDueSoon ? '#f59e0b' : '#22c55e' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 2 }}>
+                  <span style={{ fontWeight: 600, fontSize: 12 }}>🐴 {h.name}</span>
+                  {h.wearsFaster && (
+                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>⚡ Wears faster</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', display: 'flex', flexWrap: 'wrap', gap: '0 10px' }}>
+                  <span>{h.completedCycles} cycle{h.completedCycles !== 1 ? 's' : ''}</span>
+                  {h.avgDays !== null && <span>~{Math.round(h.avgDays)}d avg</span>}
+                  {h.avgGD !== null && <span>~{Math.round(h.avgGD)} GD avg</span>}
+                  {h.avgTU !== null && h.avgTU >= 0.1 && <span>~{Math.round(h.avgTU * 10) / 10} touch-up{h.avgTU >= 1.95 ? 's' : ''}/cycle</span>}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'flex', flexWrap: 'wrap', gap: '0 10px', marginTop: 1 }}>
+                  {h.curDays !== null && <span>Now: {h.curDays}d in</span>}
+                  {h.curGD !== null && <span>{h.curGD} GD</span>}
+                  {h.pace !== null && h.pace > 0 && <span>pace {h.pace.toFixed(2)} GD/d</span>}
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                <span style={{
+                  display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 999,
+                  background: isDueNow ? '#fee2e2' : isDueSoon ? '#fef3c7' : 'var(--color-surface)',
+                  color: isDueNow ? '#dc2626' : isDueSoon ? '#92400e' : 'var(--color-text-3)',
+                  border: isDueNow ? '1px solid #fca5a5' : isDueSoon ? '1px solid #fcd34d' : '1px solid var(--color-border)',
+                }}>
+                  {estStr}
+                </span>
+                {h.estBasis && (
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>
+                    {h.estBasis === 'own' ? 'own history' : 'herd avg'}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {sortedWorkload.length > WL_PAGE_SIZE && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
+            <button type="button" onClick={() => { setWlPage(p => Math.max(1, p - 1)); document.getElementById('shoe-panel-workload-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={wlPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: wlPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: wlPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+            <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {wlPage} of {wlTotalPages}</span>
+            <button type="button" onClick={() => { setWlPage(p => Math.min(wlTotalPages, p + 1)); document.getElementById('shoe-panel-workload-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={wlPage === wlTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: wlPage === wlTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: wlPage === wlTotalPages ? 'default' : 'pointer' }}>Next →</button>
+          </div>
+        )}
+
+        {workloadData.otherAnimals.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              onClick={() => setOtherAnimalsOpen(o => !o)}
+              style={{ fontSize: 12, color: 'var(--color-text-3)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <span style={{ fontSize: 11 }}>{otherAnimalsOpen ? '▼' : '▶'}</span>
+              Other animals ({workloadData.otherAnimals.length}) — intervals only
+            </button>
+            {otherAnimalsOpen && (
+              <div style={{ marginTop: 8 }}>
+                {workloadData.otherAnimals.map(a => (
+                  <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', marginBottom: 4, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 80 }}>🐴 {a.name}</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', flexShrink: 0 }}>No guest workload</span>
+                    {a.avgDays !== null && <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>~{Math.round(a.avgDays)}d avg</span>}
+                    {a.daysSince !== null && <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{a.daysSince}d since last set</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Farrier visit timeline */}
       <section>
