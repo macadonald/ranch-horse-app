@@ -3,11 +3,12 @@ import { useState, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { GuestAnalyticsPanel, type AnalyticsGuest } from '@/components/GuestAnalyticsPanel'
 import { HorseAnalyticsPanel } from '@/components/HorseAnalyticsPanel'
+import { ShoeAnalyticsPanel } from '@/components/ShoeAnalyticsPanel'
 import { DbHorse } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
 import { WEIGHT_BANDS } from '@/lib/weightBands'
 
-type AnalyticsView = 'correlations' | 'guests' | 'horses'
+type AnalyticsView = 'correlations' | 'guests' | 'horses' | 'shoes'
 
 const LEVELS = ['B', 'AB', 'I', 'AI', 'A']
 const LEVEL_LABELS: Record<string, string> = {
@@ -474,7 +475,12 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
 
 export default function InsightsPage() {
   const today = getTucsonToday()
-  const [view, setView]       = useState<AnalyticsView>('correlations')
+  const [view, setView]       = useState<AnalyticsView>(() => {
+    if (typeof window === 'undefined') return 'correlations'
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    if (tab === 'shoes' || tab === 'guests' || tab === 'horses' || tab === 'correlations') return tab as AnalyticsView
+    return 'correlations'
+  })
   const [guests, setGuests]   = useState<AnalyticsGuest[]>([])
   const [horses, setHorses]   = useState<DbHorse[]>([])
   const [loading, setLoading] = useState(true)
@@ -520,6 +526,7 @@ export default function InsightsPage() {
             {tabBtn('correlations', 'Correlations')}
             {tabBtn('guests',       'Guests')}
             {tabBtn('horses',       'Horses')}
+            {tabBtn('shoes',        'Shoes')}
           </div>
         </div>
 
@@ -532,6 +539,8 @@ export default function InsightsPage() {
           <GuestAnalyticsPanel guests={gwa} today={today} />
         ) : view === 'horses' ? (
           <HorseAnalyticsPanel horses={horses} guests={gwa} />
+        ) : view === 'shoes' ? (
+          <ShoeAnalyticsPanel />
         ) : (
           <CorrelationsView guests={guests} horses={horses} />
         )}
