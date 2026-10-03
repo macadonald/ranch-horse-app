@@ -66,7 +66,8 @@ const FILTER_CHIPS = [
   { key: 'priority',    label: '★ Priority' },
 ]
 
-type HorseDbEntry = { name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[] }
+type HorseDbEntry = { id?: string; name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[]; farrier?: string | null }
+type Farrier = { id: string; name: string; active: boolean; created_at: string }
 
 type ShoeNeed = {
   id: string
@@ -133,6 +134,16 @@ function lastKnownShoeType(horseName: string, visits: FarrierVisit[]): string {
     if (h?.shoe_type) return h.shoe_type
   }
   return 'regular'
+}
+
+function horseLastVisitInfo(horseName: string, visits: FarrierVisit[]): { date: string; farrier: string } | null {
+  let best: { date: string; farrier: string } | null = null
+  visits.forEach(v => {
+    if (v.farrier_visit_horses.some(h => h.horse_name === horseName)) {
+      if (!best || v.visit_date > best.date) best = { date: v.visit_date, farrier: v.farrier_name }
+    }
+  })
+  return best
 }
 
 function horseLastVisitDate(horseName: string, visits: FarrierVisit[]): string | null {
@@ -241,7 +252,7 @@ function HorseAutocomplete({ value, onChange, placeholder, extraNames = [] }: { 
 function NeedRow({
   need, onUpdate, onRemove, onToggleDrugger, onTogglePriority, onViewProfile,
   markingDone, setMarkingDone, doneForm, setDoneForm, onMarkDone, saving, markDoneError,
-  farrierNames, isViewer,
+  activeFarriers, isViewer,
 }: {
   need: ShoeNeed
   onUpdate: (id: string, field: string, value: string) => void
@@ -256,11 +267,12 @@ function NeedRow({
   onMarkDone: (need: ShoeNeed) => void
   saving: boolean
   markDoneError: string | null
-  farrierNames: string[]
+  activeFarriers: Farrier[]
   isViewer?: boolean
 }) {
   const [horseName, setHorseName] = useState(need.horse_name)
   const [workDoneSelection, setWorkDoneSelection] = useState('')
+  const [farrierOther, setFarrierOther] = useState(false)
   useEffect(() => { setHorseName(need.horse_name) }, [need.horse_name])
 
   const isExpanded = markingDone === need.id
@@ -432,28 +444,27 @@ function NeedRow({
               <input type="date" value={doneForm.visit_date} onChange={e => setDoneForm({ ...doneForm, visit_date: e.target.value })} />
             </div>
             <div>
-              <label>Farrier Name</label>
-              {farrierNames.length > 0 && (
-                <div style={{ display: 'flex', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
-                  {farrierNames.map(name => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => setDoneForm({ ...doneForm, farrier_name: name })}
-                      style={{
-                        padding: '3px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
-                        border: `1px solid ${doneForm.farrier_name === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                        background: doneForm.farrier_name === name ? 'var(--color-accent)' : 'var(--color-surface)',
-                        color: doneForm.farrier_name === name ? '#fff' : 'var(--color-text-2)',
-                        fontWeight: doneForm.farrier_name === name ? 600 : 400,
-                      }}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
+              <label>Farrier</label>
+              <select
+                value={farrierOther ? '__other__' : doneForm.farrier_name}
+                onChange={e => {
+                  if (e.target.value === '__other__') { setFarrierOther(true); setDoneForm({ ...doneForm, farrier_name: '' }) }
+                  else { setFarrierOther(false); setDoneForm({ ...doneForm, farrier_name: e.target.value }) }
+                }}
+                style={{ fontSize: 13 }}
+              >
+                <option value="">— select farrier —</option>
+                {activeFarriers.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                <option value="__other__">Other…</option>
+              </select>
+              {farrierOther && (
+                <input
+                  value={doneForm.farrier_name}
+                  onChange={e => setDoneForm({ ...doneForm, farrier_name: e.target.value })}
+                  placeholder="Farrier name…"
+                  style={{ fontSize: 13, marginTop: 6 }}
+                />
               )}
-              <input value={doneForm.farrier_name} onChange={e => setDoneForm({ ...doneForm, farrier_name: e.target.value })} placeholder="e.g. John Smith" />
             </div>
           </div>
           <div style={{ marginBottom: 8 }}>
@@ -976,6 +987,397 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
   )
 }
 
+// ─── ByFarrierView ────────────────────────────────────────────────────────────
+
+function ByFarrierView({
+  farriers,
+  horseDbData,
+  visits,
+  isAdmin,
+  onOpenProfile,
+  onMoveHorse,
+  onManageFarriers,
+}: {
+  farriers: Farrier[]
+  horseDbData: HorseDbEntry[]
+  visits: FarrierVisit[]
+  isAdmin: boolean
+  onOpenProfile: (name: string) => void
+  onMoveHorse: (horseName: string, newFarrier: string | null) => Promise<void>
+  onManageFarriers: () => void
+}) {
+  const MS = 86400000
+  const [movedMsg, setMovedMsg] = useState<{ horseName: string; label: string } | null>(null)
+
+  const activeFarriers = farriers.filter(f => f.active)
+  const activeFarrierNames = useMemo(() => new Set(activeFarriers.map(f => f.name)), [activeFarriers])
+  const inactiveFarrierNames = useMemo(() => new Set(farriers.filter(f => !f.active).map(f => f.name)), [farriers])
+
+  const activeHorses = useMemo(() =>
+    horseDbData.filter(h => h.is_active && !h.is_deceased)
+  , [horseDbData])
+
+  const horseStats = useMemo(() => {
+    const map: Record<string, {
+      isOverdue: boolean; daysOverdue: number | null
+      daysUntilDue: number | null; isDueSoon: boolean
+      lastVisit: { date: string; farrier: string } | null
+    }> = {}
+    activeHorses.forEach(h => {
+      const lastDate = horseLastVisitDate(h.name, visits)
+      const avgDays = horseAvgIntervalDays(h.name, visits)
+      const nextMs = lastDate ? new Date(lastDate + 'T12:00:00').getTime() + avgDays * MS : null
+      const isOverdue = nextMs ? Date.now() > nextMs : false
+      const daysOverdue = nextMs && isOverdue ? Math.floor((Date.now() - nextMs) / MS) : null
+      const daysUntilDue = nextMs && !isOverdue ? Math.floor((nextMs - Date.now()) / MS) : null
+      const isDueSoon = !isOverdue && daysUntilDue !== null && daysUntilDue <= 14
+      map[h.name] = { isOverdue, daysOverdue, daysUntilDue, isDueSoon, lastVisit: horseLastVisitInfo(h.name, visits) }
+    })
+    return map
+  }, [activeHorses, visits, MS])
+
+  function sortHorses(horses: HorseDbEntry[]) {
+    return [...horses].sort((a, b) => {
+      const sa = horseStats[a.name], sb = horseStats[b.name]
+      if (!sa || !sb) return 0
+      if (sa.isOverdue && !sb.isOverdue) return -1
+      if (!sa.isOverdue && sb.isOverdue) return 1
+      if (sa.isOverdue && sb.isOverdue) return (sb.daysOverdue ?? 0) - (sa.daysOverdue ?? 0)
+      return (sa.daysUntilDue ?? 9999) - (sb.daysUntilDue ?? 9999)
+    })
+  }
+
+  async function handleMove(horseName: string, newFarrier: string | null) {
+    await onMoveHorse(horseName, newFarrier)
+    setMovedMsg({ horseName, label: newFarrier ?? 'Shared' })
+    setTimeout(() => setMovedMsg(null), 2500)
+  }
+
+  function renderHorseRow(h: HorseDbEntry) {
+    const s = horseStats[h.name]
+    if (!s) return null
+    const confirmed = movedMsg?.horseName === h.name
+    return (
+      <div key={h.name} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap', background: confirmed ? 'var(--color-success-bg)' : 'transparent', transition: 'background 0.3s' }}>
+        <span style={{ fontSize: 13, flexShrink: 0 }}>🐴</span>
+        <span style={{ flex: 1, fontWeight: 600, fontSize: 13, minWidth: 80 }}>{h.name}</span>
+        {s.isOverdue ? (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 700, flexShrink: 0 }}>{s.daysOverdue}d overdue</span>
+        ) : s.isDueSoon ? (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 700, flexShrink: 0 }}>due in {s.daysUntilDue}d</span>
+        ) : (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#dcfce7', color: '#166534', border: '1px solid #86efac', fontWeight: 600, flexShrink: 0 }}>ok</span>
+        )}
+        {s.lastVisit && (
+          <span style={{ fontSize: 10, color: 'var(--color-text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            Last: {s.lastVisit.farrier} · {new Date(s.lastVisit.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+        {confirmed && (
+          <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600, flexShrink: 0 }}>→ {movedMsg!.label} ✓</span>
+        )}
+        {isAdmin && (
+          <select
+            value={h.farrier ?? ''}
+            onChange={e => handleMove(h.name, e.target.value || null)}
+            style={{ fontSize: 11, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', padding: '2px 5px', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <option value="">Shared</option>
+            {activeFarriers.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+            {h.farrier && inactiveFarrierNames.has(h.farrier) && (
+              <option value={h.farrier}>{h.farrier} (inactive)</option>
+            )}
+          </select>
+        )}
+      </div>
+    )
+  }
+
+  function renderCard(title: string, horses: HorseDbEntry[], inactive = false) {
+    const sorted = sortHorses(horses)
+    const overdueCount = sorted.filter(h => horseStats[h.name]?.isOverdue).length
+    const dueSoonCount = sorted.filter(h => horseStats[h.name]?.isDueSoon).length
+    const farrierObj = farriers.find(f => f.name === title)
+    return (
+      <div key={title} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', marginBottom: 14, overflow: 'hidden', opacity: inactive ? 0.75 : 1 }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)', cursor: farrierObj ? 'pointer' : 'default' }}
+          onClick={() => farrierObj && onOpenProfile(title)}
+        >
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, flex: 1 }}>
+            {title}
+            {farrierObj && <span style={{ fontSize: 11, marginLeft: 6, color: 'var(--color-accent)', fontFamily: 'inherit', fontWeight: 400 }}>↗</span>}
+          </span>
+          {inactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 600, flexShrink: 0 }}>Inactive farrier</span>}
+          {(overdueCount > 0 || dueSoonCount > 0) && (
+            <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+              {overdueCount > 0 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 700 }}>{overdueCount} overdue</span>}
+              {dueSoonCount > 0 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>{dueSoonCount} due soon</span>}
+            </div>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{sorted.length} horse{sorted.length !== 1 ? 's' : ''}</span>
+        </div>
+        {sorted.length === 0
+          ? <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--color-text-3)' }}>No horses assigned</div>
+          : sorted.map(h => renderHorseRow(h))}
+      </div>
+    )
+  }
+
+  const shared: HorseDbEntry[] = []
+  const byFarrier: Record<string, HorseDbEntry[]> = {}
+  const byInactive: Record<string, HorseDbEntry[]> = {}
+  activeFarriers.forEach(f => { byFarrier[f.name] = [] })
+  activeHorses.forEach(h => {
+    const f = h.farrier
+    if (!f) { shared.push(h) }
+    else if (activeFarrierNames.has(f)) { byFarrier[f].push(h) }
+    else if (inactiveFarrierNames.has(f)) { if (!byInactive[f]) byInactive[f] = []; byInactive[f].push(h) }
+    else { shared.push(h) }
+  })
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>
+          {activeHorses.length} active horses · click a farrier name to view profile
+        </span>
+        {isAdmin && (
+          <button
+            onClick={onManageFarriers}
+            style={{ fontSize: 12, padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', cursor: 'pointer', fontWeight: 500 }}
+          >
+            Manage farriers
+          </button>
+        )}
+      </div>
+      {activeFarriers.map(f => renderCard(f.name, byFarrier[f.name] || []))}
+      {renderCard('Shared', shared)}
+      {Object.entries(byInactive).map(([name, horses]) => renderCard(name, horses, true))}
+    </div>
+  )
+}
+
+// ─── FarrierProfileModal ──────────────────────────────────────────────────────
+
+function FarrierProfileModal({ name, farriers, horseDbData, visits, onClose }: {
+  name: string
+  farriers: Farrier[]
+  horseDbData: HorseDbEntry[]
+  visits: FarrierVisit[]
+  onClose: () => void
+}) {
+  const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set())
+  const farrierObj = farriers.find(f => f.name === name)
+  const farrierVisits = useMemo(() =>
+    [...visits.filter(v => v.farrier_name === name)].sort((a, b) => b.visit_date.localeCompare(a.visit_date))
+  , [visits, name])
+  const assignedHorses = useMemo(() =>
+    horseDbData.filter(h => h.farrier === name && h.is_active && !h.is_deceased)
+  , [horseDbData, name])
+  const visitCount = farrierVisits.length
+  const horsesShod = useMemo(() => {
+    const s = new Set<string>()
+    farrierVisits.forEach(v => v.farrier_visit_horses.forEach(h => s.add(h.horse_name)))
+    return s.size
+  }, [farrierVisits])
+  const totalServices = useMemo(() =>
+    farrierVisits.reduce((sum, v) => sum + v.farrier_visit_horses.length, 0)
+  , [farrierVisits])
+  const firstVisit = farrierVisits.length ? farrierVisits[farrierVisits.length - 1].visit_date : null
+  const lastVisit  = farrierVisits.length ? farrierVisits[0].visit_date : null
+  const avgPerMonth = useMemo(() => {
+    if (!firstVisit || !lastVisit || visitCount < 2) return visitCount > 0 ? visitCount.toFixed(1) : '—'
+    const months = Math.max((new Date(lastVisit + 'T12:00:00').getTime() - new Date(firstVisit + 'T12:00:00').getTime()) / (30.5 * 86400000), 1)
+    return (visitCount / months).toFixed(1)
+  }, [firstVisit, lastVisit, visitCount])
+  const topHorses = useMemo(() => {
+    const c: Record<string, number> = {}
+    farrierVisits.forEach(v => v.farrier_visit_horses.forEach(h => { c[h.horse_name] = (c[h.horse_name] || 0) + 1 }))
+    return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 10)
+  }, [farrierVisits])
+  function fmtDate(d: string) { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 16 }} onClick={onClose}>
+      <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 560, maxHeight: '88vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 5 }}>{name}</h2>
+            {farrierObj ? (
+              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, fontWeight: 600, background: farrierObj.active ? '#dcfce7' : 'var(--color-border)', color: farrierObj.active ? '#166534' : 'var(--color-text-muted)', border: `1px solid ${farrierObj.active ? '#86efac' : 'transparent'}` }}>
+                {farrierObj.active ? 'Active' : 'Inactive'}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Historical</span>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', flexShrink: 0 }}>✕</button>
+        </div>
+
+        {assignedHorses.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Currently Assigned</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {assignedHorses.map(h => (
+                <span key={h.name} style={{ fontSize: 12, padding: '2px 10px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-2)' }}>
+                  🐴 {h.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 20 }}>
+          {([
+            { label: 'Visits', value: visitCount },
+            { label: 'Unique horses shod', value: horsesShod },
+            { label: 'Total services', value: totalServices },
+            { label: 'First visit', value: firstVisit ? fmtDate(firstVisit) : '—' },
+            { label: 'Last visit', value: lastVisit ? fmtDate(lastVisit) : '—' },
+            { label: 'Avg visits/mo', value: avgPerMonth },
+          ] as { label: string; value: string | number }[]).map(c => (
+            <div key={c.label} style={{ padding: '10px 12px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{c.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 2 }}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {topHorses.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Most-Done Horses</div>
+            {topHorses.map(([horse, count]) => (
+              <div key={horse} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                <span style={{ fontSize: 13 }}>🐴</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{horse}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{count}×</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            Visit History ({farrierVisits.length})
+          </div>
+          {farrierVisits.length === 0
+            ? <p style={{ fontSize: 13, color: 'var(--color-text-3)', textAlign: 'center', padding: '16px 0' }}>No visits recorded</p>
+            : farrierVisits.map((v, i) => {
+                const isExp = expandedIdx.has(i)
+                const dateStr = new Date(v.visit_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                return (
+                  <div key={v.id} style={{ marginBottom: 4, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: 'pointer' }} onClick={() => setExpandedIdx(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })}>
+                      <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{dateStr}</span>
+                      <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v.farrier_visit_horses.length} horse{v.farrier_visit_horses.length !== 1 ? 's' : ''}</span>
+                      <span style={{ fontSize: 14, color: 'var(--color-text-3)', display: 'inline-block', transform: isExp ? 'rotate(90deg)' : 'none' }}>›</span>
+                    </div>
+                    {isExp && (
+                      <div style={{ borderTop: '1px solid var(--color-border)', padding: '8px 12px', background: 'var(--color-surface)' }}>
+                        {v.farrier_visit_horses.map(h => (
+                          <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 13 }}>🐴</span>
+                            <span style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 80 }}>{h.horse_name}</span>
+                            <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>{WORK_LABELS[h.work_done] || h.work_done}</span>
+                            {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
+                            {h.shoe_size && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>sz {h.shoe_size}</span>}
+                            {h.placement && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{h.placement}</span>}
+                            {h.notes && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{h.notes}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+          }
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── ManageFarriersModal ──────────────────────────────────────────────────────
+
+function ManageFarriersModal({ farriers, onClose, onAdd, onRename, onToggleActive, onOpenProfile }: {
+  farriers: Farrier[]
+  onClose: () => void
+  onAdd: (name: string) => Promise<void>
+  onRename: (id: string, oldName: string, newName: string) => Promise<void>
+  onToggleActive: (id: string, active: boolean) => Promise<void>
+  onOpenProfile: (name: string) => void
+}) {
+  const [addName, setAddName] = useState('')
+  const [addSaving, setAddSaving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameVal, setRenameVal] = useState('')
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  async function handleAdd() {
+    if (!addName.trim()) return
+    setAddSaving(true); setAddError(null)
+    try { await onAdd(addName.trim()); setAddName('') }
+    catch { setAddError('Failed to add farrier') }
+    finally { setAddSaving(false) }
+  }
+
+  async function handleRename(f: Farrier) {
+    if (!renameVal.trim() || renameVal.trim() === f.name) { setRenamingId(null); return }
+    await onRename(f.id, f.name, renameVal.trim())
+    setRenamingId(null)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 16 }} onClick={onClose}>
+      <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700 }}>Manage Farriers</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          {farriers.length === 0 && <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No farriers yet.</p>}
+          {farriers.map(f => (
+            <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--color-border)' }}>
+              {renamingId === f.id ? (
+                <>
+                  <input value={renameVal} onChange={e => setRenameVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(f); if (e.key === 'Escape') setRenamingId(null) }} autoFocus style={{ flex: 1, fontSize: 13 }} />
+                  <button onClick={() => handleRename(f)} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+                  <button onClick={() => setRenamingId(null)} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-3)', cursor: 'pointer' }}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => onOpenProfile(f.name)} style={{ flex: 1, fontSize: 13, fontWeight: 600, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text)', padding: 0, textDecoration: 'underline', textDecorationColor: 'rgba(0,0,0,0.15)', textUnderlineOffset: 3 }}>{f.name}</button>
+                  {!f.active && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 600, flexShrink: 0 }}>Inactive</span>}
+                  <button onClick={() => { setRenamingId(f.id); setRenameVal(f.name) }} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer', flexShrink: 0 }}>Rename</button>
+                  <button
+                    onClick={async () => { setTogglingId(f.id); try { await onToggleActive(f.id, !f.active) } finally { setTogglingId(null) } }}
+                    disabled={togglingId === f.id}
+                    style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: `1px solid ${f.active ? 'var(--color-danger-border)' : 'var(--color-success-border)'}`, background: f.active ? 'var(--color-danger-bg)' : 'var(--color-success-bg)', color: f.active ? 'var(--color-danger)' : 'var(--color-success)', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}
+                  >
+                    {togglingId === f.id ? '…' : f.active ? 'Deactivate' : 'Activate'}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>Add farrier</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()} placeholder="Farrier name…" style={{ flex: 1, fontSize: 13 }} />
+            <button onClick={handleAdd} disabled={addSaving || !addName.trim()} style={{ padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: addSaving || !addName.trim() ? 'not-allowed' : 'pointer', opacity: !addName.trim() ? 0.5 : 1 }}>
+              {addSaving ? '…' : 'Add'}
+            </button>
+          </div>
+          {addError && <p style={{ fontSize: 12, color: 'var(--color-danger)', marginTop: 6 }}>{addError}</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ShoesPage() {
   const { isViewer } = useRole()
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
@@ -999,28 +1401,34 @@ export default function ShoesPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [profileNeed, setProfileNeed] = useState<ShoeNeed | null>(null)
   const [markDoneError, setMarkDoneError] = useState<string | null>(null)
-  const [selectedFarrier, setSelectedFarrier] = useState<string | null>(null)
   const [deletingVisitId, setDeletingVisitId] = useState<string | null>(null)
+  const [shoesView, setShoesView] = useState<'master' | 'byfarrier'>('master')
+  const [farriers, setFarriers] = useState<Farrier[]>([])
+  const [showManageFarriers, setShowManageFarriers] = useState(false)
+  const [farrierProfileName, setFarrierProfileName] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
-      const [needsRes, visitsRes, healthRes, otherRes, horsesRes] = await Promise.all([
+      const [needsRes, visitsRes, healthRes, otherRes, horsesRes, farriersRes] = await Promise.all([
         fetch('/api/shoe-needs'),
         fetch('/api/farrier-visits'),
         fetch('/api/health'),
         fetch('/api/other-animals'),
         fetch('/api/horses'),
+        fetch('/api/farriers'),
       ])
       const needsData = await needsRes.json()
       const visitsData = await visitsRes.json()
       const healthData = await healthRes.json()
       const otherData = await otherRes.json()
       const horsesData = await horsesRes.json()
+      const farriersData = await farriersRes.json()
       setNeeds(needsData.needs || [])
       setVisits(visitsData.visits || [])
       setHealthIssues(healthData.issues || [])
       setOtherAnimalNames((otherData.animals || []).map((a: { name: string }) => a.name))
-      setHorseDbData((horsesData.horses || []).map((h: { name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[] }) => ({ name: h.name, is_active: h.is_active, is_deceased: h.is_deceased, flags: h.flags || [] })))
+      setHorseDbData((horsesData.horses || []).map((h: { id: string; name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[]; farrier?: string | null }) => ({ id: h.id, name: h.name, is_active: h.is_active, is_deceased: h.is_deceased, flags: h.flags || [], farrier: h.farrier ?? null })))
+      setFarriers(farriersData.farriers || [])
     } catch (err) {
       console.error(err)
     } finally {
@@ -1031,7 +1439,7 @@ export default function ShoesPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const needsHorseNames = useMemo(() => new Set(needs.map(n => n.horse_name)), [needs])
-  const farrierNames = useMemo(() => Array.from(new Set(visits.map(v => v.farrier_name).filter(Boolean))), [visits])
+  const activeFarriersList = useMemo(() => farriers.filter(f => f.active), [farriers])
 
   const filteredNeeds = useMemo(() => {
     if (typeFilter === 'all') return needs
@@ -1228,6 +1636,37 @@ export default function ShoesPage() {
     await fetchData()
   }
 
+  async function moveHorseToFarrier(horseName: string, newFarrier: string | null) {
+    const horse = horseDbData.find(h => h.name === horseName)
+    if (!horse?.id) return
+    setHorseDbData(prev => prev.map(h => h.name === horseName ? { ...h, farrier: newFarrier } : h))
+    await fetch('/api/horses', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: horse.id, farrier: newFarrier }),
+    })
+  }
+
+  async function addFarrier(name: string) {
+    const res = await fetch('/api/farriers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+    if (!res.ok) throw new Error('Failed to add')
+    const data = await res.json()
+    setFarriers(prev => [...prev, data.farrier].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function renameFarrier(id: string, oldName: string, newName: string) {
+    const res = await fetch('/api/farriers', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, name: newName, oldName }) })
+    if (!res.ok) return
+    setFarriers(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f))
+    setHorseDbData(prev => prev.map(h => h.farrier === oldName ? { ...h, farrier: newName } : h))
+  }
+
+  async function toggleFarrierActive(id: string, active: boolean) {
+    const res = await fetch('/api/farriers', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, active }) })
+    if (!res.ok) return
+    setFarriers(prev => prev.map(f => f.id === id ? { ...f, active } : f))
+  }
+
   async function handleVisitSaved(msg: string) {
     setShowLogVisit(false)
     setConfirmation(msg)
@@ -1254,6 +1693,33 @@ export default function ShoesPage() {
         </div>
 
         <div style={{ padding: 20, maxWidth: 820 }} className="shoes-content">
+
+          {/* View toggle */}
+          <div style={{ display: 'flex', gap: 0, marginBottom: 18, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', width: 'fit-content' }}>
+            {(['master', 'byfarrier'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setShoesView(v)}
+                style={{ padding: '7px 18px', fontSize: 12, fontWeight: shoesView === v ? 700 : 400, cursor: 'pointer', border: 'none', borderRight: v === 'master' ? '1px solid var(--color-border)' : 'none', background: shoesView === v ? 'var(--color-accent)' : 'var(--color-surface)', color: shoesView === v ? '#fff' : 'var(--color-text-2)' }}
+              >
+                {v === 'master' ? 'Master list' : 'By farrier'}
+              </button>
+            ))}
+          </div>
+
+          {shoesView === 'byfarrier' && !loading && (
+            <ByFarrierView
+              farriers={farriers}
+              horseDbData={horseDbData}
+              visits={visits}
+              isAdmin={!isViewer}
+              onOpenProfile={setFarrierProfileName}
+              onMoveHorse={moveHorseToFarrier}
+              onManageFarriers={() => setShowManageFarriers(true)}
+            />
+          )}
+
+          {shoesView === 'master' && <>
 
           {/* Section 1 — Current Shoe Needs */}
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 18 }}>
@@ -1378,7 +1844,7 @@ export default function ShoesPage() {
                 onMarkDone: markDone,
                 saving: savingDone,
                 markDoneError,
-                farrierNames,
+                activeFarriers: activeFarriersList,
                 isViewer,
               })
               return (
@@ -1505,6 +1971,8 @@ export default function ShoesPage() {
           {/* Section 4 — Analytics */}
           {!loading && <AnalyticsSection needs={needs} visits={visits} healthIssues={healthIssues} />}
 
+          </>}
+
         </div>
 
         <style dangerouslySetInnerHTML={{ __html: `
@@ -1528,35 +1996,25 @@ export default function ShoesPage() {
         ` }} />
       </main>
 
-      {selectedFarrier && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={() => setSelectedFarrier(null)}>
-          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 22, width: '100%', maxWidth: 520, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-              <div>
-                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>{selectedFarrier}</h2>
-                <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 3 }}>
-                  {visits.filter(v => v.farrier_name === selectedFarrier).length} visit{visits.filter(v => v.farrier_name === selectedFarrier).length !== 1 ? 's' : ''} on record
-                </p>
-              </div>
-              <button onClick={() => setSelectedFarrier(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)' }}>✕</button>
-            </div>
-            {visits.filter(v => v.farrier_name === selectedFarrier).map(v => (
-              <div key={v.id} style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
-                  {new Date(v.visit_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                </div>
-                {v.farrier_visit_horses.map(h => (
-                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid var(--color-border)' }}>
-                    <span style={{ fontSize: 13 }}>🐴</span>
-                    <span style={{ fontWeight: 600, fontSize: 12, flex: 1 }}>{h.horse_name}</span>
-                    <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, border: '1px solid var(--color-warning-border)' }}>{WORK_LABELS[h.work_done] || h.work_done}</span>
-                    {h.shoe_type && h.shoe_type !== 'regular' && <ShoeTypeBadge shoeType={h.shoe_type} />}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
+      {farrierProfileName && (
+        <FarrierProfileModal
+          name={farrierProfileName}
+          farriers={farriers}
+          horseDbData={horseDbData}
+          visits={visits}
+          onClose={() => setFarrierProfileName(null)}
+        />
+      )}
+
+      {showManageFarriers && (
+        <ManageFarriersModal
+          farriers={farriers}
+          onClose={() => setShowManageFarriers(false)}
+          onAdd={addFarrier}
+          onRename={renameFarrier}
+          onToggleActive={toggleFarrierActive}
+          onOpenProfile={name => { setShowManageFarriers(false); setFarrierProfileName(name) }}
+        />
       )}
 
       {profileNeed && (
@@ -1573,19 +2031,19 @@ export default function ShoesPage() {
           onSaved={handleVisitSaved}
           needs={needs}
           extraNames={[...horseDbData.map(h => h.name), ...otherAnimalNames]}
-          pastFarrierNames={Array.from(new Set(visits.map(v => v.farrier_name).filter(Boolean)))}
+          activeFarriers={activeFarriersList}
         />
       )}
     </div>
   )
 }
 
-function LogVisitModal({ onClose, onSaved, needs, extraNames = [], pastFarrierNames = [] }: {
+function LogVisitModal({ onClose, onSaved, needs, extraNames = [], activeFarriers = [] }: {
   onClose: () => void
   onSaved: (msg: string) => void
   needs: ShoeNeed[]
   extraNames?: string[]
-  pastFarrierNames?: string[]
+  activeFarriers?: Farrier[]
 }) {
   const today = new Date().toISOString().split('T')[0]
   const [visitDate, setVisitDate] = useState(today)
@@ -1597,6 +2055,7 @@ function LogVisitModal({ onClose, onSaved, needs, extraNames = [], pastFarrierNa
   })
   const [lastAdded, setLastAdded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [farrierOther, setFarrierOther] = useState(false)
 
   function resolveCurrentHorse(): LogHorse | null {
     if (!currentHorse.horse_name) return null
@@ -1690,28 +2149,28 @@ function LogVisitModal({ onClose, onSaved, needs, extraNames = [], pastFarrierNa
             <input type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)} />
           </div>
           <div>
-            <label>Farrier Name</label>
-            {pastFarrierNames.length > 0 && (
-              <div style={{ display: 'flex', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
-                {pastFarrierNames.map(name => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setFarrierName(name)}
-                    style={{
-                      padding: '3px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
-                      border: `1px solid ${farrierName === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                      background: farrierName === name ? 'var(--color-accent)' : 'var(--color-surface)',
-                      color: farrierName === name ? '#fff' : 'var(--color-text-2)',
-                      fontWeight: farrierName === name ? 600 : 400,
-                    }}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
+            <label>Farrier</label>
+            <select
+              value={farrierOther ? '__other__' : farrierName}
+              onChange={e => {
+                if (e.target.value === '__other__') { setFarrierOther(true); setFarrierName('') }
+                else { setFarrierOther(false); setFarrierName(e.target.value) }
+              }}
+              style={{ fontSize: 13 }}
+            >
+              <option value="">— select farrier —</option>
+              {activeFarriers.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+              <option value="__other__">Other…</option>
+            </select>
+            {farrierOther && (
+              <input
+                value={farrierName}
+                onChange={e => setFarrierName(e.target.value)}
+                placeholder="Farrier name…"
+                autoFocus
+                style={{ fontSize: 13, marginTop: 6 }}
+              />
             )}
-            <input value={farrierName} onChange={e => setFarrierName(e.target.value)} placeholder="e.g. John Smith" autoFocus />
           </div>
         </div>
 
