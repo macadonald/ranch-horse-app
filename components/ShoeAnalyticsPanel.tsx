@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { categorizeWork, WORK_LABELS as WORK_CAT_LABELS, type WorkCategory } from '@/lib/shoeWork'
+import { categorizeWork, isFullSet, WORK_LABELS as WORK_CAT_LABELS, type WorkCategory } from '@/lib/shoeWork'
+import { median } from '@/lib/shoeWorkload'
 
 type ShoeNeed = {
   id: string
@@ -176,6 +177,8 @@ export function ShoeAnalyticsPanel() {
   const [timelineFrom, setTimelineFrom] = useState('')
   const [timelineTo, setTimelineTo] = useState('')
   const MS_PER_DAY = 24 * 60 * 60 * 1000
+  const FS_PAGE_SIZE = 20
+  const [fsPage, setFsPage] = useState(1)
 
   const allHorseNames = useMemo(() =>
     Array.from(new Set(visits.flatMap(v => v.farrier_visit_horses.map(h => h.horse_name)))).sort()
@@ -288,6 +291,38 @@ export function ShoeAnalyticsPanel() {
     if (timelineTo && e.visit_date > timelineTo) return false
     return true
   }), [timelineEntries, timelineHorse, timelineFrom, timelineTo])
+
+  const fullSetGaps = useMemo(() => {
+    const MS = 24 * 60 * 60 * 1000
+    const datesByKey: Record<string, string[]> = {}
+    const displayName: Record<string, string> = {}
+    const sortedAsc = [...visits].sort((a, b) => a.visit_date.localeCompare(b.visit_date))
+    sortedAsc.forEach(v => {
+      v.farrier_visit_horses.forEach(h => {
+        if (isFullSet(h.work_done)) {
+          const key = h.horse_name.trim().toLowerCase()
+          if (!datesByKey[key]) { datesByKey[key] = []; displayName[key] = h.horse_name.trim() }
+          if (datesByKey[key][datesByKey[key].length - 1] !== v.visit_date) datesByKey[key].push(v.visit_date)
+        }
+      })
+    })
+    const rows = Object.entries(datesByKey).map(([key, dates]) => {
+      const lastFS = dates[dates.length - 1]
+      const daysSince = Math.round((Date.now() - new Date(lastFS + 'T12:00:00').getTime()) / MS)
+      let avgGap: number | null = null
+      if (dates.length >= 2) {
+        let tot = 0
+        for (let i = 1; i < dates.length; i++) {
+          tot += Math.round((new Date(dates[i] + 'T12:00:00').getTime() - new Date(dates[i - 1] + 'T12:00:00').getTime()) / MS)
+        }
+        avgGap = tot / (dates.length - 1)
+      }
+      return { name: displayName[key], lastFS, daysSince, avgGap }
+    })
+    rows.sort((a, b) => b.daysSince - a.daysSince)
+    const herdMedian = median(rows.filter(r => r.avgGap !== null).map(r => r.avgGap as number))
+    return { rows, herdMedian }
+  }, [visits])
 
   if (loading) {
     return (
@@ -419,6 +454,51 @@ export function ShoeAnalyticsPanel() {
               )
             })}
           </div>
+        </section>
+      )}
+
+      {/* Days between full sets */}
+      {fullSetGaps.rows.length > 0 && (
+        <section id="shoe-panel-fs-top" style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>Days between full sets</div>
+          {fullSetGaps.herdMedian !== null && (
+            <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 10 }}>
+              Most horses go about {Math.round(fullSetGaps.herdMedian)} days between full sets.
+            </p>
+          )}
+          {fullSetGaps.rows.slice((fsPage - 1) * FS_PAGE_SIZE, fsPage * FS_PAGE_SIZE).map(r => {
+            const usualGap = r.avgGap !== null ? r.avgGap : fullSetGaps.herdMedian
+            const isWarn = usualGap !== null && r.daysSince > usualGap
+            return (
+              <div key={r.name} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', marginBottom: 4,
+                background: isWarn ? 'var(--color-warning-bg)' : 'var(--color-bg)',
+                borderRadius: 'var(--radius-sm)',
+                border: isWarn ? '1px solid var(--color-warning-border)' : '1px solid var(--color-border)',
+              }}>
+                <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 80 }}>{r.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>
+                  {new Date(r.lastFS + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+                <span style={{ fontSize: 11, color: isWarn ? 'var(--color-warning)' : 'var(--color-text-3)', flexShrink: 0, minWidth: 50, textAlign: 'right' }}>
+                  {r.daysSince}d ago
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0, minWidth: 48, textAlign: 'right' }}>
+                  {r.avgGap !== null ? `~${Math.round(r.avgGap)}d` : '—'}
+                </span>
+              </div>
+            )
+          })}
+          {fullSetGaps.rows.length > FS_PAGE_SIZE && (() => {
+            const fsTotalPages = Math.ceil(fullSetGaps.rows.length / FS_PAGE_SIZE)
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
+                <button type="button" onClick={() => { setFsPage(p => Math.max(1, p - 1)); document.getElementById('shoe-panel-fs-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={fsPage === 1} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: fsPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: fsPage === 1 ? 'default' : 'pointer' }}>← Previous</button>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Page {fsPage} of {fsTotalPages}</span>
+                <button type="button" onClick={() => { setFsPage(p => Math.min(fsTotalPages, p + 1)); document.getElementById('shoe-panel-fs-top')?.scrollIntoView({ behavior: 'smooth' }) }} disabled={fsPage === fsTotalPages} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: fsPage === fsTotalPages ? 'var(--color-text-muted)' : 'var(--color-text-2)', cursor: fsPage === fsTotalPages ? 'default' : 'pointer' }}>Next →</button>
+              </div>
+            )
+          })()}
         </section>
       )}
 
