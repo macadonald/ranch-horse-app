@@ -38,12 +38,10 @@ export async function PUT(req: NextRequest) {
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // If renaming, cascade to horses.farrier. Do NOT touch farrier_visits history.
+  // If renaming, cascade to horses.farrier and other_animals.farrier. Do NOT touch farrier_visits history.
   if (name !== undefined && oldName) {
-    await supabase
-      .from('horses')
-      .update({ farrier: name.trim() })
-      .eq('farrier', oldName)
+    await supabase.from('horses').update({ farrier: name.trim() }).eq('farrier', oldName)
+    await supabase.from('other_animals').update({ farrier: name.trim() }).eq('farrier', oldName)
   }
 
   return NextResponse.json({ farrier: data })

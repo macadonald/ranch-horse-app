@@ -28,8 +28,14 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const body = await req.json()
-  const { id, ...fields } = body
+  const { id, name, group_name, age, notes, farrier } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+  const fields: Record<string, unknown> = {}
+  if (name !== undefined) fields.name = name
+  if (group_name !== undefined) fields.group_name = group_name
+  if (age !== undefined) fields.age = age
+  if (notes !== undefined) fields.notes = notes
+  if (farrier !== undefined) fields.farrier = farrier
   const { data, error } = await supabase
     .from('other_animals')
     .update(fields)

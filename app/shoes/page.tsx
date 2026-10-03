@@ -68,6 +68,7 @@ const FILTER_CHIPS = [
 
 type HorseDbEntry = { id?: string; name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[]; farrier?: string | null }
 type Farrier = { id: string; name: string; active: boolean; created_at: string }
+type OtherAnimalEntry = { id: string; name: string; farrier: string | null }
 
 type ShoeNeed = {
   id: string
@@ -329,40 +330,31 @@ function NeedRow({
         <span style={{ fontSize: 14, flexShrink: 0 }}>🐴</span>
         {isViewer
           ? <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60 }}>{horseName}</span>
-          : <input
-              value={horseName}
-              onChange={e => setHorseName(e.target.value)}
-              onBlur={saveHorseName}
-              onClick={e => e.stopPropagation()}
-              onFocus={e => e.stopPropagation()}
-              style={{
-                fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60,
-                background: 'transparent', border: 'none', outline: 'none',
-                fontFamily: 'inherit', cursor: 'text', color: 'inherit', padding: 0,
-              }}
-            />
+          : !onSetFarrier
+            ? <input
+                value={horseName}
+                onChange={e => setHorseName(e.target.value)}
+                onBlur={saveHorseName}
+                onClick={e => e.stopPropagation()}
+                onFocus={e => e.stopPropagation()}
+                style={{
+                  fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60,
+                  background: 'transparent', border: 'none', outline: 'none',
+                  fontFamily: 'inherit', cursor: 'text', color: 'inherit', padding: 0,
+                }}
+              />
+            : <button
+                onClick={e => { e.stopPropagation(); setFarrierCtrlEnabled(!!horseFarrier); setFarrierCtrlValue(horseFarrier ?? activeFarriers[0]?.name ?? null); setFarrierCtrlError(null); setShowFarrierCtrl(v => !v) }}
+                style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 60, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', fontFamily: 'inherit', textAlign: 'left' }}
+              >
+                {horseName}
+              </button>
         }
-        {horseFarrier ? (
-          !isViewer && onSetFarrier ? (
-            <button
-              onClick={e => { e.stopPropagation(); setFarrierCtrlEnabled(true); setFarrierCtrlValue(horseFarrier); setFarrierCtrlError(null); setShowFarrierCtrl(v => !v) }}
-              style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap', cursor: 'pointer' }}
-            >
-              {horseFarrier.split(' ')[0]} only
-            </button>
-          ) : (
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
-              {horseFarrier.split(' ')[0]} only
-            </span>
-          )
-        ) : (!isViewer && onSetFarrier ? (
-          <button
-            onClick={e => { e.stopPropagation(); setFarrierCtrlEnabled(false); setFarrierCtrlValue(activeFarriers[0]?.name ?? null); setFarrierCtrlError(null); setShowFarrierCtrl(v => !v) }}
-            style={{ fontSize: 10, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 }}
-          >
-            Set farrier
-          </button>
-        ) : null)}
+        {horseFarrier && (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {horseFarrier.split(' ')[0]} only
+          </span>
+        )}
         {!isViewer && <button
           onClick={e => { e.stopPropagation(); onToggleDrugger(need.id, need.is_drugger) }}
           title={need.is_drugger ? 'Remove drugger flag' : 'Mark as drugger'}
@@ -433,7 +425,7 @@ function NeedRow({
           onClick={e => e.stopPropagation()}
           style={{ marginTop: 8, padding: '10px 12px', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}
         >
-          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', textTransform: 'none', letterSpacing: 'normal', fontWeight: 400, marginBottom: 0 }}>
             <input
               type="checkbox"
               checked={farrierCtrlEnabled}
@@ -443,7 +435,7 @@ function NeedRow({
                   setFarrierCtrlValue(activeFarriers[0].name)
                 }
               }}
-              style={{ margin: 0 }}
+              style={{ margin: 0, width: 'auto', flexShrink: 0 }}
             />
             Specific farrier only
           </label>
@@ -1084,6 +1076,7 @@ function AnalyticsSection({ needs, visits, healthIssues }: {
 function FarriersTab({
   farriers,
   horseDbData,
+  otherAnimals,
   visits,
   isAdmin,
   onOpenProfile,
@@ -1093,6 +1086,7 @@ function FarriersTab({
 }: {
   farriers: Farrier[]
   horseDbData: HorseDbEntry[]
+  otherAnimals: OtherAnimalEntry[]
   visits: FarrierVisit[]
   isAdmin: boolean
   onOpenProfile: (name: string) => void
@@ -1125,8 +1119,10 @@ function FarriersTab({
     setRenamingId(null)
   }
 
-  function horseCount(farrierName: string) {
-    return horseDbData.filter(h => h.farrier === farrierName && h.is_active && !h.is_deceased).length
+  function assignedCount(farrierName: string) {
+    const horses = horseDbData.filter(h => h.farrier === farrierName && h.is_active && !h.is_deceased).length
+    const others = otherAnimals.filter(a => a.farrier === farrierName).length
+    return horses + others
   }
 
   function visitStats(farrierName: string) {
@@ -1139,7 +1135,7 @@ function FarriersTab({
   const inactiveFarriers = farriers.filter(f => !f.active)
 
   function renderCard(f: Farrier) {
-    const hc = horseCount(f.name)
+    const ac = assignedCount(f.name)
     const vs = visitStats(f.name)
     const lastDateStr = vs.lastDate
       ? new Date(vs.lastDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -1174,7 +1170,7 @@ function FarriersTab({
                   <span style={{ fontSize: 11, color: 'var(--color-accent)' }}>↗</span>
                 </div>
                 <div style={{ display: 'flex', gap: 14, marginTop: 5, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{hc} horse{hc !== 1 ? 's' : ''} assigned</span>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{ac} animal{ac !== 1 ? 's' : ''} assigned</span>
                   <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{vs.count} visit{vs.count !== 1 ? 's' : ''}</span>
                   <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Last: {lastDateStr}</span>
                 </div>
@@ -1254,10 +1250,11 @@ function FarriersTab({
 
 // ─── FarrierProfileModal ──────────────────────────────────────────────────────
 
-function FarrierProfileModal({ name, farriers, horseDbData, visits, onClose }: {
+function FarrierProfileModal({ name, farriers, horseDbData, otherAnimals, visits, onClose }: {
   name: string
   farriers: Farrier[]
   horseDbData: HorseDbEntry[]
+  otherAnimals: OtherAnimalEntry[]
   visits: FarrierVisit[]
   onClose: () => void
 }) {
@@ -1273,6 +1270,13 @@ function FarrierProfileModal({ name, farriers, horseDbData, visits, onClose }: {
   const assignedHorses = useMemo(() =>
     horseDbData.filter(h => h.farrier === name && h.is_active && !h.is_deceased)
   , [horseDbData, name])
+  const assignedOthers = useMemo(() =>
+    otherAnimals.filter(a => a.farrier === name)
+  , [otherAnimals, name])
+  const allAssigned = useMemo(() => [
+    ...assignedHorses.map(h => ({ name: h.name, isOther: false })),
+    ...assignedOthers.map(a => ({ name: a.name, isOther: true })),
+  ], [assignedHorses, assignedOthers])
   const visitCount = farrierVisits.length
   const horsesShod = useMemo(() => {
     const s = new Set<string>()
@@ -1299,7 +1303,7 @@ function FarrierProfileModal({ name, farriers, horseDbData, visits, onClose }: {
   const visitTotalPages = Math.max(1, Math.ceil(farrierVisits.length / VISIT_PAGE_SIZE))
   const pagedVisits = farrierVisits.slice((visitPage - 1) * VISIT_PAGE_SIZE, visitPage * VISIT_PAGE_SIZE)
   const displayedTopHorses = showAllTopHorses ? topHorses : topHorses.slice(0, 5)
-  const displayedAssigned = showAllAssigned ? assignedHorses : assignedHorses.slice(0, 8)
+  const displayedAssigned = showAllAssigned ? allAssigned : allAssigned.slice(0, 8)
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 16 }} onClick={onClose}>
@@ -1318,19 +1322,20 @@ function FarrierProfileModal({ name, farriers, horseDbData, visits, onClose }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--color-text-3)', flexShrink: 0 }}>✕</button>
         </div>
 
-        {assignedHorses.length > 0 && (
+        {allAssigned.length > 0 && (
           <div style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Currently Assigned</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {displayedAssigned.map(h => (
-                <span key={h.name} style={{ fontSize: 12, padding: '2px 10px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-2)' }}>
-                  🐴 {h.name}
+              {displayedAssigned.map(a => (
+                <span key={a.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '2px 10px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-2)' }}>
+                  🐴 {a.name}
+                  {a.isOther && <span style={{ fontSize: 10, padding: '0px 4px', borderRadius: 999, background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Other</span>}
                 </span>
               ))}
             </div>
-            {assignedHorses.length > 8 && (
+            {allAssigned.length > 8 && (
               <button onClick={() => setShowAllAssigned(v => !v)} style={{ fontSize: 11, color: 'var(--color-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 4 }}>
-                {showAllAssigned ? 'Show fewer' : `Show all ${assignedHorses.length}`}
+                {showAllAssigned ? 'Show fewer' : `Show all ${allAssigned.length}`}
               </button>
             )}
           </div>
@@ -1426,7 +1431,7 @@ export default function ShoesPage() {
   const [needs, setNeeds] = useState<ShoeNeed[]>([])
   const [visits, setVisits] = useState<FarrierVisit[]>([])
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([])
-  const [otherAnimalNames, setOtherAnimalNames] = useState<string[]>([])
+  const [otherAnimals, setOtherAnimals] = useState<OtherAnimalEntry[]>([])
   const [horseDbData, setHorseDbData] = useState<HorseDbEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string; farrier: string | null; farrier_enabled: boolean } | null>(null)
@@ -1470,7 +1475,7 @@ export default function ShoesPage() {
     if (needsR.status === 'fulfilled') setNeeds(needsR.value.needs || [])
     if (visitsR.status === 'fulfilled') setVisits(visitsR.value.visits || [])
     if (healthR.status === 'fulfilled') setHealthIssues(healthR.value.issues || [])
-    if (otherR.status === 'fulfilled') setOtherAnimalNames((otherR.value.animals || []).map((a: { name: string }) => a.name))
+    if (otherR.status === 'fulfilled') setOtherAnimals((otherR.value.animals || []).map((a: { id: string; name: string; farrier?: string | null }) => ({ id: a.id, name: a.name, farrier: a.farrier ?? null })))
     if (horsesR.status === 'fulfilled') setHorseDbData((horsesR.value.horses || []).map((h: { id: string; name: string; is_active: boolean; is_deceased: boolean; flags: { flag_type: string }[]; farrier?: string | null }) => ({ id: h.id, name: h.name, is_active: h.is_active, is_deceased: h.is_deceased, flags: h.flags || [], farrier: h.farrier ?? null })))
     if (farriersR.status === 'fulfilled') setFarriers(farriersR.value.farriers || [])
     setLoading(false)
@@ -1481,17 +1486,21 @@ export default function ShoesPage() {
   const needsHorseNames = useMemo(() => new Set(needs.map(n => n.horse_name)), [needs])
   const activeFarriersList = useMemo(() => farriers.filter(f => f.active), [farriers])
 
+  const otherAnimalNames = useMemo(() => otherAnimals.map(a => a.name), [otherAnimals])
+
   const horseFarrierMap = useMemo(() => {
     const m: Record<string, string | null> = {}
     horseDbData.forEach(h => { m[h.name] = h.farrier ?? null })
+    otherAnimals.forEach(a => { m[a.name] = a.farrier })
     return m
-  }, [horseDbData])
+  }, [horseDbData, otherAnimals])
 
   const assignedFarrierNames = useMemo(() => {
     const assigned = new Set<string>()
     horseDbData.forEach(h => { if (h.farrier && h.is_active && !h.is_deceased) assigned.add(h.farrier) })
+    otherAnimals.forEach(a => { if (a.farrier) assigned.add(a.farrier) })
     return Array.from(assigned).sort()
-  }, [horseDbData])
+  }, [horseDbData, otherAnimals])
 
   const filteredNeeds = useMemo(() => {
     let base = needs
@@ -1596,8 +1605,8 @@ export default function ShoesPage() {
         setAddError(data.error || 'Failed to save — check Supabase migration has been run')
         return
       }
-      const horseEntry = horseDbData.find(h => h.name === addForm.horse_name)
-      if (horseEntry?.id) {
+      const inDb = horseDbData.some(h => h.name === addForm.horse_name) || otherAnimals.some(a => a.name === addForm.horse_name)
+      if (inDb) {
         const desiredFarrier = addForm.farrier_enabled ? (addForm.farrier ?? null) : null
         const currentFarrier = horseFarrierMap[addForm.horse_name] ?? null
         if (desiredFarrier !== currentFarrier) {
@@ -1706,18 +1715,36 @@ export default function ShoesPage() {
 
   async function moveHorseToFarrier(horseName: string, newFarrier: string | null): Promise<string | null> {
     const horse = horseDbData.find(h => h.name === horseName)
-    if (!horse?.id) return null
-    const prevFarrier = horse.farrier
-    setHorseDbData(prev => prev.map(h => h.name === horseName ? { ...h, farrier: newFarrier } : h))
-    const res = await fetch('/api/horses', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: horse.id, farrier: newFarrier }),
-    })
-    if (!res.ok) {
-      setHorseDbData(prev => prev.map(h => h.name === horseName ? { ...h, farrier: prevFarrier } : h))
-      const d = await res.json().catch(() => ({}))
-      return (d.error as string) || 'Failed to save farrier assignment'
+    if (horse?.id) {
+      const prevFarrier = horse.farrier
+      setHorseDbData(prev => prev.map(h => h.name === horseName ? { ...h, farrier: newFarrier } : h))
+      const res = await fetch('/api/horses', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: horse.id, farrier: newFarrier }),
+      })
+      if (!res.ok) {
+        setHorseDbData(prev => prev.map(h => h.name === horseName ? { ...h, farrier: prevFarrier } : h))
+        const d = await res.json().catch(() => ({}))
+        return (d.error as string) || 'Failed to save farrier assignment'
+      }
+      return null
+    }
+    const other = otherAnimals.find(a => a.name === horseName)
+    if (other?.id) {
+      const prevFarrier = other.farrier
+      setOtherAnimals(prev => prev.map(a => a.name === horseName ? { ...a, farrier: newFarrier } : a))
+      const res = await fetch('/api/other-animals', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: other.id, farrier: newFarrier }),
+      })
+      if (!res.ok) {
+        setOtherAnimals(prev => prev.map(a => a.name === horseName ? { ...a, farrier: prevFarrier } : a))
+        const d = await res.json().catch(() => ({}))
+        return (d.error as string) || 'Failed to save farrier assignment'
+      }
+      return null
     }
     return null
   }
@@ -1797,6 +1824,7 @@ export default function ShoesPage() {
             <FarriersTab
               farriers={farriers}
               horseDbData={horseDbData}
+              otherAnimals={otherAnimals}
               visits={visits}
               isAdmin={!isViewer}
               onOpenProfile={setFarrierProfileName}
@@ -1837,14 +1865,14 @@ export default function ShoesPage() {
                     value={addForm.horse_name}
                     onChange={v => {
                       const shoeType = lastKnownShoeType(v, visits)
-                      const horseInDb = horseDbData.some(h => h.name === v)
+                      const inDb = horseDbData.some(h => h.name === v) || otherAnimals.some(a => a.name === v)
                       const currentFarrier = horseFarrierMap[v] ?? null
                       setAddForm(f => f ? {
                         ...f,
                         horse_name: v,
                         shoe_type: shoeType,
-                        farrier_enabled: horseInDb && !!currentFarrier,
-                        farrier: horseInDb ? (currentFarrier ?? activeFarriersList[0]?.name ?? null) : null,
+                        farrier_enabled: inDb && !!currentFarrier,
+                        farrier: inDb ? (currentFarrier ?? activeFarriersList[0]?.name ?? null) : null,
                       } : f)
                       setAddError(null)
                     }}
@@ -1874,14 +1902,14 @@ export default function ShoesPage() {
                   placeholder="Notes (optional)..."
                   style={{ width: '100%', fontSize: 12, marginBottom: 10, boxSizing: 'border-box' }}
                 />
-                {addForm.horse_name && horseDbData.some(h => h.name === addForm.horse_name) && (
+                {addForm.horse_name && (horseDbData.some(h => h.name === addForm.horse_name) || otherAnimals.some(a => a.name === addForm.horse_name)) && (
                   <div style={{ marginBottom: 10 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', textTransform: 'none', letterSpacing: 'normal', fontWeight: 400, marginBottom: 0 }}>
                       <input
                         type="checkbox"
                         checked={!!addForm.farrier_enabled}
                         onChange={e => setAddForm(f => f ? { ...f, farrier_enabled: e.target.checked, farrier: e.target.checked ? (f.farrier ?? activeFarriersList[0]?.name ?? null) : f.farrier } : f)}
-                        style={{ margin: 0 }}
+                        style={{ margin: 0, width: 'auto', flexShrink: 0 }}
                       />
                       Specific farrier only
                     </label>
@@ -1989,7 +2017,7 @@ export default function ShoesPage() {
                 activeFarriers: activeFarriersList,
                 isViewer,
                 horseFarrier: horseFarrierMap[need.horse_name] ?? null,
-                onSetFarrier: horseDbData.some(h => h.name === need.horse_name) ? moveHorseToFarrier : undefined,
+                onSetFarrier: (horseDbData.some(h => h.name === need.horse_name) || otherAnimals.some(a => a.name === need.horse_name)) ? moveHorseToFarrier : undefined,
               })
               return (
                 <>
@@ -2145,6 +2173,7 @@ export default function ShoesPage() {
           name={farrierProfileName}
           farriers={farriers}
           horseDbData={horseDbData}
+          otherAnimals={otherAnimals}
           visits={visits}
           onClose={() => setFarrierProfileName(null)}
         />

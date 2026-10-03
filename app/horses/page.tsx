@@ -12,11 +12,11 @@ const OTHER_GROUPS = ['Miniatures', 'Mares', 'Drafts', 'Geldings', 'Privates', '
 type OtherGroup = typeof OTHER_GROUPS[number]
 
 type OtherAnimal = {
-  id: string; name: string; group_name: string; age: number | null; notes: string | null; created_at: string
+  id: string; name: string; group_name: string; age: number | null; notes: string | null; created_at: string; farrier: string | null
 }
 
-type OtherAnimalForm = { name: string; group_name: OtherGroup; age: string; notes: string }
-const BLANK_OTHER_FORM: OtherAnimalForm = { name: '', group_name: 'Other', age: '', notes: '' }
+type OtherAnimalForm = { name: string; group_name: OtherGroup; age: string; notes: string; farrier: string | null }
+const BLANK_OTHER_FORM: OtherAnimalForm = { name: '', group_name: 'Other', age: '', notes: '', farrier: null }
 
 const LEVELS = ['B', 'AB', 'I', 'AI', 'A']
 const SIZES: HorseSize[] = ['small', 'medium', 'large', 'draft']
@@ -834,19 +834,20 @@ function HorseCard({ horse, today, onSelect, onToggleActive, onEdit, isViewer }:
 
 // ─── OtherAnimalModal ─────────────────────────────────────────────────────────
 
-function OtherAnimalModal({ animal, onClose, onSaved }: {
+function OtherAnimalModal({ animal, onClose, onSaved, activeFarriers = [] }: {
   animal: OtherAnimal | null; onClose: () => void; onSaved: () => void
+  activeFarriers?: { id: string; name: string; active: boolean }[]
 }) {
   const isEdit = animal !== null
   const [form, setForm] = useState<OtherAnimalForm>(
     isEdit
-      ? { name: animal.name, group_name: animal.group_name as OtherGroup, age: animal.age?.toString() ?? '', notes: animal.notes ?? '' }
+      ? { name: animal.name, group_name: animal.group_name as OtherGroup, age: animal.age?.toString() ?? '', notes: animal.notes ?? '', farrier: animal.farrier ?? null }
       : BLANK_OTHER_FORM
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function set(field: keyof OtherAnimalForm, value: string) {
+  function set(field: keyof OtherAnimalForm, value: string | null) {
     setForm(f => ({ ...f, [field]: value }))
   }
 
@@ -868,7 +869,7 @@ function OtherAnimalModal({ animal, onClose, onSaved }: {
         if (isEdit) await fetch(`/api/other-animals?id=${encodeURIComponent(animal.id)}`, { method: 'DELETE' })
         onSaved(); return
       }
-      const payload = { name: form.name.trim(), group_name: form.group_name, age: form.age ? parseInt(form.age, 10) : null, notes: form.notes.trim() || null }
+      const payload = { name: form.name.trim(), group_name: form.group_name, age: form.age ? parseInt(form.age, 10) : null, notes: form.notes.trim() || null, farrier: form.farrier ?? null }
       const res = await fetch('/api/other-animals', {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -905,6 +906,27 @@ function OtherAnimalModal({ animal, onClose, onSaved }: {
             <input type="number" min={0} max={60} value={form.age} onChange={e => set('age', e.target.value)} placeholder="Years..." />
           </div>
         </div>
+        {activeFarriers.length > 0 && (
+          <div style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Shoeing</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)', textTransform: 'none', letterSpacing: 'normal', fontWeight: 400, marginBottom: 0 }}>
+              <ToggleSwitch on={!!form.farrier} onToggle={() => {
+                if (form.farrier) { set('farrier', null) }
+                else { set('farrier', activeFarriers[0]?.name ?? null) }
+              }} />
+              Specific farrier only
+            </label>
+            {form.farrier && (
+              <select
+                value={form.farrier}
+                onChange={e => set('farrier', e.target.value || null)}
+                style={{ fontSize: 13, marginTop: 8, display: 'block' }}
+              >
+                {activeFarriers.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+              </select>
+            )}
+          </div>
+        )}
         <div style={{ marginBottom: 20 }}>
           <label>Notes</label>
           <textarea value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any notes..." rows={3} style={{ resize: 'vertical' }} />
@@ -985,7 +1007,14 @@ function OtherAnimalCard({ animal, onEdit, onDelete, onPromote, isViewer }: {
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: animal.notes ? 8 : 0 }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700 }}>{animal.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700 }}>{animal.name}</span>
+            {animal.farrier && (
+              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {animal.farrier.split(' ')[0]} only
+              </span>
+            )}
+          </div>
           {animal.age != null && <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>{animal.age} yr{animal.age !== 1 ? 's' : ''}</div>}
         </div>
         {!isViewer && (confirmDelete ? (
@@ -1490,6 +1519,7 @@ export default function HorsesPage() {
           animal={editingAnimal}
           onClose={() => { setShowOtherModal(false); setEditingAnimal(null) }}
           onSaved={handleOtherSaved}
+          activeFarriers={activeFarriers}
         />
       )}
 
