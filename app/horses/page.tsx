@@ -166,9 +166,10 @@ type EditHorseForm = {
   name: string; level: string; weight: string; size: string; notes: string
   is_active: boolean; exclude_from_ai: boolean; rank_last: boolean; is_deceased: boolean
   is_draft: boolean; takes_kids: boolean
+  farrier: string | null
 }
 
-function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today, isViewer, notice }: {
+function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick, onMarkFit, today, isViewer, notice, activeFarriers = [] }: {
   horse: Partial<DbHorse> | null; mode: 'new' | 'edit' | 'promote'
   onSave: (form: EditHorseForm) => Promise<void>; onClose: () => void
   onFlagClick?: (flagType: BlockingType) => void
@@ -177,6 +178,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
   today?: string
   isViewer?: boolean
   notice?: { message: string; isError: boolean } | null
+  activeFarriers?: { id: string; name: string; active: boolean }[]
 }) {
   const isNew = mode === 'new'
   const isPromote = mode === 'promote'
@@ -191,6 +193,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
     is_deceased: (horse as DbHorse)?.is_deceased ?? false,
     is_draft: (horse as DbHorse)?.is_draft ?? false,
     takes_kids: (horse as DbHorse)?.takes_kids ?? false,
+    farrier: (horse as DbHorse)?.farrier ?? null,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -252,7 +255,7 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
                 {horse.notes}
               </p>
             )}
-            {anyFlags && (
+            {(anyFlags || (horse as DbHorse)?.farrier) && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
                 {activeFlags.map(f => {
                   const meta = STATUS_META[f.flag_type as BlockingType]
@@ -265,6 +268,11 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
                 })}
                 {hasFronts && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Missing Fronts</span>}
                 {hasRears && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Missing Rears</span>}
+                {(horse as DbHorse)?.farrier && (
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600 }}>
+                    {(horse as DbHorse).farrier!.split(' ')[0]} only
+                  </span>
+                )}
               </div>
             )}
 
@@ -422,6 +430,28 @@ function EditHorseModal({ horse, mode, onSave, onClose, onFlagClick, onShoeClick
                 </div>
               ))}
             </div>
+
+            {!isViewer && activeFarriers.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 14, marginBottom: 14 }}>
+                <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 10 }}>Shoeing</p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: form.farrier ? 10 : 0 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>Specific farrier only</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Assign this horse to one farrier</div>
+                  </div>
+                  <ToggleSwitch on={!!form.farrier} onToggle={() => set('farrier', form.farrier ? null : (activeFarriers[0]?.name ?? null))} />
+                </div>
+                {form.farrier && (
+                  <select
+                    value={form.farrier ?? ''}
+                    onChange={e => set('farrier', e.target.value || null)}
+                    style={{ width: '100%', fontSize: 13 }}
+                  >
+                    {activeFarriers.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                  </select>
+                )}
+              </div>
+            )}
 
             {error && (
               <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--color-danger)' }}>
@@ -680,6 +710,11 @@ function HorseListRow({ horse, today, onSelect, onToggleActive, onEdit, isViewer
             Deceased
           </span>
         )}
+        {horse.farrier && (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {horse.farrier.split(' ')[0]} only
+          </span>
+        )}
         {/* Active toggle — hidden for deceased horses */}
         {!isViewer && !horse.is_deceased && (
           <button
@@ -771,6 +806,7 @@ function HorseCard({ horse, today, onSelect, onToggleActive, onEdit, isViewer }:
           {hasRears && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600 }}>Rears</span>}
           {horse.exclude_from_ai && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 }}>Manual only</span>}
           {horse.rank_last && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 }}>Last resort</span>}
+          {horse.farrier && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600 }}>{horse.farrier.split(' ')[0]} only</span>}
         </div>
       )}
 
@@ -1007,6 +1043,7 @@ export default function HorsesPage() {
   const [editingAnimal, setEditingAnimal] = useState<OtherAnimal | null>(null)
   const [promotingAnimal, setPromotingAnimal] = useState<OtherAnimal | null>(null)
 
+  const [activeFarriers, setActiveFarriers] = useState<{ id: string; name: string; active: boolean }[]>([])
   const [notice, setNotice] = useState<{ message: string; isError: boolean } | null>(null)
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   function showNotice(message: string, isError = false) {
@@ -1034,6 +1071,9 @@ export default function HorsesPage() {
   }, [])
 
   useEffect(() => { fetchHorses() }, [fetchHorses])
+  useEffect(() => {
+    fetch('/api/farriers').then(r => r.json()).then(d => setActiveFarriers((d.farriers || []).filter((f: { active: boolean }) => f.active))).catch(() => {})
+  }, [])
   useEffect(() => { if (view === 'other') fetchAnimals() }, [view, fetchAnimals])
   useEffect(() => { if (filter === 'in_training') fetchAnimals() }, [filter, fetchAnimals])
 
@@ -1112,6 +1152,7 @@ export default function HorsesPage() {
       is_active: form.is_deceased ? false : form.is_active, exclude_from_ai: form.exclude_from_ai, rank_last: form.rank_last,
       is_deceased: form.is_deceased,
       is_draft: form.is_draft, takes_kids: form.takes_kids,
+      farrier: form.farrier ?? null,
     }
     if (editMode === 'new') {
       const res = await fetch('/api/horses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -1436,6 +1477,7 @@ export default function HorsesPage() {
           today={today}
           isViewer={isViewer}
           notice={notice}
+          activeFarriers={activeFarriers}
           onFlagClick={editMode === 'edit' && editingHorse ? (type => { handleFlagClick(editingHorse as DbHorse, type) }) : undefined}
           onShoeClick={editMode === 'edit' && editingHorse ? (st => { handleShoeClick(editingHorse as DbHorse, st) }) : undefined}
           onMarkFit={editMode === 'edit' && editingHorse ? (() => { markFit(editingHorse as DbHorse) }) : undefined}

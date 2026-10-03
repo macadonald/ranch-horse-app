@@ -176,6 +176,7 @@ export interface DbHorse {
   is_deceased: boolean
   is_draft: boolean
   takes_kids: boolean
+  farrier: string | null
   created_at: string
   updated_at: string
   flags: DbHorseFlag[]
