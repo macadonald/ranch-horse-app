@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/auth-server'
 
 export async function PATCH(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const { suggestion_id, final_horse } = await req.json()
     if (!suggestion_id) return NextResponse.json({ error: 'Missing suggestion_id' }, { status: 400 })

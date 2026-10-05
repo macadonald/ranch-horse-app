@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
+import { requireUser } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -41,6 +42,8 @@ type HorseStatEntry = {
 const LEARNING_CUTOFF = '2026-05-11'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   const t0 = Date.now()
   try {
     const body = await req.json()

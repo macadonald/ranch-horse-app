@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { HORSES } from '@/lib/horses'
+import { requireUser, requireAdmin } from '@/lib/auth-server'
 import { getTucsonToday } from '@/lib/timezone'
 
 function isFlagActive(flag: any, today: string): boolean {
@@ -10,6 +11,8 @@ function isFlagActive(flag: any, today: string): boolean {
 }
 
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   const today = getTucsonToday()
 
   // Auto-seed from static array on first use
@@ -59,6 +62,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   const body = await req.json()
   const { name, level, weight, size, notes, is_active, exclude_from_ai, rank_last, is_deceased, is_draft, takes_kids } = body
   if (!name?.trim() || !level || !size) {
@@ -86,6 +91,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   const body = await req.json()
   const { id, flags, shoe_flags, created_at, ...fields } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
@@ -100,6 +107,8 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireUser } from '@/lib/auth-server'
 
 // Opt out of Next.js route caching so every request hits Supabase fresh (prevents 304/empty responses)
 export const dynamic = 'force-dynamic'
@@ -9,6 +10,8 @@ export const maxDuration = 30
 // Returns per-horse historical stats derived from all non-incompatible assignments.
 // Consumers use this to compute per-horse weight soft ceilings, data-driven level ranges, age routing, and kid eligibility.
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   console.log('[horse-stats] GET called')
   try {
     // Single round-trip: only the columns needed. horse_assignments has no horse_id — identifier is horse_name.

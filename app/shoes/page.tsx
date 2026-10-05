@@ -673,9 +673,10 @@ function HorseProfileModal({ need, visits, onClose }: {
   )
 }
 
-function SuggestionRow({ suggestion, onAdd }: {
+function SuggestionRow({ suggestion, onAdd, isViewer }: {
   suggestion: { horse_name: string; days: number | null; neverDone: boolean }
   onAdd: () => Promise<void>
+  isViewer?: boolean
 }) {
   const [adding, setAdding] = useState(false)
 
@@ -693,13 +694,15 @@ function SuggestionRow({ suggestion, onAdd }: {
       <span style={{ fontSize: 14 }}>🐴</span>
       <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{suggestion.horse_name}</span>
       <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{ageLabel}</span>
-      <button
-        onClick={handle}
-        disabled={adding}
-        style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', fontWeight: 500 }}
-      >
-        {adding ? '...' : 'Add to list'}
-      </button>
+      {!isViewer && (
+        <button
+          onClick={handle}
+          disabled={adding}
+          style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-2)', fontWeight: 500 }}
+        >
+          {adding ? '...' : 'Add to list'}
+        </button>
+      )}
     </div>
   )
 }
@@ -1747,7 +1750,7 @@ export default function ShoesPage() {
                           <button onClick={e => { e.stopPropagation(); setFarrierProfileName(visit.farrier_name) }} style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', textDecoration: 'none' }}>{visit.farrier_name}</button>
                         </div>
                         <span style={{ fontSize: 14, color: 'var(--color-text-3)', flexShrink: 0, display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>›</span>
-                        {deletingVisitId === visit.id ? (
+                        {!isViewer && (deletingVisitId === visit.id ? (
                           <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                             <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Delete?</span>
                             <button type="button" onClick={() => deleteVisit(visit.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
@@ -1755,7 +1758,7 @@ export default function ShoesPage() {
                           </div>
                         ) : (
                           <button type="button" onClick={e => { e.stopPropagation(); setDeletingVisitId(visit.id) }} title="Delete this visit" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>✕</button>
-                        )}
+                        ))}
                       </div>
                       {/* Expanded detail */}
                       {isExpanded && (
@@ -1793,7 +1796,7 @@ export default function ShoesPage() {
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Suggestions</h2>
               <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 14 }}>Horses last shod 6–8 weeks ago, plus horses with no recorded farrier history. Longest overdue shown first.</p>
 
-              {farrierFilteredSuggestions.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} />)}
+              {farrierFilteredSuggestions.map(s => <SuggestionRow key={s.horse_name} suggestion={s} onAdd={() => addSuggestionToNeeds(s.horse_name)} isViewer={isViewer} />)}
             </div>
           )}
 

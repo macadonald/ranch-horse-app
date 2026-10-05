@@ -4,6 +4,7 @@ import Sidebar from '@/components/Sidebar'
 import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
 import { SUPABASE_MAX_ROWS } from '@/lib/supabase'
+import { useRole } from '@/lib/auth-context'
 
 const WORK_LABELS: Record<string, string> = {
   fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', reset: 'Reset', full_set: 'Full set',
@@ -176,6 +177,7 @@ function AssignRiderModal({ horse, guests, onAssign, onClose, today, tomorrow }:
 }
 
 export default function BoardPage() {
+  const { isViewer } = useRole()
   const [assignmentMap, setAssignmentMap] = useState<Record<string, GuestInfo[]>>({})
   const [shoeMap, setShoeMap] = useState<Record<string, ShoeWarning>>({})
   const [vetFlaggedNames, setVetFlaggedNames] = useState<Set<string>>(new Set())
@@ -550,14 +552,14 @@ export default function BoardPage() {
                     return (
                       <div
                         key={horse.name}
-                        onClick={() => setAssigningHorse(horse)}
+                        onClick={() => { if (!isViewer) setAssigningHorse(horse) }}
                         className="free-card"
                         style={{
                           background: 'var(--color-surface)',
                           border: '1px solid var(--color-border)',
                           borderRadius: 'var(--radius-md)',
                           padding: '10px 12px',
-                          cursor: 'pointer',
+                          cursor: isViewer ? 'default' : 'pointer',
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
@@ -574,7 +576,7 @@ export default function BoardPage() {
                           )}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3 }}>{horse.level}</div>
-                        <div style={{ fontSize: 10, color: 'var(--color-accent)', marginTop: 5, fontWeight: 500 }}>tap to assign →</div>
+                        {!isViewer && <div style={{ fontSize: 10, color: 'var(--color-accent)', marginTop: 5, fontWeight: 500 }}>tap to assign →</div>}
                       </div>
                     )
                   })}

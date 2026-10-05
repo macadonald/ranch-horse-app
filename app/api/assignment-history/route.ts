@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireUser, requireAdmin } from '@/lib/auth-server'
 
 const LEARNING_CUTOFF = '2026-05-11'
 
@@ -25,6 +26,8 @@ function haToRecord(ha: any, guestOverride?: any) {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   const { searchParams } = new URL(req.url)
   const guestId = searchParams.get('guest_id')
   const guestName = searchParams.get('guest_name')
@@ -177,6 +180,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const body = await req.json()
     const { guest_id, horse_name } = body
@@ -212,6 +217,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const body = await req.json()
     const { id, doesnt_work, archive_guest_name } = body

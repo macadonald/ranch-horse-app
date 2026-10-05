@@ -874,10 +874,11 @@ export default function GuestsPage() {
                             <span style={{ fontSize: 16 }}>🐴</span>
                             <div style={{ flex: 1 }}>
                               <span style={{ fontWeight: 600, fontSize: 13 }}>{a.horse_name}</span>
-                              <button onClick={() => updateAssignmentType(a.id, a.assignment_type)} title="Tap to cycle: primary → secondary → additional" style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600, cursor: 'pointer', border: 'none' }}>{a.assignment_type} ↻</button>
+                              {!isViewer && <button onClick={() => updateAssignmentType(a.id, a.assignment_type)} title="Tap to cycle: primary → secondary → additional" style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600, cursor: 'pointer', border: 'none' }}>{a.assignment_type} ↻</button>}
+                              {isViewer && <span style={{ fontSize: 10, marginLeft: 7, padding: '1px 6px', borderRadius: 999, background: a.assignment_type === 'primary' ? 'var(--color-success-bg)' : a.assignment_type === 'secondary' ? 'var(--color-warning-bg)' : 'var(--color-info-bg)', color: a.assignment_type === 'primary' ? 'var(--color-success)' : a.assignment_type === 'secondary' ? 'var(--color-warning)' : 'var(--color-info)', fontWeight: 600 }}>{a.assignment_type}</span>}
                             </div>
-                            <button onClick={() => setSwapTarget({ horseName: a.horse_name, assignmentId: a.id, assignmentType: a.assignment_type })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Swap horse</button>
-                            <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>
+                            {!isViewer && <button onClick={() => setSwapTarget({ horseName: a.horse_name, assignmentId: a.id, assignmentType: a.assignment_type })} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', cursor: 'pointer' }}>Swap horse</button>}
+                            {!isViewer && <button onClick={() => removeAssignment(a.id)} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', cursor: 'pointer' }}>Remove</button>}
                           </div>
                         )
                       })}
@@ -890,7 +891,7 @@ export default function GuestsPage() {
                           {incompatibleHorses.map(a => (
                             <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
                               {a.horse_name}{a.reason ? ` — ${a.reason}` : ''}
-                              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} title="Clear this signal" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                              {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} title="Clear this signal" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
                             </span>
                           ))}
                         </div>
@@ -1466,6 +1467,7 @@ export default function GuestsPage() {
           onCancel={() => { setAssignAllPhase('idle'); setDraftRows([]) }}
           horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => [h.name, { level: h.level, weight: h.weight, is_draft: h.is_draft, rank_last: h.rank_last, takes_kids: h.takes_kids }]))}
           pastRideMap={assignAllPastRideMap}
+          isViewer={isViewer}
         />
       )}
     </div>
@@ -1669,12 +1671,13 @@ function buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, lev
   return secondary ? `${primary} ${secondary}` : primary
 }
 
-function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMap }: {
+function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMap, isViewer }: {
   initialRows: DraftRow[]
   onConfirm: (rows: DraftRow[]) => Promise<void>
   onCancel: () => void
   horseMap: Record<string, { level: string; weight: number | null; is_draft: boolean; rank_last: boolean; takes_kids: boolean }>
   pastRideMap: Record<string, Record<string, PastRideDetail>>
+  isViewer?: boolean
 }) {
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
@@ -1724,9 +1727,9 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
         </div>
         <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
           <button onClick={onCancel} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-2)' }}>Cancel</button>
-          <button onClick={handleConfirm} disabled={saving || toSave.length === 0} style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: toSave.length === 0 ? '#c4a47a' : 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving || toSave.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+          {!isViewer && <button onClick={handleConfirm} disabled={saving || toSave.length === 0} style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: toSave.length === 0 ? '#c4a47a' : 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving || toSave.length === 0 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
             {saving ? 'Saving...' : `Confirm ${toSave.length} Assignment${toSave.length !== 1 ? 's' : ''}`}
-          </button>
+          </button>}
         </div>
       </div>
 

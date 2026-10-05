@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireUser, requireAdmin } from '@/lib/auth-server'
 
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   try {
     const today = new Date().toISOString().split('T')[0]
     const { data, error } = await supabase
@@ -19,6 +22,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const { count } = await req.json()
     const today = new Date().toISOString().split('T')[0]

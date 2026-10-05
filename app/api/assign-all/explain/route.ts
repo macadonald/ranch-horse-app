@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireUser } from '@/lib/auth-server'
 
 const LEVEL_ORDER = ['B', 'AB', 'I', 'I/AI', 'AI', 'A']
 const LEVEL_LABELS: Record<string, string> = {
@@ -25,6 +26,8 @@ function fallbackExplanation(
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   let fallbackReason = 'Explanation temporarily unavailable.'
 
   try {

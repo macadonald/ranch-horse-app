@@ -126,7 +126,7 @@ function IssueFormModal({
       : BLANK_FORM
   )
   const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<React.ReactNode>(null)
 
   const mouseDownOnBackdrop = useRef(false)
 
@@ -150,7 +150,10 @@ function IssueFormModal({
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        setSaveError(d.error || `Save failed (${res.status})`); return
+        if (res.status === 401) setSaveError(<>Your session expired — <a href="/login" style={{ color: 'inherit', textDecoration: 'underline' }}>please log in again</a></>)
+        else if (res.status === 403) setSaveError('Admins only')
+        else setSaveError(d.error || `Save failed (${res.status})`)
+        return
       }
       onSaved()
     } catch { setSaveError('Network error — please try again') }
@@ -273,7 +276,7 @@ function SupplementEditModal({
 }) {
   const [form, setForm] = useState({ supplement_name: supplement.supplement_name, frequency: supplement.frequency, notes: supplement.notes ?? '' })
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<React.ReactNode>(null)
   const mouseDownOnBackdrop = useRef(false)
 
   async function handleSave() {
@@ -285,7 +288,13 @@ function SupplementEditModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: supplement.id, supplement_name: form.supplement_name, frequency: form.frequency, notes: form.notes || null }),
       })
-      if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Save failed'); return }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        if (res.status === 401) setError(<>Your session expired — <a href="/login" style={{ color: 'inherit', textDecoration: 'underline' }}>please log in again</a></>)
+        else if (res.status === 403) setError('Admins only')
+        else setError(d.error || 'Save failed')
+        return
+      }
       onSaved()
     } catch { setError('Network error') }
     finally { setSaving(false) }
@@ -466,9 +475,9 @@ function IconBtn({ onClick, title, disabled, children, danger, success }: {
 // ─── Doctoring card ───────────────────────────────────────────────────────────
 
 function DoctorCard({
-  issue, tucsonToday, hideHorseName, onEdit, onResolve, onMarkDone, onDelete, onViewProfile,
+  issue, tucsonToday, hideHorseName, isViewer, onEdit, onResolve, onMarkDone, onDelete, onViewProfile,
 }: {
-  issue: HorseHealthIssue; tucsonToday: string; hideHorseName?: boolean
+  issue: HorseHealthIssue; tucsonToday: string; hideHorseName?: boolean; isViewer?: boolean
   onEdit: () => void; onResolve: () => void; onMarkDone: () => void; onDelete: () => void
   onViewProfile?: (name: string) => void
 }) {
@@ -506,7 +515,7 @@ function DoctorCard({
           {LOCATION_LABELS[issue.location]} · {TYPE_LABELS[issue.type]}
         </span>
         <div style={{ flex: 1 }} />
-        {confirmDelete ? (
+        {!isViewer && (confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Delete?</span>
             <button onClick={e => { e.stopPropagation(); handleDelete() }} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
@@ -518,7 +527,7 @@ function DoctorCard({
             <IconBtn onClick={handleResolve} disabled={resolving} title="Resolve" success>✓</IconBtn>
             <IconBtn onClick={() => setConfirmDelete(true)} title="Delete" danger>✕</IconBtn>
           </div>
-        )}
+        ))}
       </div>
 
       {issue.treatment_notes ? (
@@ -552,9 +561,9 @@ function DoctorCard({
           ) : (
             <>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#dc2626' }}>Not done</span>
-              <button onClick={e => { e.stopPropagation(); handleMarkDone() }} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: issue.severity === 'vet_required' ? '#fee2e2' : '#fef3c7', color: borderColor, fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+              {!isViewer && <button onClick={e => { e.stopPropagation(); handleMarkDone() }} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: issue.severity === 'vet_required' ? '#fee2e2' : '#fef3c7', color: borderColor, fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
                 {markingDone ? '...' : '✓ Mark done'}
-              </button>
+              </button>}
             </>
           )}
         </div>
@@ -566,9 +575,9 @@ function DoctorCard({
 // ─── Doctor group (horse with 1+ doctoring issues) ────────────────────────────
 
 function DoctorGroup({
-  horse_name, issues, tucsonToday, onEdit, onResolve, onMarkDone, onDelete, onViewProfile,
+  horse_name, issues, tucsonToday, isViewer, onEdit, onResolve, onMarkDone, onDelete, onViewProfile,
 }: {
-  horse_name: string; issues: HorseHealthIssue[]; tucsonToday: string
+  horse_name: string; issues: HorseHealthIssue[]; tucsonToday: string; isViewer?: boolean
   onEdit: (i: HorseHealthIssue) => void; onResolve: (i: HorseHealthIssue) => void
   onMarkDone: (i: HorseHealthIssue) => void; onDelete: (i: HorseHealthIssue) => void
   onViewProfile: (name: string) => void
@@ -576,7 +585,7 @@ function DoctorGroup({
   if (issues.length === 1) {
     return (
       <DoctorCard
-        issue={issues[0]} tucsonToday={tucsonToday}
+        issue={issues[0]} tucsonToday={tucsonToday} isViewer={isViewer}
         onEdit={() => onEdit(issues[0])} onResolve={() => onResolve(issues[0])}
         onMarkDone={() => onMarkDone(issues[0])} onDelete={() => onDelete(issues[0])}
         onViewProfile={onViewProfile}
@@ -604,7 +613,7 @@ function DoctorGroup({
       {/* Issue rows */}
       {issues.map(issue => (
         <DoctorCard
-          key={issue.id} issue={issue} tucsonToday={tucsonToday} hideHorseName
+          key={issue.id} issue={issue} tucsonToday={tucsonToday} hideHorseName isViewer={isViewer}
           onEdit={() => onEdit(issue)} onResolve={() => onResolve(issue)}
           onMarkDone={() => onMarkDone(issue)} onDelete={() => onDelete(issue)}
         />
@@ -616,9 +625,9 @@ function DoctorGroup({
 // ─── Watching card (monitoring) ───────────────────────────────────────────────
 
 function WatchCard({
-  issue, hideHorseName, onEdit, onResolve, onDelete, onViewProfile,
+  issue, hideHorseName, isViewer, onEdit, onResolve, onDelete, onViewProfile,
 }: {
-  issue: HorseHealthIssue; hideHorseName?: boolean
+  issue: HorseHealthIssue; hideHorseName?: boolean; isViewer?: boolean
   onEdit: () => void; onResolve: () => void; onDelete: () => void
   onViewProfile?: (name: string) => void
 }) {
@@ -650,7 +659,7 @@ function WatchCard({
           {FREQUENCY_LABELS[issue.frequency]}
         </span>
         <div style={{ flex: 1 }} />
-        {confirmDelete ? (
+        {!isViewer && (confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Delete?</span>
             <button onClick={e => { e.stopPropagation(); handleDelete() }} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
@@ -662,7 +671,7 @@ function WatchCard({
             <IconBtn onClick={handleResolve} disabled={resolving} title="Resolve" success>✓</IconBtn>
             <IconBtn onClick={() => setConfirmDelete(true)} title="Delete" danger>✕</IconBtn>
           </div>
-        )}
+        ))}
       </div>
 
       {issue.treatment_notes && (
@@ -691,9 +700,9 @@ function WatchCard({
 // ─── Supplement card ──────────────────────────────────────────────────────────
 
 function SupplementCard({
-  supplement, tucsonToday, hideHorseName, onEdit, onDelete, onMarkDone, onViewProfile,
+  supplement, tucsonToday, hideHorseName, isViewer, onEdit, onDelete, onMarkDone, onViewProfile,
 }: {
-  supplement: HorseSupplement; tucsonToday: string; hideHorseName?: boolean
+  supplement: HorseSupplement; tucsonToday: string; hideHorseName?: boolean; isViewer?: boolean
   onEdit: () => void; onDelete: () => void; onMarkDone: () => void
   onViewProfile?: (name: string) => void
 }) {
@@ -722,7 +731,7 @@ function SupplementCard({
           {SUPPLEMENT_FREQUENCY_LABELS[supplement.frequency]}
         </span>
         <div style={{ flex: '0 0 auto' }} />
-        {confirmDelete ? (
+        {!isViewer && (confirmDelete ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>Remove?</span>
             <button onClick={e => { e.stopPropagation(); handleDelete() }} disabled={deleting} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
@@ -733,7 +742,7 @@ function SupplementCard({
             <IconBtn onClick={onEdit} title="Edit">✎</IconBtn>
             <IconBtn onClick={() => setConfirmDelete(true)} title="Remove" danger>✕</IconBtn>
           </div>
-        )}
+        ))}
       </div>
 
       {supplement.notes && (
@@ -746,9 +755,9 @@ function SupplementCard({
         ) : (
           <>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-3)' }}>Not done</span>
-            <button onClick={e => { e.stopPropagation(); handleMarkDone() }} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid #0891b2', background: '#cffafe', color: '#0e7490', fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+            {!isViewer && <button onClick={e => { e.stopPropagation(); handleMarkDone() }} disabled={markingDone} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid #0891b2', background: '#cffafe', color: '#0e7490', fontWeight: 700, cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1, whiteSpace: 'nowrap' }}>
               {markingDone ? '...' : '✓ Mark done'}
-            </button>
+            </button>}
           </>
         )}
       </div>
@@ -759,11 +768,11 @@ function SupplementCard({
 // ─── Watch group (monitoring issues + supplements per horse) ──────────────────
 
 function WatchGroup({
-  horse_name, issues, supplements, tucsonToday,
+  horse_name, issues, supplements, tucsonToday, isViewer,
   onEdit, onResolve, onDelete, onViewProfile,
   onEditSupplement, onDeleteSupplement, onMarkSupplementDone,
 }: {
-  horse_name: string; issues: HorseHealthIssue[]; supplements: HorseSupplement[]; tucsonToday: string
+  horse_name: string; issues: HorseHealthIssue[]; supplements: HorseSupplement[]; tucsonToday: string; isViewer?: boolean
   onEdit: (i: HorseHealthIssue) => void; onResolve: (i: HorseHealthIssue) => void; onDelete: (i: HorseHealthIssue) => void
   onViewProfile: (name: string) => void
   onEditSupplement: (s: HorseSupplement) => void; onDeleteSupplement: (s: HorseSupplement) => void; onMarkSupplementDone: (s: HorseSupplement) => void
@@ -771,10 +780,10 @@ function WatchGroup({
   const totalItems = issues.length + supplements.length
 
   if (totalItems === 1 && issues.length === 1) {
-    return <WatchCard issue={issues[0]} onEdit={() => onEdit(issues[0])} onResolve={() => onResolve(issues[0])} onDelete={() => onDelete(issues[0])} onViewProfile={onViewProfile} />
+    return <WatchCard issue={issues[0]} isViewer={isViewer} onEdit={() => onEdit(issues[0])} onResolve={() => onResolve(issues[0])} onDelete={() => onDelete(issues[0])} onViewProfile={onViewProfile} />
   }
   if (totalItems === 1 && supplements.length === 1) {
-    return <SupplementCard supplement={supplements[0]} tucsonToday={tucsonToday} onEdit={() => onEditSupplement(supplements[0])} onDelete={() => onDeleteSupplement(supplements[0])} onMarkDone={() => onMarkSupplementDone(supplements[0])} onViewProfile={onViewProfile} />
+    return <SupplementCard supplement={supplements[0]} tucsonToday={tucsonToday} isViewer={isViewer} onEdit={() => onEditSupplement(supplements[0])} onDelete={() => onDeleteSupplement(supplements[0])} onMarkDone={() => onMarkSupplementDone(supplements[0])} onViewProfile={onViewProfile} />
   }
 
   return (
@@ -790,10 +799,10 @@ function WatchGroup({
         </span>
       </div>
       {issues.map(issue => (
-        <WatchCard key={issue.id} issue={issue} hideHorseName onEdit={() => onEdit(issue)} onResolve={() => onResolve(issue)} onDelete={() => onDelete(issue)} />
+        <WatchCard key={issue.id} issue={issue} hideHorseName isViewer={isViewer} onEdit={() => onEdit(issue)} onResolve={() => onResolve(issue)} onDelete={() => onDelete(issue)} />
       ))}
       {supplements.map(s => (
-        <SupplementCard key={s.id} supplement={s} tucsonToday={tucsonToday} hideHorseName onEdit={() => onEditSupplement(s)} onDelete={() => onDeleteSupplement(s)} onMarkDone={() => onMarkSupplementDone(s)} />
+        <SupplementCard key={s.id} supplement={s} tucsonToday={tucsonToday} hideHorseName isViewer={isViewer} onEdit={() => onEditSupplement(s)} onDelete={() => onDeleteSupplement(s)} onMarkDone={() => onMarkSupplementDone(s)} />
       ))}
     </div>
   )
@@ -801,7 +810,7 @@ function WatchGroup({
 
 // ─── Lame flag card ───────────────────────────────────────────────────────────
 
-function LameFlagCard({ flag, onMarkFit }: { flag: LameFlag; onMarkFit: () => Promise<void> }) {
+function LameFlagCard({ flag, isViewer, onMarkFit }: { flag: LameFlag; isViewer?: boolean; onMarkFit: () => Promise<void> }) {
   const [markingFit, setMarkingFit] = useState(false)
   const isLame    = flag.flag_type === 'lame'
   const isInjured = flag.flag_type === 'injured'
@@ -824,9 +833,9 @@ function LameFlagCard({ flag, onMarkFit }: { flag: LameFlag; onMarkFit: () => Pr
         </span>
         <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>Flagged {flagDate}</span>
         <div style={{ flex: 1 }} />
-        <button onClick={handleMarkFit} disabled={markingFit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: badgeBg, color: badgeColor, fontWeight: 700, cursor: markingFit ? 'not-allowed' : 'pointer', opacity: markingFit ? 0.6 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {!isViewer && <button onClick={handleMarkFit} disabled={markingFit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 'var(--radius-sm)', border: `1px solid ${borderColor}`, background: badgeBg, color: badgeColor, fontWeight: 700, cursor: markingFit ? 'not-allowed' : 'pointer', opacity: markingFit ? 0.6 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
           {markingFit ? '...' : '✓ Mark fit'}
-        </button>
+        </button>}
       </div>
       {flag.notes && <p style={{ fontSize: 12, color: 'var(--color-text-2)', marginTop: 6, lineHeight: 1.4, margin: '6px 0 0' }}>{flag.notes}</p>}
     </div>
@@ -843,7 +852,7 @@ function QuickFlagForm({ onSave, extraNames = [] }: {
   const [flagType, setFlagType]   = useState<'lame' | 'stiff_sore' | 'injured'>('lame')
   const [notes, setNotes]         = useState('')
   const [saving, setSaving]       = useState(false)
-  const [error, setError]         = useState<string | null>(null)
+  const [error, setError]         = useState<React.ReactNode>(null)
 
   const TYPE_STYLES: Record<string, { active: { border: string; bg: string; color: string }; label: string }> = {
     lame:       { active: { border: '#dc2626', bg: '#fee2e2', color: '#dc2626' }, label: 'Lame' },
@@ -857,7 +866,12 @@ function QuickFlagForm({ onSave, extraNames = [] }: {
     try {
       await onSave(horseName, flagType, notes)
       setHorseName(''); setNotes(''); setFlagType('lame')
-    } catch { setError('Failed to save — please try again') }
+    } catch(err: any) {
+      const status = err?.status
+      if (status === 401) setError(<>Your session expired — <a href="/login" style={{ color: 'inherit', textDecoration: 'underline' }}>please log in again</a></>)
+      else if (status === 403) setError('Admins only')
+      else setError('Failed to save — please try again')
+    }
     finally { setSaving(false) }
   }
 
@@ -898,8 +912,8 @@ function QuickFlagForm({ onSave, extraNames = [] }: {
 
 // ─── Lame flag view ───────────────────────────────────────────────────────────
 
-function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVetRequired, extraNames = [] }: {
-  activeFlags: LameFlag[]; vetIssues: HorseHealthIssue[]
+function LameFlagView({ activeFlags, vetIssues, isViewer, onMarkFit, onLameFlag, onViewVetRequired, extraNames = [] }: {
+  activeFlags: LameFlag[]; vetIssues: HorseHealthIssue[]; isViewer?: boolean
   onMarkFit: (flag: LameFlag) => Promise<void>
   onLameFlag: (horseName: string, flagType: 'lame' | 'stiff_sore' | 'injured', notes: string) => Promise<void>
   onViewVetRequired: () => void; extraNames?: string[]
@@ -910,7 +924,7 @@ function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVet
 
   return (
     <div>
-      <QuickFlagForm onSave={onLameFlag} extraNames={extraNames} />
+      {!isViewer && <QuickFlagForm onSave={onLameFlag} extraNames={extraNames} />}
 
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -920,7 +934,7 @@ function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVet
         </div>
         {lameFlags.length === 0
           ? <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as lame</p>
-          : lameFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />)}
+          : lameFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} isViewer={isViewer} onMarkFit={() => onMarkFit(flag)} />)}
       </div>
 
       <div style={{ marginBottom: 24 }}>
@@ -931,7 +945,7 @@ function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVet
         </div>
         {injuredFlags.length === 0
           ? <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as injured</p>
-          : injuredFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />)}
+          : injuredFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} isViewer={isViewer} onMarkFit={() => onMarkFit(flag)} />)}
       </div>
 
       <div style={{ marginBottom: 24 }}>
@@ -942,7 +956,7 @@ function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVet
         </div>
         {stiffFlags.length === 0
           ? <p style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No horses flagged as stiff/sore</p>
-          : stiffFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} onMarkFit={() => onMarkFit(flag)} />)}
+          : stiffFlags.map(flag => <LameFlagCard key={flag.id} flag={flag} isViewer={isViewer} onMarkFit={() => onMarkFit(flag)} />)}
       </div>
 
       {vetIssues.length > 0 && (
@@ -972,7 +986,7 @@ function LameFlagView({ activeFlags, vetIssues, onMarkFit, onLameFlag, onViewVet
 
 // ─── History row (with delete) ────────────────────────────────────────────────
 
-function HistoryRow({ issue, onDelete }: { issue: HorseHealthIssue; onDelete: () => void }) {
+function HistoryRow({ issue, isViewer, onDelete }: { issue: HorseHealthIssue; isViewer?: boolean; onDelete: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting]           = useState(false)
   const resolvedDate = issue.resolved_at ? new Date(issue.resolved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
@@ -990,14 +1004,14 @@ function HistoryRow({ issue, onDelete }: { issue: HorseHealthIssue; onDelete: ()
         {SEVERITY_LABELS[issue.severity]}
       </span>
       <span style={{ fontSize: 12, color: 'var(--color-text-3)', marginLeft: 'auto' }}>Resolved {resolvedDate}</span>
-      {confirmDelete ? (
+      {!isViewer && (confirmDelete ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={handleDelete} disabled={deleting} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-danger-border)', background: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontWeight: 600, cursor: 'pointer' }}>{deleting ? '...' : 'Yes'}</button>
           <button onClick={() => setConfirmDelete(false)} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' }}>No</button>
         </div>
       ) : (
         <button onClick={() => setConfirmDelete(true)} title="Delete from history" style={{ width: 22, height: 22, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: 0.5 }}>✕</button>
-      )}
+      ))}
     </div>
   )
 }
@@ -1176,7 +1190,10 @@ export default function HealthPage() {
 
   async function handleLameFlag(horseName: string, flagType: 'lame' | 'stiff_sore' | 'injured', notes: string) {
     const res = await fetch('/api/lame', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horse_name: horseName, flag_type: flagType, notes: notes || null }) })
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to flag') }
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      throw Object.assign(new Error(d.error || 'Failed to flag'), { status: res.status })
+    }
     await fetchData()
   }
 
@@ -1253,6 +1270,7 @@ export default function HealthPage() {
           ) : activeFilter === 'lame' ? (
             <LameFlagView
               activeFlags={activeLameFlags} vetIssues={vetIssuesForLameView}
+              isViewer={isViewer}
               onMarkFit={handleMarkFit} onLameFlag={handleLameFlag}
               onViewVetRequired={() => setActiveFilter('doctoring')}
               extraNames={otherAnimalNames}
@@ -1276,6 +1294,7 @@ export default function HealthPage() {
                   {doctorGroups.map(group => (
                     <DoctorGroup
                       key={group.horse_name} horse_name={group.horse_name} issues={group.issues} tucsonToday={tucsonToday}
+                      isViewer={isViewer}
                       onEdit={setEditingIssue} onResolve={handleResolve} onMarkDone={handleMarkDone}
                       onDelete={handleDelete} onViewProfile={setProfileHorse}
                     />
@@ -1296,6 +1315,7 @@ export default function HealthPage() {
                     <WatchGroup
                       key={group.horse_name} horse_name={group.horse_name} issues={group.issues}
                       supplements={group.supplements} tucsonToday={tucsonToday}
+                      isViewer={isViewer}
                       onEdit={setEditingIssue} onResolve={handleResolve} onDelete={handleDelete}
                       onViewProfile={setProfileHorse}
                       onEditSupplement={setEditingSupplement} onDeleteSupplement={handleDeleteSupplement}
@@ -1323,7 +1343,7 @@ export default function HealthPage() {
                 <p style={{ fontSize: 13 }}>{historySearch ? 'No results for that horse' : 'No resolved issues yet'}</p>
               </div>
             ) : filteredHistory.map(issue => (
-              <HistoryRow key={issue.id} issue={issue} onDelete={() => handleDeleteHistory(issue)} />
+              <HistoryRow key={issue.id} issue={issue} isViewer={isViewer} onDelete={() => handleDeleteHistory(issue)} />
             ))}
           </div>
 

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase, SUPABASE_MAX_ROWS, WARN_THRESHOLD } from '@/lib/supabase'
+import { requireUser, requireAdmin } from '@/lib/auth-server'
 
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
   try {
     const [{ data, error }, { count }] = await Promise.all([
       supabase.from('guests').select(`*, horse_assignments (*)`),
@@ -33,6 +36,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const body = await req.json()
     const { data, error } = await supabase.from('guests').insert([body]).select().single()
@@ -44,6 +49,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const body = await req.json()
     const { id, ...updates } = body
@@ -56,6 +63,8 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
