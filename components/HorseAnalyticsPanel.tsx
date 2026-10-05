@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { DbHorse, LEVEL_LABELS } from '@/lib/horses'
+import { DbHorse, LEVEL_LABELS, LEVEL_ORDER } from '@/lib/horses'
 import { WEIGHT_BANDS } from '@/lib/weightBands'
+import { horseWeightCeiling as _hWC, horseLevelRange as _hLR, isHorseBlockedToday as _hBlocked } from '@/lib/horseFit'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -177,6 +178,7 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
   const [fetchedGuests, setFetchedGuests] = useState<GuestRider[]>([])
   const [loading, setLoading] = useState(propGuests === undefined)
   const [showAllIdle, setShowAllIdle] = useState(false)
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (propGuests !== undefined) { setLoading(false); return }
@@ -184,15 +186,14 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
       .then(r => r.json())
       .then((d: any) => {
         const all: GuestRider[] = d.guests || d || []
-        setFetchedGuests(all.filter(g => (g.horse_assignments || []).length > 0))
+        setFetchedGuests(all)
         setLoading(false)
       })
       .catch(() => setLoading(false))
   }, [propGuests])
 
-  const guests = propGuests !== undefined
-    ? propGuests.filter(g => (g.horse_assignments || []).length > 0)
-    : fetchedGuests
+  const allGuests = propGuests !== undefined ? propGuests : fetchedGuests
+  const guests = allGuests.filter(g => (g.horse_assignments || []).length > 0)
 
   type HorseStat = {
     name: string; horse: DbHorse
@@ -337,6 +338,112 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
     return `${Math.round((d.draft / d.total) * 100)}% · ${d.draft} of ${d.total}`
   }
 
+  // ── Herd Depth ──────────────────────────────────────────────────────────────
+
+  const herd = horses.filter(h => h.is_active && !h.is_deceased)
+
+  // Per-horse historical stats from guest assignment data (for accurate level range)
+  const depthHistStats: Record<string, { levels: string[]; maxWeight: number; count: number }> = {}
+  guests.forEach(g => {
+    ;(g.horse_assignments || []).forEach(a => {
+      if (!depthHistStats[a.horse_name]) depthHistStats[a.horse_name] = { levels: [], maxWeight: 0, count: 0 }
+      const ds = depthHistStats[a.horse_name]
+      if (g.riding_level && !ds.levels.includes(g.riding_level)) ds.levels.push(g.riding_level)
+      if (g.weight) ds.maxWeight = Math.max(ds.maxWeight, g.weight)
+      ds.count++
+    })
+  })
+
+  const hWCeiling = (h: DbHorse): number =>
+    _hWC(h.weight, depthHistStats[h.name]?.maxWeight ?? 0)
+
+  const hLevelRangeFn = (h: DbHorse): { min: number; max: number } => {
+    const idx = LEVEL_ORDER.indexOf(h.level)
+    if (idx === -1) return { min: -1, max: -1 }
+    const ds = depthHistStats[h.name]
+    return _hLR(idx, ds?.count ?? 0, ds?.levels ?? [])
+  }
+
+  const isHorseAvailable = (h: DbHorse): boolean =>
+    !h.exclude_from_ai && !_hBlocked(h.flags || [], today)
+
+  const getFlagReason = (h: DbHorse): string | null => {
+    const f = (h.flags || []).find(fl => {
+      if (fl.flag_type === 'day_off') return fl.day_off_date === today
+      return ['lame', 'injured', 'in_training', 'retired'].includes(fl.flag_type)
+    })
+    if (!f) return null
+    const lbls: Record<string, string> = { lame: 'lame', injured: 'injured', in_training: 'in training', retired: 'retired', day_off: 'day off' }
+    return lbls[f.flag_type] ?? f.flag_type
+  }
+
+  const onPropertyToday = allGuests.filter(g =>
+    !g.checked_out &&
+    g.check_in_date != null && g.check_in_date <= today &&
+    g.check_out_date >= today
+  )
+
+  const CARD_LEVEL_LABELS: Record<string, string> = {
+    B: 'Beginner', AB: 'Adv Beginner', I: 'Intermediate',
+    'I/AI': 'Int / Adv Int', AI: 'Adv Intermediate', A: 'Advanced',
+  }
+
+  type DepthCardDef = {
+    key: string; title: string
+    horseFn: (h: DbHorse) => boolean
+    guestFn: (g: GuestRider) => boolean
+  }
+
+  const DEPTH_CARD_DEFS: DepthCardDef[] = [
+    { key: 'kids', title: 'Kid horses', horseFn: h => h.takes_kids, guestFn: g => (g.age ?? 999) < 13 },
+    ...LEVEL_ORDER.map(lvl => ({
+      key: `lvl_${lvl}`,
+      title: CARD_LEVEL_LABELS[lvl] || lvl,
+      horseFn: (h: DbHorse) => {
+        const r = hLevelRangeFn(h)
+        const lIdx = LEVEL_ORDER.indexOf(lvl)
+        return r.min !== -1 && lIdx >= r.min && lIdx <= r.max
+      },
+      guestFn: (g: GuestRider) => g.riding_level === lvl,
+    })),
+    { key: 'w200', title: 'Carries 200+ lb', horseFn: h => hWCeiling(h) >= 200, guestFn: g => (g.weight ?? 0) >= 200 },
+    { key: 'w220', title: 'Carries 220+ lb', horseFn: h => hWCeiling(h) >= 220, guestFn: g => (g.weight ?? 0) >= 220 },
+    { key: 'w260', title: 'Carries 260+ lb', horseFn: h => hWCeiling(h) >= 260, guestFn: g => (g.weight ?? 0) >= 260 },
+    { key: 'draft', title: 'Draft horses', horseFn: h => h.is_draft, guestFn: g => (g.weight ?? 0) >= 220 },
+  ]
+
+  type DepthCardData = {
+    key: string; title: string
+    total: number; available: number
+    outToday: { name: string; reason: string }[]
+    guestsNow: number; isWarn: boolean
+    horses: DbHorse[]
+  }
+
+  const depthCards: DepthCardData[] = DEPTH_CARD_DEFS.map(def => {
+    const inCat = herd.filter(def.horseFn)
+    const avail = inCat.filter(isHorseAvailable)
+    const out = inCat.filter(h => !isHorseAvailable(h)).flatMap(h => {
+      const r = getFlagReason(h)
+      return r ? [{ name: h.name, reason: r }] : []
+    })
+    const gNow = onPropertyToday.filter(def.guestFn).length
+    return {
+      key: def.key, title: def.title,
+      total: inCat.length, available: avail.length,
+      outToday: out, guestsNow: gNow,
+      isWarn: avail.length <= 3 || gNow > avail.length,
+      horses: inCat,
+    }
+  })
+
+  const sortedDepthCards = [
+    ...depthCards.filter(c => c.isWarn),
+    ...depthCards.filter(c => !c.isWarn),
+  ]
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
       {onBack && (
@@ -349,6 +456,102 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
         <p style={{ textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13, padding: 32 }}>Loading analytics...</p>
       ) : (
         <>
+          {/* ── Section 0: Herd Depth ── */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Herd Depth</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
+              {sortedDepthCards.map(card => {
+                const isExp = expandedCards.has(card.key)
+                return (
+                  <div
+                    key={card.key}
+                    onClick={() => setExpandedCards(prev => {
+                      const next = new Set(prev)
+                      if (next.has(card.key)) next.delete(card.key)
+                      else next.add(card.key)
+                      return next
+                    })}
+                    style={{
+                      padding: '12px 14px',
+                      background: card.isWarn ? '#fffbeb' : 'var(--color-surface)',
+                      border: `1px solid ${card.isWarn ? '#fcd34d' : 'var(--color-border)'}`,
+                      borderRadius: 'var(--radius-lg)',
+                      cursor: 'pointer',
+                      userSelect: 'none' as const,
+                    }}
+                  >
+                    {/* Title + warning badge */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
+                        {card.title}
+                      </div>
+                      {card.isWarn && (
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 700, whiteSpace: 'nowrap' as const }}>
+                          ⚠ Getting thin
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Available / Total counts */}
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-end' }}>
+                      <div>
+                        <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: card.isWarn ? '#92400e' : 'var(--color-text)' }}>{card.available}</div>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 1 }}>available</div>
+                      </div>
+                      <div style={{ paddingBottom: 3 }}>
+                        <span style={{ fontSize: 13, color: 'var(--color-text-3)', fontWeight: 500 }}>/ {card.total}</span>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 1 }}>total</div>
+                      </div>
+                    </div>
+
+                    {/* Out today list */}
+                    {card.outToday.length > 0 && (
+                      <div style={{ fontSize: 11, color: '#dc2626', marginBottom: 5, lineHeight: 1.4 }}>
+                        {card.outToday.map(o => `${o.name} ${o.reason}`).join(' · ')}
+                      </div>
+                    )}
+
+                    {/* Guests here now */}
+                    {card.guestsNow > 0 && (
+                      <div style={{ fontSize: 11, marginBottom: 4, fontWeight: card.guestsNow > card.available ? 600 : 400, color: card.guestsNow > card.available ? '#c2410c' : 'var(--color-text-3)' }}>
+                        {card.guestsNow} guest{card.guestsNow !== 1 ? 's' : ''} here now
+                      </div>
+                    )}
+
+                    {/* Expand toggle */}
+                    <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 6 }}>
+                      {isExp ? '▲ hide horses' : `▼ ${card.total} horse${card.total !== 1 ? 's' : ''}`}
+                    </div>
+
+                    {/* Expanded horse list */}
+                    {isExp && (
+                      <div
+                        style={{ marginTop: 8, borderTop: '1px solid var(--color-border)', paddingTop: 8 }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {card.horses.length === 0 ? (
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>No horses</div>
+                        ) : card.horses.map(h => {
+                          const avail = isHorseAvailable(h)
+                          const reason = avail ? null : getFlagReason(h)
+                          return (
+                            <div key={h.name} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12 }}>
+                              <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{h.name}</span>
+                              {avail
+                                ? <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 700, flexShrink: 0 }}>✓</span>
+                                : <span style={{ fontSize: 10, color: '#dc2626', flexShrink: 0 }}>{reason ?? 'excl.'}</span>
+                              }
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           {/* ── Section 1: Overview ── */}
           <div style={{ marginBottom: 28 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Overview</div>

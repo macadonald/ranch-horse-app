@@ -540,7 +540,7 @@ export default function InsightsPage() {
         ) : view === 'guests' ? (
           <GuestAnalyticsPanel guests={gwa} today={today} />
         ) : view === 'horses' ? (
-          <HorseAnalyticsPanel horses={horses} guests={gwa} />
+          <HorseAnalyticsPanel horses={horses} guests={guests} />
         ) : view === 'shoes' ? (
           <ShoeAnalyticsPanel />
         ) : (

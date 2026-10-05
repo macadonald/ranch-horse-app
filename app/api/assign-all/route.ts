@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 import { requireUser } from '@/lib/auth-server'
+import { horseWeightCeiling as _wc, horseLevelRange as _lr, isHorseBlockedToday as _blocked } from '@/lib/horseFit'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -140,18 +141,13 @@ export async function POST(req: NextRequest) {
 
     // ── Scoring helpers ──
     const horseWeightCeiling = (listed: number | null, horseName: string): number => {
-      if (listed === null) return 0
       const s = horseStats[horseName]
-      return Math.min(listed + 30, Math.max(listed + 15, s?.historicalMaxWeight ?? 0))
+      return _wc(listed, s?.historicalMaxWeight ?? 0)
     }
 
-    const horseLevelRangeFn = (horseName: string, baseLevelIdx: number): { min: number; max: number } => {
+    const horseLevelRangeFn = (horseName: string, baseLevelIdx: number) => {
       const s = horseStats[horseName]
-      if (!s || s.totalAssignments < 5) return { min: Math.max(0, baseLevelIdx - 1), max: Math.min(LEVEL_ORDER.length - 1, baseLevelIdx + 1) }
-      let lo = baseLevelIdx, hi = baseLevelIdx
-      for (const lvl of s.historicalLevels) { const i = LEVEL_ORDER.indexOf(lvl); if (i !== -1) { if (i < lo) lo = i; if (i > hi) hi = i } }
-      if (s.totalAssignments >= 20 && hi <= baseLevelIdx) return { min: Math.max(0, lo), max: baseLevelIdx }
-      return { min: Math.max(0, Math.min(lo, baseLevelIdx - 1)), max: Math.min(LEVEL_ORDER.length - 1, hi) }
+      return _lr(baseLevelIdx, s?.totalAssignments ?? 0, s?.historicalLevels ?? [])
     }
 
     const fragilityShift = (age: number | null | undefined): number => {
@@ -211,10 +207,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Eligible horses ──
-    const hasBlockingFlag = (h: DbHorse) => (h.flags || []).some(f => {
-      if (f.flag_type === 'day_off') return f.day_off_date === today
-      return ['lame', 'injured', 'in_training', 'retired'].includes(f.flag_type)
-    })
+    const hasBlockingFlag = (h: DbHorse) => _blocked(h.flags || [], today)
     const eligibleHorses = horses.filter(h => h.is_active && !h.is_deceased && !h.exclude_from_ai && !hasBlockingFlag(h))
 
     // ── Unassigned guests ──
