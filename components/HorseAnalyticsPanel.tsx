@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DbHorse, LEVEL_LABELS, LEVEL_ORDER } from '@/lib/horses'
 import { WEIGHT_BANDS } from '@/lib/weightBands'
 import { horseWeightCeiling as _hWC, horseLevelRange as _hLR, isHorseBlockedToday as _hBlocked } from '@/lib/horseFit'
@@ -178,7 +178,8 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
   const [fetchedGuests, setFetchedGuests] = useState<GuestRider[]>([])
   const [loading, setLoading] = useState(propGuests === undefined)
   const [showAllIdle, setShowAllIdle] = useState(false)
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
+  const [selectedCard, setSelectedCard] = useState<string | null>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (propGuests !== undefined) { setLoading(false); return }
@@ -191,6 +192,12 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
       })
       .catch(() => setLoading(false))
   }, [propGuests])
+
+  useEffect(() => {
+    if (selectedCard && detailRef.current) {
+      detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [selectedCard])
 
   const allGuests = propGuests !== undefined ? propGuests : fetchedGuests
   const guests = allGuests.filter(g => (g.horse_assignments || []).length > 0)
@@ -437,10 +444,48 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
     }
   })
 
-  const sortedDepthCards = [
-    ...depthCards.filter(c => c.isWarn),
-    ...depthCards.filter(c => !c.isWarn),
-  ]
+  const sizeWeightCards = depthCards.filter(c => ['kids', 'w200', 'w220', 'w260', 'draft'].includes(c.key))
+  const levelCards = depthCards.filter(c => c.key.startsWith('lvl_'))
+
+  const renderDepthCard = (card: DepthCardData) => {
+    const isSelected = selectedCard === card.key
+    return (
+      <div
+        key={card.key}
+        onClick={() => setSelectedCard(isSelected ? null : card.key)}
+        style={{
+          padding: '10px 12px',
+          background: card.isWarn ? '#fffbeb' : 'var(--color-surface)',
+          border: `1px solid ${card.isWarn ? '#fcd34d' : 'var(--color-border)'}`,
+          outline: isSelected ? '2px solid var(--color-accent)' : 'none',
+          borderRadius: 'var(--radius-lg)',
+          cursor: 'pointer',
+          userSelect: 'none' as const,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{card.title}</div>
+          {card.isWarn && (
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 700, whiteSpace: 'nowrap' as const }}>⚠ thin</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 6 }}>
+          <span style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: card.isWarn ? '#92400e' : 'var(--color-text)' }}>{card.available}</span>
+          <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>/ {card.total} avail</span>
+        </div>
+        <div style={{ height: 3, background: 'var(--color-border)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+          <div style={{ height: '100%', width: card.total > 0 ? `${Math.round((card.available / card.total) * 100)}%` : '0%', background: '#16a34a', borderRadius: 2 }} />
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--color-text-3)', display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+          <span>{card.guestsNow} guest{card.guestsNow !== 1 ? 's' : ''} here</span>
+          {card.outToday.length > 0
+            ? <span style={{ color: '#dc2626', fontWeight: 600 }}>{card.outToday.length} out</span>
+            : <span style={{ opacity: 0.6 }}>none out</span>
+          }
+        </div>
+      </div>
+    )
+  }
 
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -459,97 +504,53 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
           {/* ── Section 0: Herd Depth ── */}
           <div style={{ marginBottom: 28 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Herd Depth</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
-              {sortedDepthCards.map(card => {
-                const isExp = expandedCards.has(card.key)
-                return (
-                  <div
-                    key={card.key}
-                    onClick={() => setExpandedCards(prev => {
-                      const next = new Set(prev)
-                      if (next.has(card.key)) next.delete(card.key)
-                      else next.add(card.key)
-                      return next
-                    })}
-                    style={{
-                      padding: '12px 14px',
-                      background: card.isWarn ? '#fffbeb' : 'var(--color-surface)',
-                      border: `1px solid ${card.isWarn ? '#fcd34d' : 'var(--color-border)'}`,
-                      borderRadius: 'var(--radius-lg)',
-                      cursor: 'pointer',
-                      userSelect: 'none' as const,
-                    }}
-                  >
-                    {/* Title + warning badge */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                        {card.title}
+
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>Size &amp; weight</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, alignItems: 'start', marginBottom: 16 }}>
+              {sizeWeightCards.map(renderDepthCard)}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>Rider level</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, alignItems: 'start', marginBottom: selectedCard ? 16 : 0 }}>
+              {levelCards.map(renderDepthCard)}
+            </div>
+
+            {selectedCard && (() => {
+              const card = depthCards.find(c => c.key === selectedCard)!
+              return (
+                <div ref={detailRef} style={{ padding: '14px 16px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{card.title}</div>
+                    <button onClick={() => setSelectedCard(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--color-text-3)', padding: '2px 4px' }}>Close ✕</button>
+                  </div>
+                  {card.outToday.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 6 }}>Out today</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+                        {card.outToday.map(o => (
+                          <span key={o.name} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', fontWeight: 600 }}>
+                            {o.name} · {o.reason}
+                          </span>
+                        ))}
                       </div>
-                      {card.isWarn && (
-                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 700, whiteSpace: 'nowrap' as const }}>
-                          ⚠ Getting thin
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-3)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 6 }}>Available ({card.available})</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+                      {card.horses.filter(isHorseAvailable).map(h => (
+                        <span key={h.name} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--color-bg)', color: 'var(--color-text-2)', border: '1px solid var(--color-border)', fontWeight: 500 }}>
+                          {h.name}
                         </span>
+                      ))}
+                      {card.horses.filter(isHorseAvailable).length === 0 && (
+                        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>None available today</span>
                       )}
                     </div>
-
-                    {/* Available / Total counts */}
-                    <div style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-end' }}>
-                      <div>
-                        <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: card.isWarn ? '#92400e' : 'var(--color-text)' }}>{card.available}</div>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 1 }}>available</div>
-                      </div>
-                      <div style={{ paddingBottom: 3 }}>
-                        <span style={{ fontSize: 13, color: 'var(--color-text-3)', fontWeight: 500 }}>/ {card.total}</span>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 1 }}>total</div>
-                      </div>
-                    </div>
-
-                    {/* Out today list */}
-                    {card.outToday.length > 0 && (
-                      <div style={{ fontSize: 11, color: '#dc2626', marginBottom: 5, lineHeight: 1.4 }}>
-                        {card.outToday.map(o => `${o.name} ${o.reason}`).join(' · ')}
-                      </div>
-                    )}
-
-                    {/* Guests here now */}
-                    {card.guestsNow > 0 && (
-                      <div style={{ fontSize: 11, marginBottom: 4, fontWeight: card.guestsNow > card.available ? 600 : 400, color: card.guestsNow > card.available ? '#c2410c' : 'var(--color-text-3)' }}>
-                        {card.guestsNow} guest{card.guestsNow !== 1 ? 's' : ''} here now
-                      </div>
-                    )}
-
-                    {/* Expand toggle */}
-                    <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 6 }}>
-                      {isExp ? '▲ hide horses' : `▼ ${card.total} horse${card.total !== 1 ? 's' : ''}`}
-                    </div>
-
-                    {/* Expanded horse list */}
-                    {isExp && (
-                      <div
-                        style={{ marginTop: 8, borderTop: '1px solid var(--color-border)', paddingTop: 8 }}
-                        onClick={e => e.stopPropagation()}
-                      >
-                        {card.horses.length === 0 ? (
-                          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>No horses</div>
-                        ) : card.horses.map(h => {
-                          const avail = isHorseAvailable(h)
-                          const reason = avail ? null : getFlagReason(h)
-                          return (
-                            <div key={h.name} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12 }}>
-                              <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{h.name}</span>
-                              {avail
-                                ? <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 700, flexShrink: 0 }}>✓</span>
-                                : <span style={{ fontSize: 10, color: '#dc2626', flexShrink: 0 }}>{reason ?? 'excl.'}</span>
-                              }
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
                   </div>
-                )
-              })}
-            </div>
+                </div>
+              )
+            })()}
           </div>
 
           {/* ── Section 1: Overview ── */}
