@@ -420,7 +420,7 @@ export default function GuestsPage() {
     const guest = selectedGuest
     setSwapPickSaving(true); setSwapPickError(null)
     try {
-      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guest.id, horse_name: horseName, assignment_type: assignmentType, status: 'active', incompatible: false, requested_by_guest: false }) })
+      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guest.id, horse_name: horseName, assignment_type: assignmentType, status: 'active', incompatible: false, requested_by_guest: false, source: 'swap_replacement' }) })
       await logHistory(guest.name, guest.id, horseName, assignmentType, 'manual')
       await Promise.all([fetchGuests(), fetchGuestHistory(guest.id)])
       resetSwap()
@@ -638,7 +638,7 @@ export default function GuestsPage() {
     const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
     await Promise.all(
       toSave.map(async r => {
-        await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false }) })
+        await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false, source: 'assign_all' }) })
         await logHistory(r.guest.name, r.guest.id, r.suggestedHorse!, 'primary', 'assign_all')
         if (r.suggestion_id) {
           fetch('/api/assign-all/confirm', {

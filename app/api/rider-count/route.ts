@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
+import { logActivity } from '@/lib/activity'
 
 export async function GET() {
   const auth = await requireUser()
@@ -24,7 +25,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   try {
     const { count } = await req.json()
     const today = new Date().toISOString().split('T')[0]
@@ -36,6 +37,14 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+
+    await logActivity(supabase, { id: userId, email }, {
+      action: 'rider_count.set',
+      entityType: 'daily_rider_counts',
+      summary: `Set rider count to ${count}`,
+      details: { count, date: today },
+    })
+
     return NextResponse.json({ count: data.rider_count })
   } catch (err) {
     console.error('POST rider count error:', err)

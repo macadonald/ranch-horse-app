@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { HORSES } from '@/lib/horses'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
 import { getTucsonToday } from '@/lib/timezone'
+import { logActivity } from '@/lib/activity'
 
 function isFlagActive(flag: any, today: string): boolean {
   if (flag.status !== 'active') return false
@@ -64,7 +65,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   const body = await req.json()
   const { name, level, weight, size, notes, is_active, exclude_from_ai, rank_last, is_deceased, is_draft, takes_kids } = body
   if (!name?.trim() || !level || !size) {
@@ -88,13 +89,22 @@ export async function POST(req: NextRequest) {
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await logActivity(supabase, { id: userId, email }, {
+    action: 'horse.create',
+    entityType: 'horses',
+    entityId: data.id,
+    summary: `Added horse ${data.name}`,
+    details: { name: data.name, level, size, is_active: data.is_active },
+  })
+
   return NextResponse.json({ horse: { ...data, flags: [], shoe_flags: [] } })
 }
 
 export async function PUT(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   const body = await req.json()
   const { id, flags, shoe_flags, created_at, ...fields } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
@@ -105,23 +115,52 @@ export async function PUT(req: NextRequest) {
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  let summary: string
+  if ('is_active' in fields) {
+    summary = `${fields.is_active ? 'Activated' : 'Deactivated'} ${data.name}`
+  } else if ('is_deceased' in fields && fields.is_deceased) {
+    summary = `Marked ${data.name} deceased`
+  } else if ('farrier' in fields) {
+    summary = `Set farrier for ${data.name}: ${fields.farrier ?? 'none'}`
+  } else {
+    summary = `Edited ${data.name}: ${Object.keys(fields).join(', ')}`
+  }
+
+  await logActivity(supabase, { id: userId, email }, {
+    action: 'horse.update',
+    entityType: 'horses',
+    entityId: id,
+    summary,
+    details: { name: data.name, updated: fields },
+  })
+
   return NextResponse.json({ horse: data })
 }
 
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-  // Get horse name before deleting (for flag cleanup)
+  // Get horse name before deleting (for flag cleanup and logging)
   const { data: horse } = await supabase.from('horses').select('name').eq('id', id).single()
   if (horse?.name) {
     await supabase.from('horse_status_flags').update({ status: 'resolved', resolved_at: new Date().toISOString() }).eq('horse_name', horse.name)
   }
   const { error } = await supabase.from('horses').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await logActivity(supabase, { id: userId, email }, {
+    action: 'horse.delete',
+    entityType: 'horses',
+    entityId: id,
+    summary: `Deleted horse ${horse?.name ?? id}`,
+    details: { name: horse?.name },
+  })
+
   return NextResponse.json({ success: true })
 }

@@ -24,14 +24,14 @@ function getSessionClient() {
 
 type SessionClient = ReturnType<typeof getSessionClient>
 
-export async function requireUser(): Promise<{ userId: string; supabase: SessionClient } | NextResponse> {
+export async function requireUser(): Promise<{ userId: string; email: string; supabase: SessionClient } | NextResponse> {
   const client = getSessionClient()
   const { data: { user } } = await client.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return { userId: user.id, supabase: client }
+  return { userId: user.id, email: user.email ?? '', supabase: client }
 }
 
-export async function requireAdmin(): Promise<{ userId: string; supabase: SessionClient } | NextResponse> {
+export async function requireAdmin(): Promise<{ userId: string; email: string; supabase: SessionClient } | NextResponse> {
   const client = getSessionClient()
   const { data: { user } } = await client.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -41,5 +41,5 @@ export async function requireAdmin(): Promise<{ userId: string; supabase: Sessio
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  return { userId: user.id, supabase: client }
+  return { userId: user.id, email: user.email ?? '', supabase: client }
 }

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/browser'
+import { useRole } from '@/lib/auth-context'
 
 const NAV = [
   { href: '/swap',      label: 'Horse Swap',       icon: '\u21c4' },
@@ -18,6 +19,7 @@ export default function Sidebar() {
   const path = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { isAdmin } = useRole()
 
   async function handleSignOut() {
     const supabase = createClient()
@@ -62,16 +64,27 @@ export default function Sidebar() {
           })}
         </nav>
 
-        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'rgba(245,237,224,0.25)', letterSpacing: '0.04em' }}>
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </span>
-          <button
-            onClick={handleSignOut}
-            style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'rgba(245,237,224,0.3)', letterSpacing: '0.04em', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(245,237,224,0.15)', textUnderlineOffset: 3 }}
-          >
-            Sign out
-          </button>
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          {isAdmin && (
+            <div style={{ marginBottom: 8 }}>
+              <Link href='/admin' style={{ textDecoration: 'none' }} onClick={() => setMobileOpen(false)}>
+                <span style={{ fontSize: 11, color: 'rgba(245,237,224,0.3)', letterSpacing: '0.04em', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(245,237,224,0.12)', textUnderlineOffset: 3 }}>
+                  Admin
+                </span>
+              </Link>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'rgba(245,237,224,0.25)', letterSpacing: '0.04em' }}>
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </span>
+            <button
+              onClick={handleSignOut}
+              style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'rgba(245,237,224,0.3)', letterSpacing: '0.04em', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(245,237,224,0.15)', textUnderlineOffset: 3 }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 

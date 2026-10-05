@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
+import { logActivity } from '@/lib/activity'
 
 const LEARNING_CUTOFF = '2026-05-11'
 
@@ -220,7 +221,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   try {
     const body = await req.json()
     const { id, doesnt_work, archive_guest_name } = body
@@ -237,6 +238,14 @@ export async function PUT(req: NextRequest) {
         console.error('[assignment-history PUT] archive error:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
       }
+
+      await logActivity(supabase, { id: userId, email }, {
+        action: 'guest.checkout',
+        entityType: 'guests',
+        summary: `Checked out ${archive_guest_name}`,
+        details: { guest_name: archive_guest_name },
+      })
+
       return NextResponse.json({ success: true })
     }
 
@@ -257,6 +266,24 @@ export async function PUT(req: NextRequest) {
       console.error('[assignment-history PUT] update error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
+
+    let guestName = '?'
+    if (data.guest_id) {
+      const { data: guestRow } = await supabase
+        .from('guests').select('name').eq('id', data.guest_id).single()
+      guestName = guestRow?.name ?? '?'
+    }
+
+    if (doesnt_work !== undefined) {
+      await logActivity(supabase, { id: userId, email }, {
+        action: 'assignment.update',
+        entityType: 'horse_assignments',
+        entityId: id,
+        summary: `${doesnt_work ? 'Marked' : 'Cleared'} incompatible: ${data.horse_name} for ${guestName}`,
+        details: { horse_name: data.horse_name, guest_name: guestName, incompatible: doesnt_work },
+      })
+    }
+
     return NextResponse.json({ record: haToRecord(data) })
   } catch (err) {
     console.error('[assignment-history PUT] unhandled exception:', err)

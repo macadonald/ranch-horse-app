@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { WARN_THRESHOLD } from '@/lib/supabase'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
+import { logActivity } from '@/lib/activity'
 
 export async function GET() {
   const auth = await requireUser()
@@ -39,11 +40,20 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   try {
     const body = await req.json()
     const { data, error } = await supabase.from('guests').insert([body]).select().single()
     if (error) throw error
+
+    await logActivity(supabase, { id: userId, email }, {
+      action: 'guest.create',
+      entityType: 'guests',
+      entityId: data.id,
+      summary: `Added guest ${data.name} (Room ${data.room_number})`,
+      details: { name: data.name, room_number: data.room_number, check_in_date: data.check_in_date },
+    })
+
     return NextResponse.json({ guest: data })
   } catch (err) {
     return NextResponse.json({ error: 'Failed to create guest' }, { status: 500 })
@@ -53,12 +63,28 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   try {
     const body = await req.json()
     const { id, ...updates } = body
     const { data, error } = await supabase.from('guests').update(updates).eq('id', id).select().single()
     if (error) throw error
+
+    let summary: string
+    if (updates.checked_out === true) {
+      summary = `Checked out ${data.name}`
+    } else {
+      summary = `Edited guest ${data.name}: ${Object.keys(updates).join(', ')}`
+    }
+
+    await logActivity(supabase, { id: userId, email }, {
+      action: updates.checked_out === true ? 'guest.checkout' : 'guest.update',
+      entityType: 'guests',
+      entityId: id,
+      summary,
+      details: { name: data.name, updated: updates },
+    })
+
     return NextResponse.json({ guest: data })
   } catch (err) {
     return NextResponse.json({ error: 'Failed to update guest' }, { status: 500 })
@@ -68,16 +94,32 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
-  const { supabase } = auth
+  const { userId, email, supabase } = auth
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'No id' }, { status: 400 })
+
+    const { data: existing } = await supabase
+      .from('guests')
+      .select('name, room_number')
+      .eq('id', id)
+      .single()
+
     // Explicit delete of horse_assignments first (belt-and-suspenders before the
     // FK cascade migration runs in environments where it hasn't been applied yet).
     await supabase.from('horse_assignments').delete().eq('guest_id', id)
     const { error } = await supabase.from('guests').delete().eq('id', id)
     if (error) throw error
+
+    await logActivity(supabase, { id: userId, email }, {
+      action: 'guest.delete',
+      entityType: 'guests',
+      entityId: id,
+      summary: `Deleted guest ${existing?.name ?? id}`,
+      details: { name: existing?.name, room_number: existing?.room_number },
+    })
+
     return NextResponse.json({ success: true })
   } catch (err) {
     return NextResponse.json({ error: 'Failed to delete guest' }, { status: 500 })
