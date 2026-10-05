@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
 import { requireUser } from '@/lib/auth-server'
 
 // Opt out of Next.js route caching so every request hits Supabase fresh (prevents 304/empty responses)
@@ -12,6 +11,7 @@ export const maxDuration = 30
 export async function GET() {
   const auth = await requireUser()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   console.log('[horse-stats] GET called')
   try {
     // Single round-trip: only the columns needed. horse_assignments has no horse_id — identifier is horse_name.

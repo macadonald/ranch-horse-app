@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
 
 export async function GET() {
   const auth = await requireUser()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const { data, error } = await supabase
     .from('horse_supplements')
     .select('*')
@@ -17,6 +17,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const body = await req.json()
   const { horse_name, supplement_name, frequency, notes } = body
   if (!horse_name || !supplement_name || !frequency) {
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const body = await req.json()
   const { id, ...fields } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
@@ -50,6 +52,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })

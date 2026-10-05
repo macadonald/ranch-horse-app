@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
 import { getTucsonToday } from '@/lib/timezone'
 import { requireAdmin } from '@/lib/auth-server'
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const today = getTucsonToday()
   const body = await req.json()
   const { horse_name, flag_type, notes } = body
@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   const horseName = searchParams.get('horse_name')

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase, WARN_THRESHOLD } from '@/lib/supabase'
+import { WARN_THRESHOLD } from '@/lib/supabase'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   try {
     const body = await req.json()
     const { data, error } = await supabase
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   try {
     const body = await req.json()
     const { id, ...updates } = body
@@ -45,6 +47,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
@@ -67,6 +70,7 @@ export async function DELETE(req: NextRequest) {
 export async function GET() {
   const auth = await requireUser()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   try {
     const today = new Date().toLocaleString('en-CA', { timeZone: 'America/Phoenix' }).split(',')[0]
 

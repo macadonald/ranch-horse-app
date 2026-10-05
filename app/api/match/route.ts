@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
 import { getTucsonToday } from '@/lib/timezone'
 import { requireUser } from '@/lib/auth-server'
 
@@ -27,6 +26,7 @@ function extractNextObject(text: string, startPos: number): { obj: string; end: 
 export async function POST(req: NextRequest) {
   const auth = await requireUser()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   try {
     const body = await req.json()
     const { age, weight, height, level, gender, notes, guestId, dismissedHorses = [] } = body

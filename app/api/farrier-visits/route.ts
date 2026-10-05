@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
 import { requireUser, requireAdmin } from '@/lib/auth-server'
 
 export async function GET() {
   const auth = await requireUser()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const { data, error } = await supabase
     .from('farrier_visits')
     .select('*, farrier_visit_horses(*)')
@@ -16,6 +16,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const body = await req.json()
   const { visit_date, farrier_name, horses } = body
   if (!visit_date || !farrier_name || !horses?.length) {
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin()
   if (auth instanceof NextResponse) return auth
+  const { supabase } = auth
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'No id' }, { status: 400 })
