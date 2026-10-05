@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const page     = Math.max(1, parseInt(searchParams.get('page') ?? '1'))
+  const userId   = searchParams.get('user_id') ?? ''
   const person   = searchParams.get('person') ?? ''
   const group    = searchParams.get('group') ?? ''
   const since    = searchParams.get('since') ?? ''
@@ -30,7 +31,8 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1)
 
-  if (person) query = query.eq('user_email', person)
+  if (userId)      query = query.eq('user_id', userId)
+  else if (person) query = query.eq('user_email', person)
   if (since)  query = query.gte('created_at', since + 'T00:00:00.000Z')
   if (until)  query = query.lte('created_at', until + 'T23:59:59.999Z')
 
