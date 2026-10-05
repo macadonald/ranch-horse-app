@@ -133,12 +133,15 @@ function StackedBar({ segments, total, height = 12 }: {
 
 // ─── GuestAnalyticsPanel ─────────────────────────────────────────────────────
 
-export function GuestAnalyticsPanel({ guests, today, onBack }: {
+export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
   guests: AnalyticsGuest[]
+  allGuests?: AnalyticsGuest[]
   today: string
   onBack?: () => void
 }) {
   const [showAllWeeks, setShowAllWeeks] = useState(false)
+  const [showWeather, setShowWeather] = useState(false)
+  const [showAllWeatherWeeks, setShowAllWeatherWeeks] = useState(false)
   const [weatherMap, setWeatherMap] = useState<Record<string, { highF: number | null; rainIn: number | null }>>({})
   const [weatherReady, setWeatherReady] = useState(false)
 
@@ -172,7 +175,7 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
   const n = gwa.length
 
   // 1. Overview
-  const activeCount = gwa.filter(g => !g.checked_out && (!g.check_out_date || g.check_out_date >= today)).length
+  const activeCount = (allGuests ?? guests).filter(g => !g.checked_out && (!g.check_out_date || g.check_out_date >= today)).length
   const assignedHorseNames = new Set(
     gwa.flatMap(g => (g.horse_assignments || []).filter(a => !a.incompatible).map(a => a.horse_name))
   )
@@ -470,34 +473,21 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
     return { avgHigh: count > 0 ? Math.round(sum / count) : null, rainDays }
   }
 
-  function weekCtxLine(sundayKey: string): string | null {
-    if (!weatherReady) return null
+  function weekCalendarText(sundayKey: string): string {
     const endDate = new Date(sundayKey + 'T12:00:00')
     endDate.setDate(endDate.getDate() + 6)
     const weekEnd = toDateStr(endDate)
     const parts: string[] = []
-    const ww = weekWeather(sundayKey)
-    if (ww.avgHigh != null) parts.push(`☀ avg high ${ww.avgHigh}°`)
-    if (ww.rainDays > 0) parts.push(`🌧 ${ww.rainDays} rain day${ww.rainDays !== 1 ? 's' : ''}`)
-    for (const h of holidaysInRange(sundayKey, weekEnd)) parts.push(`🎉 ${h.name}`)
+    for (const h of holidaysInRange(sundayKey, weekEnd)) parts.push(h.name)
     const breaks = new Set<string>()
     for (let i = 0; i < 7; i++) {
       const d = new Date(sundayKey + 'T12:00:00')
       d.setDate(d.getDate() + i)
       const br = schoolBreakFor(toDateStr(d))
-      if (br) breaks.add(br.label + (br.approx ? ' (approx.)' : ''))
+      if (br) breaks.add(br.label)
     }
-    breaks.forEach(b => parts.push(`🏫 ${b}`))
-    return parts.length > 0 ? parts.join(' · ') : null
-  }
-
-  function monthCtxLine(yyyyMM: string): string | null {
-    if (!weatherReady) return null
-    const mw = monthWeather(yyyyMM)
-    const parts: string[] = []
-    if (mw.avgHigh != null) parts.push(`avg high ${mw.avgHigh}°`)
-    if (mw.rainDays > 0) parts.push(`${mw.rainDays} rain day${mw.rainDays !== 1 ? 's' : ''}`)
-    return parts.length > 0 ? parts.join(' · ') : null
+    breaks.forEach(b => parts.push(b))
+    return parts.length > 0 ? parts.join(', ') : '—'
   }
 
   // ── This week ────────────────────────────────────────────────────────────────
@@ -558,49 +548,12 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
       {onBack && <button onClick={onBack} style={backBtn}>← Back to Guests</button>}
       <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Guest Analytics</h2>
 
-      {/* This week strip */}
-      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '12px 14px', marginBottom: 14 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 10 }}>This Week</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, marginBottom: upcomingEvents.length > 0 ? 10 : 0 }}>
-          {thisWeekDays.map(date => {
-            const w = weatherMap[date]
-            const isRain = (w?.rainIn ?? 0) >= 0.05
-            const d = new Date(date + 'T12:00:00')
-            const dayName = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/Phoenix' })
-            return (
-              <div key={date} style={{ textAlign: 'center', minWidth: 38, padding: '5px 7px', background: date === today ? 'var(--color-accent-bg)' : 'var(--color-bg)', borderRadius: 6, border: `1px solid ${date === today ? 'var(--color-accent)' : 'var(--color-border)'}` }}>
-                <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>{dayName}</div>
-                {!weatherReady ? (
-                  <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>—</div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: isRain ? '#0284c7' : 'var(--color-text)' }}>
-                      {w?.highF != null ? `${Math.round(w.highF)}°` : '—'}
-                    </div>
-                    {isRain && <div style={{ fontSize: 10, lineHeight: 1 }}>🌧</div>}
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        {upcomingEvents.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
-            {upcomingEvents.map((ev, i) => (
-              <span key={i} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-2)' }}>
-                {ev}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* 1. Overview cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 14 }}>
         {([
           { label: 'Guests in history', value: n },
-          { label: 'Active right now',  value: activeCount },
-          { label: 'Horses assigned',   value: assignedHorseNames.size },
+          { label: 'Guests here now',       value: activeCount },
+          { label: 'Horses ever assigned', value: assignedHorseNames.size },
           { label: 'Avg guests / week', value: avgPerWeek },
         ] as { label: string; value: string | number }[]).map(c => (
           <div key={c.label} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '12px 14px', textAlign: 'center' }}>
@@ -665,21 +618,17 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
             {visibleWeekKeys.map(key => {
               const wk = weekMap[key]
               const wtTotal = wk.wtSegs.reduce((a, b) => a + b, 0)
-              const ctx = weekCtxLine(key)
               return (
-                <div key={key} style={{ marginBottom: ctx ? 8 : 5 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 52, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{weekLabel(key)}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <StackedBar
-                        segments={wk.wtSegs.map((count, i) => ({ color: WT_COLORS[i], count }))}
-                        total={maxWeekTotal}
-                        height={10}
-                      />
-                    </div>
-                    <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{wtTotal}</div>
+                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 52, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{weekLabel(key)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <StackedBar
+                      segments={wk.wtSegs.map((count, i) => ({ color: WT_COLORS[i], count }))}
+                      total={maxWeekTotal}
+                      height={10}
+                    />
                   </div>
-                  {ctx && <div style={{ fontSize: 10, color: 'var(--color-text-3)', paddingLeft: 60, lineHeight: 1.5, marginTop: 1 }}>{ctx}</div>}
+                  <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{wtTotal}</div>
                 </div>
               )
             })}
@@ -834,24 +783,20 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
                   const buckets = [0, 0, 0, 0]
                   ns.forEach(n => { buckets[stayBucketOf(n)]++ })
                   const avg = (ns.reduce((a, b) => a + b, 0) / ns.length).toFixed(1)
-                  const mCtx = monthCtxLine(mm)
                   return (
-                    <div key={mm} style={{ marginBottom: mCtx ? 7 : 5 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{monthLabel(mm)}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <StackedBar
-                            segments={buckets.map((count, i) => ({ color: STAY_BUCKET_COLORS[i], count }))}
-                            total={ns.length}
-                            height={10}
-                          />
-                        </div>
-                        <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>
-                          <span style={{ fontWeight: 600, color: 'var(--color-text-2)' }}>{avg}n</span>
-                          <span style={{ marginLeft: 3 }}>· {ns.length}</span>
-                        </div>
+                    <div key={mm} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{monthLabel(mm)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <StackedBar
+                          segments={buckets.map((count, i) => ({ color: STAY_BUCKET_COLORS[i], count }))}
+                          total={ns.length}
+                          height={10}
+                        />
                       </div>
-                      {mCtx && <div style={{ fontSize: 9, color: 'var(--color-text-3)', paddingLeft: 68, lineHeight: 1.4, marginTop: 1 }}>{mCtx}</div>}
+                      <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-2)' }}>{avg}n</span>
+                        <span style={{ marginLeft: 3 }}>· {ns.length}</span>
+                      </div>
                     </div>
                   )
                 })}
@@ -897,21 +842,17 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
                 {sortedPartyMonths.map(mm => {
                   const row = partyByMonth[mm]
                   const total = PARTY_TYPES.reduce((s, pt) => s + row[pt], 0)
-                  const mCtx = monthCtxLine(mm)
                   return (
-                    <div key={mm} style={{ marginBottom: mCtx ? 7 : 5 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{monthLabel(mm)}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <StackedBar
-                            segments={PARTY_TYPES.map(pt => ({ color: PARTY_COLORS[pt], count: row[pt] }))}
-                            total={total}
-                            height={10}
-                          />
-                        </div>
-                        <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{total}</div>
+                    <div key={mm} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <div style={{ width: 60, fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0, textAlign: 'right' }}>{monthLabel(mm)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <StackedBar
+                          segments={PARTY_TYPES.map(pt => ({ color: PARTY_COLORS[pt], count: row[pt] }))}
+                          total={total}
+                          height={10}
+                        />
                       </div>
-                      {mCtx && <div style={{ fontSize: 9, color: 'var(--color-text-3)', paddingLeft: 68, lineHeight: 1.4, marginTop: 1 }}>{mCtx}</div>}
+                      <div style={{ width: 24, fontSize: 11, color: 'var(--color-text-3)', textAlign: 'right', flexShrink: 0 }}>{total}</div>
                     </div>
                   )
                 })}
@@ -984,10 +925,99 @@ export function GuestAnalyticsPanel({ guests, today, onBack }: {
         )}
       </div>
 
-      {/* Footnote */}
-      <p style={{ fontSize: 10, color: 'var(--color-text-3)', textAlign: 'center', marginTop: 8, paddingBottom: 4 }}>
-        Weather: Open-Meteo. School breaks are approximate.
-      </p>
+      {/* 9. Weather & calendar */}
+      <div style={{ ...sec, marginBottom: 0 }}>
+        <button
+          onClick={() => setShowWeather(v => !v)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' as const }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Weather &amp; calendar</span>
+          <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 'auto' }}>{showWeather ? '▾' : '▸'}</span>
+        </button>
+
+        {showWeather && (
+          <>
+            {/* This week tiles */}
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>This week</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {thisWeekDays.map(dateStr => {
+                  const d = new Date(dateStr + 'T12:00:00')
+                  const dayAbbr = d.toLocaleDateString('en-US', { weekday: 'short' })
+                  const w = weatherMap[dateStr]
+                  const isRain = (w?.rainIn ?? 0) >= 0.05
+                  const isToday = dateStr === today
+                  return (
+                    <div key={dateStr} style={{ background: 'var(--color-bg)', border: `1px solid ${isToday ? 'var(--color-accent)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '6px 8px', minWidth: 46, textAlign: 'center' as const }}>
+                      <div style={{ fontSize: 10, color: isToday ? 'var(--color-accent)' : 'var(--color-text-3)', fontWeight: isToday ? 700 : 400, marginBottom: 2 }}>{dayAbbr}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>
+                        {weatherReady ? (w?.highF != null ? `${Math.round(w.highF)}°` : '—') : '…'}
+                      </div>
+                      <div style={{ fontSize: 11, minHeight: 14 }}>{isRain ? '🌧' : ''}</div>
+                    </div>
+                  )
+                })}
+              </div>
+              {upcomingEvents.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                  {upcomingEvents.map((ev, i) => (
+                    <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-2)' }}>{ev}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* By week table */}
+            {allWeekKeys.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>By week</div>
+                <div style={{ overflowX: 'auto' as const }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' as const, fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <th style={{ textAlign: 'left' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Week</th>
+                        <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Guests</th>
+                        <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Avg high</th>
+                        <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Rain days</th>
+                        <th style={{ textAlign: 'left' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Holiday / school break</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(showAllWeatherWeeks ? allWeekKeys : allWeekKeys.slice(0, 12)).map(key => {
+                        const wk = weekMap[key]
+                        const guestCount = wk ? wk.wtSegs.reduce((a, b) => a + b, 0) : 0
+                        const ww = weekWeather(key)
+                        const calText = weekCalendarText(key)
+                        return (
+                          <tr key={key} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                            <td style={{ padding: '4px 6px', color: 'var(--color-text-2)' }}>{weekLabel(key)}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: 'var(--color-text-2)' }}>{guestCount}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: 'var(--color-text-2)' }}>{weatherReady ? (ww.avgHigh != null ? `${ww.avgHigh}°` : '—') : '…'}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: ww.rainDays > 0 ? 'var(--color-text-2)' : 'var(--color-text-3)' }}>{weatherReady ? ww.rainDays : '…'}</td>
+                            <td style={{ padding: '4px 6px', color: calText === '—' ? 'var(--color-text-3)' : 'var(--color-text-2)' }}>{calText}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {allWeekKeys.length > 12 && (
+                  <button
+                    onClick={() => setShowAllWeatherWeeks(v => !v)}
+                    style={{ marginTop: 8, fontSize: 12, color: 'var(--color-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  >
+                    {showAllWeatherWeeks ? 'Show less' : `Show all ${allWeekKeys.length} weeks`}
+                  </button>
+                )}
+              </div>
+            )}
+
+            <p style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 12, paddingBottom: 2 }}>
+              Weather from Open-Meteo (free public weather data). School breaks are approximate typical dates.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   )
 }

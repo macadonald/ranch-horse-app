@@ -538,7 +538,7 @@ export default function InsightsPage() {
             <p style={{ color: 'var(--color-text-3)', fontSize: 13 }}>Loading insights…</p>
           </div>
         ) : view === 'guests' ? (
-          <GuestAnalyticsPanel guests={gwa} today={today} />
+          <GuestAnalyticsPanel guests={gwa} allGuests={guests} today={today} />
         ) : view === 'horses' ? (
           <HorseAnalyticsPanel horses={horses} guests={guests} />
         ) : view === 'shoes' ? (

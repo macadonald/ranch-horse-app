@@ -713,7 +713,7 @@ export default function GuestsPage() {
         {/* ── ACTIVE VIEW ── */}
         {guestViewMode === 'active' && (
           showAnalytics
-            ? <GuestAnalyticsPanel guests={guests} today={today} onBack={() => setShowAnalytics(false)} />
+            ? <GuestAnalyticsPanel guests={guests} allGuests={guests} today={today} onBack={() => setShowAnalytics(false)} />
             : <div style={{ display: 'flex', flex: 1, minHeight: 0 }} className='guest-split'>
             {/* Guest list */}
             <div style={{ width: selectedGuest ? 280 : '100%', borderRight: selectedGuest ? '1px solid var(--color-border)' : 'none', overflowY: 'auto', padding: 12, flexShrink: 0 }}>
