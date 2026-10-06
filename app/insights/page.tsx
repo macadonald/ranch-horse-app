@@ -388,6 +388,189 @@ function PatternsSection() {
   )
 }
 
+// ─── Ask section ─────────────────────────────────────────────────────────────
+
+type AskNumbers = { label: string; value: string }
+type AskTable   = { columns: string[]; rows: string[][] }
+type AskChart   = { type: 'bar' | 'line'; title: string; labels: string[]; values: number[] }
+type AskResult  = { answer: string; numbers?: AskNumbers[]; table?: AskTable; chart?: AskChart; cannotAnswer?: string; toolsUsed?: string[] }
+type QA         = { q: string; result: AskResult }
+
+const EXAMPLE_CHIPS = [
+  'Which horses have the most Not a fit swaps?',
+  'How many 220+ lb guests did we have in September?',
+  'Who shod Buster last and when is he due?',
+  'Which horses are idle right now?',
+]
+
+function SimpleChart({ chart }: { chart: AskChart }) {
+  const max = Math.max(...chart.values, 1)
+  if (chart.type === 'bar') {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{chart.title}</div>
+        {chart.labels.map((label, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', width: 90, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+            <div style={{ flex: 1, background: 'var(--color-border)', borderRadius: 4, height: 12, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(chart.values[i] / max) * 100}%`, background: 'var(--color-accent)', borderRadius: 4, transition: 'width 0.4s ease' }} />
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-2)', width: 28, textAlign: 'right', flexShrink: 0 }}>{chart.values[i]}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  // Line chart — SVG
+  const W = 320, H = 72, PAD = 14
+  const n = chart.values.length
+  if (n < 2) return null
+  const pts = chart.values.map((v, i) => [
+    PAD + (i / (n - 1)) * (W - 2 * PAD),
+    PAD + ((max - v) / max) * (H - 2 * PAD),
+  ])
+  const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{chart.title}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, height: H, display: 'block' }}>
+        <path d={d} fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinejoin="round" />
+        {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill="var(--color-accent)" />)}
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 9, color: 'var(--color-text-3)' }}>{chart.labels[0]}</span>
+        <span style={{ fontSize: 9, color: 'var(--color-text-3)' }}>{chart.labels[chart.labels.length - 1]}</span>
+      </div>
+    </div>
+  )
+}
+
+function AskResultCard({ qa }: { qa: QA }) {
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const r = qa.result
+  return (
+    <div style={{ marginTop: 10, padding: '12px 14px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6, fontStyle: 'italic' }}>{qa.q}</div>
+      {r.cannotAnswer && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>{r.cannotAnswer}</p>
+      )}
+      <p style={{ fontSize: 13, color: 'var(--color-text)', margin: 0, marginBottom: r.numbers?.length || r.table || r.chart ? 8 : 0 }}>{r.answer}</p>
+      {r.numbers && r.numbers.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: r.table || r.chart ? 8 : 0 }}>
+          {r.numbers.map((n, i) => (
+            <span key={i} style={{ padding: '2px 9px', borderRadius: 999, fontSize: 11, background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-2)' }}>
+              <span style={{ color: 'var(--color-text-3)', fontWeight: 400 }}>{n.label}: </span>
+              <span style={{ fontWeight: 600 }}>{n.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {r.table && r.table.rows.length > 0 && (
+        <div style={{ overflowX: 'auto', marginBottom: r.chart ? 8 : 0 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>{r.table.columns.map(c => (
+                <th key={c} style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 700, fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{c}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {r.table.rows.slice(0, 15).map((row, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)' }}>
+                  {row.map((cell, j) => <td key={j} style={{ padding: '4px 8px', color: 'var(--color-text)', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {r.chart && <SimpleChart chart={r.chart} />}
+      {r.toolsUsed && r.toolsUsed.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => setToolsOpen(o => !o)} style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--color-text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span>{toolsOpen ? '▾' : '▸'}</span> How I found this
+          </button>
+          {toolsOpen && (
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', margin: '3px 0 0 12px' }}>
+              {r.toolsUsed.map(t => t.replace(/_/g, ' ')).join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AskSection() {
+  const [input,   setInput]   = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+  const [history, setHistory] = useState<QA[]>([])
+
+  const ask = async (question: string) => {
+    if (!question.trim() || loading) return
+    setLoading(true)
+    setError(null)
+    setInput('')
+    const histCtx = history.slice(0, 3).map(h => ({ q: h.q, a: h.result.answer }))
+    try {
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: question.trim(), history: histCtx }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || 'Request failed')
+      setHistory(prev => [{ q: question.trim(), result: data }, ...prev].slice(0, 5))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ padding: '10px 20px 12px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Ask about your data</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <textarea
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(input) } }}
+          placeholder="e.g. Which horses haven't had a guest in two weeks?"
+          rows={1}
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, color: 'var(--color-text)', resize: 'none', outline: 'none', fontFamily: 'inherit', lineHeight: 1.4 }}
+        />
+        <button
+          onClick={() => ask(input)}
+          disabled={loading || !input.trim()}
+          style={{ padding: '8px 16px', borderRadius: 'var(--radius-sm)', background: loading || !input.trim() ? 'var(--color-border)' : 'var(--color-accent)', color: loading || !input.trim() ? 'var(--color-text-3)' : '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: loading || !input.trim() ? 'default' : 'pointer', flexShrink: 0 }}
+        >
+          {loading ? '…' : 'Ask'}
+        </button>
+      </div>
+
+      {history.length === 0 && !loading && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {EXAMPLE_CHIPS.map(chip => (
+            <button key={chip} onClick={() => ask(chip)} style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-2)', cursor: 'pointer' }}>
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading && <p style={{ fontSize: 12, color: 'var(--color-text-3)', margin: '8px 0 0' }}>Looking through your data…</p>}
+      {error   && <p style={{ fontSize: 12, color: '#c2410c',            margin: '8px 0 0' }}>{error}</p>}
+
+      {history.length > 0 && (
+        <div style={{ maxHeight: '40vh', overflowY: 'auto', marginTop: 4 }}>
+          {history.map((qa, i) => <AskResultCard key={i} qa={qa} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── CorrelationsView ─────────────────────────────────────────────────────────
 
 function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses: DbHorse[] }) {
@@ -870,15 +1053,20 @@ export default function InsightsPage() {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--color-bg)' }}>
       <Sidebar />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-        {/* Header */}
-        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'var(--color-surface)' }}>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, flex: 1, minWidth: 120 }}>Insights</h1>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {tabBtn('correlations', 'Correlations')}
-            {tabBtn('guests',       'Guests')}
-            {tabBtn('horses',       'Horses')}
-            {tabBtn('shoes',        'Shoes')}
-          </div>
+        {/* Header: title */}
+        <div style={{ padding: '12px 20px 10px', borderBottom: 'none', display: 'flex', alignItems: 'center', background: 'var(--color-surface)', flexShrink: 0 }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, margin: 0 }}>Insights</h1>
+        </div>
+
+        {/* Ask section — above tabs */}
+        <AskSection />
+
+        {/* Tab row */}
+        <div style={{ padding: '10px 20px 10px', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: 6, flexWrap: 'wrap', background: 'var(--color-surface)', flexShrink: 0 }}>
+          {tabBtn('correlations', 'Correlations')}
+          {tabBtn('guests',       'Guests')}
+          {tabBtn('horses',       'Horses')}
+          {tabBtn('shoes',        'Shoes')}
         </div>
 
         {/* Content */}

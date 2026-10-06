@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const maxDuration = 60
 import { requireUser } from '@/lib/auth-server'
 import { RANCH_CONTEXT } from '@/lib/ranchContext'
 import type { Finding } from '@/lib/patterns/types'
