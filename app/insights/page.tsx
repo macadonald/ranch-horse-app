@@ -9,7 +9,7 @@ import { getTucsonToday } from '@/lib/timezone'
 import { WEIGHT_BANDS } from '@/lib/weightBands'
 import type { Finding, FindingCategory, DetectorStatus } from '@/lib/patterns/index'
 
-type AnalyticsView = 'correlations' | 'guests' | 'horses' | 'shoes'
+type AnalyticsView = 'correlations' | 'guests' | 'horses' | 'shoes' | 'reports'
 
 const LEVELS = ['B', 'AB', 'I', 'AI', 'A']
 const LEVEL_LABELS: Record<string, string> = {
@@ -1078,6 +1078,191 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
   )
 }
 
+// ─── ReportsView ─────────────────────────────────────────────────────────────
+
+type FactsSummary = {
+  guests_on_property: number
+  arrivals: number
+  swaps: number
+  new_health_flags: number
+  farrier_visits: number
+  horses_overdue: number
+  guests_on_property_prev: number
+  arrivals_prev: number
+  swaps_prev: number
+  new_health_flags_prev: number
+  farrier_visits_prev: number
+  horses_overdue_prev: number
+}
+type DigestSection = { title: string; bullets: string[] }
+type DigestData    = { headline: string; sections: DigestSection[]; watchlist: string[] }
+type DigestContent = { facts_summary: FactsSummary; digest: DigestData }
+
+function fmtWeekLabel(weekStart: string): string {
+  const s = new Date(weekStart + 'T12:00:00Z')
+  const e = new Date(weekStart + 'T12:00:00Z')
+  e.setUTCDate(e.getUTCDate() + 6)
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const sm = mo[s.getUTCMonth()], sd = s.getUTCDate()
+  const em = mo[e.getUTCMonth()], ed = e.getUTCDate()
+  return sm === em ? `${sm} ${sd}–${ed}` : `${sm} ${sd} – ${em} ${ed}`
+}
+
+function getDefaultWeek(): string {
+  const today = getTucsonToday()
+  const d = new Date(today + 'T12:00:00Z')
+  const daysBack = d.getUTCDay() + 7
+  d.setUTCDate(d.getUTCDate() - daysBack)
+  return d.toISOString().slice(0, 10)
+}
+
+function KStat({ label, value, prev }: { label: string; value: number; prev: number }) {
+  const delta = value - prev
+  const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : null
+  const color = delta > 0 ? '#15803d' : delta < 0 ? '#c2410c' : 'var(--color-text-3)'
+  return (
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px', textAlign: 'center' }}>
+      <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}>{value}</div>
+      {arrow && (
+        <div style={{ fontSize: 11, color, fontWeight: 600 }}>{arrow} {Math.abs(delta)}</div>
+      )}
+      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{label}</div>
+    </div>
+  )
+}
+
+function ReportsView() {
+  const [savedWeeks,   setSavedWeeks]   = useState<string[]>([])
+  const [selectedWeek, setSelectedWeek] = useState<string>(() => getDefaultWeek())
+  const [content,      setContent]      = useState<DigestContent | null>(null)
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
+  const [fetchKey,     setFetchKey]     = useState(0)
+  const [regenerating, setRegenerating] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/digest?list=1')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.weeks)) setSavedWeeks(d.weeks) })
+      .catch(() => {})
+  }, [fetchKey])
+
+  useEffect(() => {
+    if (!selectedWeek) return
+    setLoading(true)
+    setError(null)
+    setContent(null)
+    fetch(`/api/digest?week=${selectedWeek}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) throw new Error(d.error)
+        setContent(d.content as DigestContent)
+        setSavedWeeks(prev => prev.includes(selectedWeek) ? prev : [selectedWeek, ...prev])
+        setLoading(false)
+      })
+      .catch(e => {
+        setError(e instanceof Error ? e.message : 'Failed to load digest')
+        setLoading(false)
+      })
+  }, [selectedWeek, fetchKey])
+
+  const handleRegenerate = async () => {
+    if (!confirm(`Regenerate digest for ${fmtWeekLabel(selectedWeek)}? This will delete the current version.`)) return
+    setRegenerating(true)
+    try {
+      const r = await fetch(`/api/digest?week=${selectedWeek}`, { method: 'DELETE' })
+      if (!r.ok) throw new Error('Delete failed')
+      setSavedWeeks(prev => prev.filter(w => w !== selectedWeek))
+      setFetchKey(k => k + 1)
+    } catch (e) {
+      alert('Regenerate failed: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  const defaultWeek = getDefaultWeek()
+  const allWeeks    = savedWeeks.includes(defaultWeek) ? savedWeeks : [defaultWeek, ...savedWeeks]
+  const isGenerating = loading && !savedWeeks.includes(selectedWeek)
+  const fs  = content?.facts_summary
+  const dig = content?.digest
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 48px' }}>
+      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Weekly Digest</h2>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <select
+          value={selectedWeek}
+          onChange={e => { setSelectedWeek(e.target.value); setContent(null) }}
+          style={{ padding: '7px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, color: 'var(--color-text)', cursor: 'pointer' }}
+        >
+          {allWeeks.map(w => <option key={w} value={w}>{fmtWeekLabel(w)}</option>)}
+        </select>
+        {!loading && content && !regenerating && (
+          <button onClick={handleRegenerate} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer', textDecoration: 'underline' }}>
+            Regenerate
+          </button>
+        )}
+        {regenerating && <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Deleting…</span>}
+      </div>
+
+      {loading && (
+        <div style={SEC_STYLE}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-3)', margin: 0 }}>
+            {isGenerating ? 'Generating this week\'s digest…' : 'Loading…'}
+          </p>
+        </div>
+      )}
+
+      {!loading && error && (
+        <div style={{ ...SEC_STYLE, borderColor: '#fed7aa', background: '#fff7ed' }}>
+          <p style={{ fontSize: 13, color: '#c2410c', margin: 0 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && fs && dig && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 14 }}>
+            <KStat label="Guests"         value={fs.guests_on_property} prev={fs.guests_on_property_prev} />
+            <KStat label="Arrivals"       value={fs.arrivals}           prev={fs.arrivals_prev} />
+            <KStat label="Swaps"          value={fs.swaps}              prev={fs.swaps_prev} />
+            <KStat label="Health flags"   value={fs.new_health_flags}   prev={fs.new_health_flags_prev} />
+            <KStat label="Farrier visits" value={fs.farrier_visits}     prev={fs.farrier_visits_prev} />
+            <KStat label="Overdue shoes"  value={fs.horses_overdue}     prev={fs.horses_overdue_prev} />
+          </div>
+
+          <div style={SEC_STYLE}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)', marginTop: 0, marginBottom: 14 }}>{dig.headline}</p>
+            {dig.sections.map(sec => (
+              <div key={sec.title} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>{sec.title}</div>
+                <ul style={{ margin: 0, paddingLeft: 18, listStyleType: 'disc' }}>
+                  {sec.bullets.map((b, i) => (
+                    <li key={i} style={{ fontSize: 12, color: 'var(--color-text-2)', marginBottom: 3, lineHeight: 1.5 }}>{b}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {dig.watchlist.length > 0 && (
+              <div style={{ marginTop: 14, padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Watch list</div>
+                <ul style={{ margin: 0, paddingLeft: 18, listStyleType: 'disc' }}>
+                  {dig.watchlist.map((item, i) => (
+                    <li key={i} style={{ fontSize: 12, color: '#92400e', marginBottom: 3, lineHeight: 1.5 }}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <div style={{ height: 32 }} />
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function InsightsPage() {
@@ -1086,12 +1271,27 @@ export default function InsightsPage() {
   const [guests, setGuests]   = useState<AnalyticsGuest[]>([])
   const [horses, setHorses]   = useState<DbHorse[]>([])
   const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get('tab')
-    if (tab === 'shoes' || tab === 'guests' || tab === 'horses' || tab === 'correlations') {
-      setView(tab as AnalyticsView)
-    }
+    fetch('/api/me')
+      .then(r => r.json())
+      .then(d => {
+        const admin = d.role === 'admin'
+        setIsAdmin(admin)
+        const tab = new URLSearchParams(window.location.search).get('tab')
+        if (tab === 'shoes' || tab === 'guests' || tab === 'horses' || tab === 'correlations') {
+          setView(tab as AnalyticsView)
+        } else if (tab === 'reports' && admin) {
+          setView('reports')
+        }
+      })
+      .catch(() => {
+        const tab = new URLSearchParams(window.location.search).get('tab')
+        if (tab === 'shoes' || tab === 'guests' || tab === 'horses' || tab === 'correlations') {
+          setView(tab as AnalyticsView)
+        }
+      })
   }, [])
 
   useEffect(() => {
@@ -1136,6 +1336,7 @@ export default function InsightsPage() {
             {tabBtn('guests',       'Guests')}
             {tabBtn('horses',       'Horses')}
             {tabBtn('shoes',        'Shoes')}
+            {isAdmin && tabBtn('reports', 'Reports')}
           </div>
         </div>
 
@@ -1143,7 +1344,7 @@ export default function InsightsPage() {
         <AskSection />
 
         {/* Content */}
-        {loading ? (
+        {loading && view !== 'reports' ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <p style={{ color: 'var(--color-text-3)', fontSize: 13 }}>Loading insights…</p>
           </div>
@@ -1153,6 +1354,8 @@ export default function InsightsPage() {
           <HorseAnalyticsPanel horses={horses} guests={guests} />
         ) : view === 'shoes' ? (
           <ShoeAnalyticsPanel />
+        ) : view === 'reports' && isAdmin ? (
+          <ReportsView />
         ) : (
           <CorrelationsView guests={guests} horses={horses} />
         )}
