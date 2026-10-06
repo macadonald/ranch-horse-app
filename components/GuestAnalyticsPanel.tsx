@@ -987,7 +987,7 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
                       <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                         <th style={{ textAlign: 'left' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Week</th>
                         <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Guests</th>
-                        <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Avg high</th>
+                        <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Avg daily high</th>
                         <th style={{ textAlign: 'right' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Rain days</th>
                         <th style={{ textAlign: 'left' as const, padding: '4px 6px', color: 'var(--color-text-3)', fontWeight: 600 }}>Holiday / school break</th>
                       </tr>
@@ -1002,8 +1002,8 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
                           <tr key={key} style={{ borderBottom: '1px solid var(--color-border)' }}>
                             <td style={{ padding: '4px 6px', color: 'var(--color-text-2)' }}>{weekLabel(key)}</td>
                             <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: 'var(--color-text-2)' }}>{guestCount}</td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: 'var(--color-text-2)' }}>{weatherReady ? (ww.avgHigh != null ? `${ww.avgHigh}°` : '—') : '…'}</td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: ww.rainDays != null && ww.rainDays > 0 ? 'var(--color-text-2)' : 'var(--color-text-3)' }}>{weatherReady ? (ww.rainDays != null ? ww.rainDays : '—') : '…'}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: ww.avgHigh != null ? 'var(--color-text-2)' : 'var(--color-text-3)' }}>{weatherReady ? (ww.avgHigh != null ? `${ww.avgHigh}°` : 'N/A') : '…'}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: ww.rainDays != null && ww.rainDays > 0 ? 'var(--color-text-2)' : 'var(--color-text-3)' }}>{weatherReady ? (ww.rainDays != null ? ww.rainDays : 'N/A') : '…'}</td>
                             <td style={{ padding: '4px 6px', color: calText === '—' ? 'var(--color-text-3)' : 'var(--color-text-2)' }}>{calText}</td>
                           </tr>
                         )
@@ -1023,7 +1023,7 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
             )}
 
             <p style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 12, paddingBottom: 2 }}>
-              Weather from Open-Meteo (free public weather data). School breaks are approximate typical dates.
+              Avg daily high = average of that week&apos;s actual daily high temperatures (forecast for upcoming days), from Open-Meteo. School breaks are approximate typical dates.
             </p>
             </>
             )}
