@@ -217,16 +217,31 @@ function PatternsSection() {
   const [isAdmin,     setIsAdmin]     = useState(false)
   const [hiddenCount, setHiddenCount] = useState(0)
   const [showHidden,  setShowHidden]  = useState(false)
-  const [loading,     setLoading]     = useState(true)
-  const [refreshing,  setRefreshing]  = useState(false)
-  const [catFilter,   setCatFilter]   = useState<string>('all')
-  const [bgOpen,      setBgOpen]      = useState(false)
+  const [loading,      setLoading]      = useState(true)
+  const [refreshing,   setRefreshing]   = useState(false)
+  const [refreshNote,  setRefreshNote]  = useState<'ok' | 'error' | null>(null)
+  const [catFilter,    setCatFilter]    = useState<string>('all')
+  const [bgOpen,       setBgOpen]       = useState(false)
+  const prevIdsRef = useRef<string>('')
 
   const doFetch = (isRefresh: boolean, sh: boolean) => {
     if (isRefresh) setRefreshing(true)
-    fetch(`/api/patterns${sh ? '?showHidden=1' : ''}`, { cache: 'no-store' })
-      .then(r => r.json())
+    const params = new URLSearchParams()
+    if (sh) params.set('showHidden', '1')
+    params.set('t', String(Date.now()))
+    fetch(`/api/patterns?${params}`, { cache: 'no-store' })
+      .then(r => {
+        if (!r.ok) throw new Error(`Server error ${r.status}`)
+        return r.json()
+      })
       .then(d => {
+        const newIds = (d.findings || []).map((f: any) => f.id).join(',')
+        if (isRefresh) {
+          const unchanged = newIds === prevIdsRef.current
+          setRefreshNote(unchanged ? 'ok' : null)
+          if (unchanged) setTimeout(() => setRefreshNote(null), 3000)
+        }
+        prevIdsRef.current = newIds
         setFindings(d.findings || [])
         setStatuses(d.statuses || [])
         setGeneratedAt(d.generatedAt || null)
@@ -235,7 +250,11 @@ function PatternsSection() {
         setLoading(false)
         setRefreshing(false)
       })
-      .catch(() => { setLoading(false); setRefreshing(false) })
+      .catch(() => {
+        setRefreshNote('error')
+        setLoading(false)
+        setRefreshing(false)
+      })
   }
 
   useEffect(() => { doFetch(false, false) }, [])
@@ -275,15 +294,24 @@ function PatternsSection() {
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <SectionHeader title="Patterns found" />
-        <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
-          {generatedAt
-            ? <>Last checked {toTucsonTime(generatedAt)} · <button
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {generatedAt && (
+            <>
+              Last checked {toTucsonTime(generatedAt)} ·{' '}
+              <button
                 onClick={() => doFetch(true, showHidden)}
                 disabled={refreshing}
-                style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}>
+                style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--color-accent)', cursor: refreshing ? 'default' : 'pointer', fontWeight: 600 }}>
                 {refreshing ? '↻ Refreshing…' : 'Refresh'}
-              </button></>
-            : null}
+              </button>
+            </>
+          )}
+          {refreshNote === 'ok' && (
+            <span style={{ color: '#15803d' }}>✓ Up to date</span>
+          )}
+          {refreshNote === 'error' && (
+            <span style={{ color: '#c2410c' }}>Refresh failed — try again</span>
+          )}
         </span>
       </div>
 

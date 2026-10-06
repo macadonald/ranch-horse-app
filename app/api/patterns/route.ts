@@ -88,11 +88,8 @@ export async function GET(req: NextRequest) {
 
   const isAdmin = (profileData as any)?.role === 'admin'
 
-  return NextResponse.json({
-    findings: visibleFindings,
-    statuses,
-    generatedAt: new Date().toISOString(),
-    hiddenCount,
-    isAdmin,
-  })
+  return NextResponse.json(
+    { findings: visibleFindings, statuses, generatedAt: new Date().toISOString(), hiddenCount, isAdmin },
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
 }
