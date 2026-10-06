@@ -144,6 +144,7 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
   const [showAllWeatherWeeks, setShowAllWeatherWeeks] = useState(false)
   const [weatherMap, setWeatherMap] = useState<Record<string, { highF: number | null; rainIn: number | null }>>({})
   const [weatherReady, setWeatherReady] = useState(false)
+  const [weatherFailed, setWeatherFailed] = useState(false)
 
   useEffect(() => {
     const dates = guests.map(g => g.check_in_date).filter((d): d is string => !!d)
@@ -160,13 +161,14 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
     const wEnd = toDateStr(wEndDate)
     fetch(`/api/weather?start=${wStart}&end=${wEnd}`)
       .then(r => r.json())
-      .then((data: { days?: { date: string; highF: number | null; rainIn: number | null }[] }) => {
+      .then((data: { days?: { date: string; highF: number | null; rainIn: number | null }[]; errors?: string[] }) => {
         const map: Record<string, { highF: number | null; rainIn: number | null }> = {}
         for (const d of (data.days || [])) map[d.date] = { highF: d.highF, rainIn: d.rainIn }
         setWeatherMap(map)
+        if ((data.days?.length ?? 0) === 0 && (data.errors?.length ?? 0) > 0) setWeatherFailed(true)
         setWeatherReady(true)
       })
-      .catch(() => setWeatherReady(true))
+      .catch(() => { setWeatherFailed(true); setWeatherReady(true) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -449,15 +451,19 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
 
   // ── Weather helpers ──────────────────────────────────────────────────────────
 
-  function weekWeather(sundayKey: string): { avgHigh: number | null; rainDays: number } {
-    let sum = 0, count = 0, rainDays = 0
+  function weekWeather(sundayKey: string): { avgHigh: number | null; rainDays: number | null } {
+    let sum = 0, count = 0, rainDays = 0, hasData = false
     for (let i = 0; i < 7; i++) {
       const d = new Date(sundayKey + 'T12:00:00')
       d.setDate(d.getDate() + i)
       const w = weatherMap[toDateStr(d)]
-      if (w?.highF != null) { sum += w.highF; count++ }
-      if ((w?.rainIn ?? 0) >= 0.05) rainDays++
+      if (w !== undefined) {
+        hasData = true
+        if (w.highF != null) { sum += w.highF; count++ }
+        if ((w.rainIn ?? 0) >= 0.05) rainDays++
+      }
     }
+    if (!hasData) return { avgHigh: null, rainDays: null }
     return { avgHigh: count > 0 ? Math.round(sum / count) : null, rainDays }
   }
 
@@ -937,6 +943,10 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
 
         {showWeather && (
           <>
+            {weatherFailed && weatherReady ? (
+              <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 10 }}>Weather unavailable right now.</p>
+            ) : (
+            <>
             {/* This week tiles */}
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>This week</div>
@@ -993,7 +1003,7 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
                             <td style={{ padding: '4px 6px', color: 'var(--color-text-2)' }}>{weekLabel(key)}</td>
                             <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: 'var(--color-text-2)' }}>{guestCount}</td>
                             <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: 'var(--color-text-2)' }}>{weatherReady ? (ww.avgHigh != null ? `${ww.avgHigh}°` : '—') : '…'}</td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: ww.rainDays > 0 ? 'var(--color-text-2)' : 'var(--color-text-3)' }}>{weatherReady ? ww.rainDays : '…'}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' as const, color: ww.rainDays != null && ww.rainDays > 0 ? 'var(--color-text-2)' : 'var(--color-text-3)' }}>{weatherReady ? (ww.rainDays != null ? ww.rainDays : '—') : '…'}</td>
                             <td style={{ padding: '4px 6px', color: calText === '—' ? 'var(--color-text-3)' : 'var(--color-text-2)' }}>{calText}</td>
                           </tr>
                         )
@@ -1015,6 +1025,8 @@ export function GuestAnalyticsPanel({ guests, allGuests, today, onBack }: {
             <p style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 12, paddingBottom: 2 }}>
               Weather from Open-Meteo (free public weather data). School breaks are approximate typical dates.
             </p>
+            </>
+            )}
           </>
         )}
       </div>
