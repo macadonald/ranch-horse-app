@@ -17,13 +17,13 @@ async function get_guests(supabase: any, args: any, today: string) {
   if (args.from)         q = q.gte('check_in_date', args.from)
   if (args.to)           q = q.lte('check_out_date', args.to)
   if (args.here_now)     q = q.lte('check_in_date', today).gte('check_out_date', today).is('checked_out_at', null)
-  if (args.min_weight)   q = q.gte('weight', args.min_weight)
-  if (args.max_weight)   q = q.lte('weight', args.max_weight)
-  if (args.level)        q = q.eq('riding_level', args.level)
-  if (args.min_age)      q = q.gte('age', args.min_age)
-  if (args.max_age)      q = q.lte('age', args.max_age)
+  if (args.min_weight != null) q = q.gte('weight', args.min_weight)
+  if (args.max_weight != null) q = q.lte('weight', args.max_weight)
+  if (args.level)              q = q.eq('riding_level', args.level)
+  if (args.min_age != null)    q = q.gte('age', args.min_age)
+  if (args.max_age != null)    q = q.lte('age', args.max_age)
   if (args.repeat_guest !== undefined) q = q.eq('repeat_guest', args.repeat_guest)
-  if (args.name)         q = q.ilike('name', `%${args.name}%`)
+  if (args.name)               q = q.ilike('name', `%${args.name}%`)
 
   const { data, error } = await q.limit(FULL_FETCH_CAP)
   if (error) throw new Error(error.message)
@@ -79,9 +79,37 @@ async function get_guests(supabase: any, args: any, today: string) {
     grouped = { by: args.group_by, counts }
   }
 
+  const applied_filters: Record<string, any> = {}
+  if (args.from)               applied_filters.from = args.from
+  if (args.to)                 applied_filters.to = args.to
+  if (args.here_now)           applied_filters.here_now = true
+  if (args.min_weight != null) applied_filters.min_weight = args.min_weight
+  if (args.max_weight != null) applied_filters.max_weight = args.max_weight
+  if (args.level)              applied_filters.level = args.level
+  if (args.min_age != null)    applied_filters.min_age = args.min_age
+  if (args.max_age != null)    applied_filters.max_age = args.max_age
+  if (args.repeat_guest !== undefined) applied_filters.repeat_guest = args.repeat_guest
+  if (args.name)               applied_filters.name = args.name
+  if (args.group_by)           applied_filters.group_by = args.group_by
+
+  const agePart = args.min_age != null && args.max_age != null ? ` aged ${args.min_age}–${args.max_age}`
+    : args.max_age != null ? ` aged ≤${args.max_age}`
+    : args.min_age != null ? ` aged ≥${args.min_age}` : ''
+  const wtPart  = args.min_weight != null && args.max_weight != null ? ` weighing ${args.min_weight}–${args.max_weight} lb`
+    : args.min_weight != null ? ` weighing ≥${args.min_weight} lb`
+    : args.max_weight != null ? ` weighing ≤${args.max_weight} lb` : ''
+  const lvlPart  = args.level ? ` level ${args.level}` : ''
+  const herePart = args.here_now ? ', currently on property' : ''
+  const guestBase = `${total} guests${agePart}${wtPart}${lvlPart}${herePart}`
+  const population = args.group_by === 'horse'
+    ? `${guestBase}; horse counts = how many of these guests had each horse assigned (guests with no assignments are excluded from horse counts but included in total)`
+    : `${guestBase} (includes guests with and without horse assignments)`
+
   return {
     total,
     truncated,
+    applied_filters,
+    population,
     rows: all.slice(0, CAP).map((g: any) => ({
       name: g.name,
       room: g.room_number,
@@ -108,11 +136,16 @@ async function get_guests(supabase: any, args: any, today: string) {
 
 async function get_assignments(supabase: any, args: any, today: string) {
   let q = supabase.from('guests').select(
-    'id, name, check_in_date, check_out_date, weight, riding_level, horse_assignments(horse_name, incompatible, removed_at, swap_category, swap_reason, reason, assigned_at)'
+    'id, name, age, check_in_date, check_out_date, weight, riding_level, horse_assignments(horse_name, incompatible, removed_at, swap_category, swap_reason, reason, assigned_at)'
   )
-  if (args.from)  q = q.gte('check_in_date', args.from)
-  if (args.to)    q = q.lte('check_out_date', args.to)
-  if (args.guest) q = q.ilike('name', `%${args.guest}%`)
+  if (args.from)               q = q.gte('check_in_date', args.from)
+  if (args.to)                 q = q.lte('check_out_date', args.to)
+  if (args.guest)              q = q.ilike('name', `%${args.guest}%`)
+  if (args.min_age != null)    q = q.gte('age', args.min_age)
+  if (args.max_age != null)    q = q.lte('age', args.max_age)
+  if (args.min_weight != null) q = q.gte('weight', args.min_weight)
+  if (args.max_weight != null) q = q.lte('weight', args.max_weight)
+  if (args.level)              q = q.eq('riding_level', args.level)
 
   const { data, error } = await q.limit(FULL_FETCH_CAP)
   if (error) throw new Error(error.message)
@@ -125,6 +158,7 @@ async function get_assignments(supabase: any, args: any, today: string) {
       if (args.swap_category && a.swap_category !== args.swap_category) continue
       all.push({
         guest: g.name,
+        guest_age: g.age,
         check_in: g.check_in_date,
         check_out: g.check_out_date,
         guest_weight: g.weight,
@@ -166,6 +200,9 @@ async function get_assignments(supabase: any, args: any, today: string) {
         key = band ? band.label : 'unknown'
       } else if (args.group_by === 'month') {
         key = (a.check_in || '').slice(0, 7) || 'unknown'
+      } else if (args.group_by === 'age_band') {
+        const age = a.guest_age
+        key = age == null ? 'unknown' : age < 18 ? 'under_18' : age < 30 ? '18-29' : age < 50 ? '30-49' : age < 65 ? '50-64' : '65+'
       } else {
         key = 'unknown'
       }
@@ -174,9 +211,34 @@ async function get_assignments(supabase: any, args: any, today: string) {
     grouped = { by: args.group_by, counts }
   }
 
+  const applied_filters: Record<string, any> = {}
+  if (args.from)               applied_filters.from = args.from
+  if (args.to)                 applied_filters.to = args.to
+  if (args.guest)              applied_filters.guest = args.guest
+  if (args.horse)              applied_filters.horse = args.horse
+  if (args.min_age != null)    applied_filters.min_age = args.min_age
+  if (args.max_age != null)    applied_filters.max_age = args.max_age
+  if (args.min_weight != null) applied_filters.min_weight = args.min_weight
+  if (args.max_weight != null) applied_filters.max_weight = args.max_weight
+  if (args.level)              applied_filters.level = args.level
+  if (args.not_a_fit !== undefined) applied_filters.not_a_fit = args.not_a_fit
+  if (args.swap_category)      applied_filters.swap_category = args.swap_category
+  if (args.group_by)           applied_filters.group_by = args.group_by
+
+  const agePart = args.min_age != null && args.max_age != null ? ` aged ${args.min_age}–${args.max_age}`
+    : args.max_age != null ? ` aged ≤${args.max_age}`
+    : args.min_age != null ? ` aged ≥${args.min_age}` : ''
+  const wtPart  = args.min_weight != null && args.max_weight != null ? ` weighing ${args.min_weight}–${args.max_weight} lb`
+    : args.min_weight != null ? ` weighing ≥${args.min_weight} lb`
+    : args.max_weight != null ? ` weighing ≤${args.max_weight} lb` : ''
+  const lvlPart = args.level ? ` level ${args.level}` : ''
+  const population = `${total} assignments for guests${agePart}${wtPart}${lvlPart}; guests without assignments are excluded`
+
   return {
     total,
     truncated,
+    applied_filters,
+    population,
     rows: all.slice(0, CAP),
     summary,
     ...(grouped != null ? { grouped } : {}),
@@ -430,16 +492,21 @@ export const TOOL_DEFS = [
   },
   {
     name: 'get_assignments',
-    description: 'Fetch horse-guest assignment records. Returns { total, truncated, rows (sample ≤200), summary (total_not_a_fit, swap_category_counts over ALL records), grouped? }. Use total for counts — never count rows[] yourself. Use group_by for per-bucket breakdowns.',
+    description: 'Fetch horse-guest assignment records filtered by guest attributes (age, weight, level) AND assignment attributes (horse, not_a_fit, swap_category). Returns { total, truncated, applied_filters, population, rows (sample ≤200), summary (total_not_a_fit, swap_category_counts over ALL records), grouped? }. Filters are applied before all aggregates — use total for counts, never count rows[] yourself.',
     input_schema: {
       type: 'object',
       properties: {
-        from: { type: 'string' }, to: { type: 'string' },
+        from: { type: 'string', description: 'YYYY-MM-DD — filter check_in_date >= from' },
+        to: { type: 'string', description: 'YYYY-MM-DD — filter check_out_date <= to' },
         horse: { type: 'string', description: 'Exact horse name' },
         guest: { type: 'string', description: 'Partial guest name' },
+        min_age: { type: 'number', description: 'Guest age >= min_age' },
+        max_age: { type: 'number', description: 'Guest age <= max_age (e.g. 17 for guests aged 17 or younger)' },
+        min_weight: { type: 'number' }, max_weight: { type: 'number' },
+        level: { type: 'string', description: 'Riding level code: B, AB, I, I/AI, AI, A' },
         not_a_fit: { type: 'boolean' },
         swap_category: { type: 'string' },
-        group_by: { type: 'string', description: 'Group ALL matching assignments by: horse | level | weight_band | month. Returns complete counts (no cap) in grouped.counts.' },
+        group_by: { type: 'string', description: 'Group ALL matching assignments by: horse | level | weight_band | month | age_band. Returns complete counts (no cap) in grouped.counts. Counts are over the already-filtered population.' },
       },
       required: [],
     },
