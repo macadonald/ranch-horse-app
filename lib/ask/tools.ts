@@ -1,10 +1,12 @@
 import { LEVEL_LABELS } from '@/lib/horses'
+import { WEIGHT_BANDS, getWeightBand } from '@/lib/weightBands'
 import { horseWeightCeiling, isHorseBlockedToday } from '@/lib/horseFit'
 import { categorizeWork, isFullSet } from '@/lib/shoeWork'
 import { fetchWeather } from '@/lib/weather'
 import { runAllDetectors } from '@/lib/patterns/index'
 
 const CAP = 200
+const FULL_FETCH_CAP = 10000
 
 // ─── Tool implementations ─────────────────────────────────────────────────────
 
@@ -23,13 +25,64 @@ async function get_guests(supabase: any, args: any, today: string) {
   if (args.repeat_guest !== undefined) q = q.eq('repeat_guest', args.repeat_guest)
   if (args.name)         q = q.ilike('name', `%${args.name}%`)
 
-  const limit = Math.min(args.limit || CAP, CAP)
-  const { data, error } = await q.limit(limit + 1)
+  const { data, error } = await q.limit(FULL_FETCH_CAP)
   if (error) throw new Error(error.message)
 
-  const rows = (data || []).slice(0, limit)
+  const all = data || []
+  const total = all.length
+  const truncated = total > CAP
+
+  const ages    = all.map((g: any) => g.age).filter((v: any): v is number => v != null)
+  const weights = all.map((g: any) => g.weight).filter((v: any): v is number => v != null)
+  const levelCounts: Record<string, number> = {}
+  for (const g of all) {
+    const lbl = LEVEL_LABELS[g.riding_level] || g.riding_level || 'unknown'
+    levelCounts[lbl] = (levelCounts[lbl] || 0) + 1
+  }
+  const summary = {
+    avg_age:      ages.length    ? Math.round(ages.reduce((a: number, b: number) => a + b, 0) / ages.length) : null,
+    avg_weight:   weights.length ? Math.round(weights.reduce((a: number, b: number) => a + b, 0) / weights.length) : null,
+    repeat_count: all.filter((g: any) => g.repeat_guest).length,
+    level_counts: levelCounts,
+  }
+
+  let grouped: any = undefined
+  if (args.group_by) {
+    const counts: Record<string, number> = {}
+    for (const g of all) {
+      if (args.group_by === 'horse') {
+        const seen = new Set<string>()
+        for (const a of g.horse_assignments || []) {
+          if (!seen.has(a.horse_name)) {
+            seen.add(a.horse_name)
+            counts[a.horse_name] = (counts[a.horse_name] || 0) + 1
+          }
+        }
+      } else {
+        let key: string
+        if (args.group_by === 'level') {
+          key = LEVEL_LABELS[g.riding_level] || g.riding_level || 'unknown'
+        } else if (args.group_by === 'month') {
+          key = (g.check_in_date || '').slice(0, 7) || 'unknown'
+        } else if (args.group_by === 'age_band') {
+          const a = g.age
+          key = a == null ? 'unknown' : a < 18 ? 'under_18' : a < 30 ? '18-29' : a < 50 ? '30-49' : a < 65 ? '50-64' : '65+'
+        } else if (args.group_by === 'weight_band') {
+          const band = getWeightBand(g.weight)
+          key = band ? band.label : 'unknown'
+        } else {
+          key = 'unknown'
+        }
+        counts[key] = (counts[key] || 0) + 1
+      }
+    }
+    grouped = { by: args.group_by, counts }
+  }
+
   return {
-    guests: rows.map((g: any) => ({
+    total,
+    truncated,
+    rows: all.slice(0, CAP).map((g: any) => ({
       name: g.name,
       room: g.room_number,
       check_in: g.check_in_date,
@@ -48,8 +101,8 @@ async function get_guests(supabase: any, args: any, today: string) {
         removed: !!a.removed_at,
       })),
     })),
-    total: rows.length,
-    capped: (data || []).length > limit,
+    summary,
+    ...(grouped != null ? { grouped } : {}),
   }
 }
 
@@ -61,7 +114,7 @@ async function get_assignments(supabase: any, args: any, today: string) {
   if (args.to)    q = q.lte('check_out_date', args.to)
   if (args.guest) q = q.ilike('name', `%${args.guest}%`)
 
-  const { data, error } = await q.limit(CAP)
+  const { data, error } = await q.limit(FULL_FETCH_CAP)
   if (error) throw new Error(error.message)
 
   const all: any[] = []
@@ -86,8 +139,48 @@ async function get_assignments(supabase: any, args: any, today: string) {
       })
     }
   }
-  const limit = Math.min(args.limit || CAP, CAP)
-  return { assignments: all.slice(0, limit), total: all.length, capped: all.length > limit }
+
+  const total = all.length
+  const truncated = total > CAP
+
+  const swapCats: Record<string, number> = {}
+  for (const a of all) {
+    if (a.swap_category) swapCats[a.swap_category] = (swapCats[a.swap_category] || 0) + 1
+  }
+  const summary = {
+    total_not_a_fit: all.filter(a => a.not_a_fit).length,
+    swap_category_counts: swapCats,
+  }
+
+  let grouped: any = undefined
+  if (args.group_by) {
+    const counts: Record<string, number> = {}
+    for (const a of all) {
+      let key: string
+      if (args.group_by === 'horse') {
+        key = a.horse
+      } else if (args.group_by === 'level') {
+        key = a.guest_level || 'unknown'
+      } else if (args.group_by === 'weight_band') {
+        const band = getWeightBand(a.guest_weight)
+        key = band ? band.label : 'unknown'
+      } else if (args.group_by === 'month') {
+        key = (a.check_in || '').slice(0, 7) || 'unknown'
+      } else {
+        key = 'unknown'
+      }
+      counts[key] = (counts[key] || 0) + 1
+    }
+    grouped = { by: args.group_by, counts }
+  }
+
+  return {
+    total,
+    truncated,
+    rows: all.slice(0, CAP),
+    summary,
+    ...(grouped != null ? { grouped } : {}),
+  }
 }
 
 async function get_horses(supabase: any, args: any, today: string) {
@@ -318,7 +411,7 @@ export async function runTool(name: string, args: any, supabase: any, today: str
 export const TOOL_DEFS = [
   {
     name: 'get_guests',
-    description: 'Fetch guests with optional filters. Returns name, room, dates, age, weight, level, gender, repeat, and their horse assignments (including Not-a-fit swaps).',
+    description: 'Fetch guests with optional filters. Returns { total, truncated, rows (sample ≤200), summary (avg_age, avg_weight, repeat_count, level_counts over ALL records), grouped? }. Use total for counts — never count rows[] yourself. Use group_by to get per-bucket counts over the full population.',
     input_schema: {
       type: 'object',
       properties: {
@@ -330,14 +423,14 @@ export const TOOL_DEFS = [
         min_age: { type: 'number' }, max_age: { type: 'number' },
         repeat_guest: { type: 'boolean' },
         name: { type: 'string', description: 'Partial name match' },
-        limit: { type: 'number', description: 'Max rows (default 200)' },
+        group_by: { type: 'string', description: 'Group ALL matching guests by: horse | level | weight_band | month | age_band. Returns complete counts (no cap) in grouped.counts.' },
       },
       required: [],
     },
   },
   {
     name: 'get_assignments',
-    description: 'Fetch horse-guest assignment records. Can filter by horse, guest, Not-a-fit status, or swap category.',
+    description: 'Fetch horse-guest assignment records. Returns { total, truncated, rows (sample ≤200), summary (total_not_a_fit, swap_category_counts over ALL records), grouped? }. Use total for counts — never count rows[] yourself. Use group_by for per-bucket breakdowns.',
     input_schema: {
       type: 'object',
       properties: {
@@ -346,7 +439,7 @@ export const TOOL_DEFS = [
         guest: { type: 'string', description: 'Partial guest name' },
         not_a_fit: { type: 'boolean' },
         swap_category: { type: 'string' },
-        limit: { type: 'number' },
+        group_by: { type: 'string', description: 'Group ALL matching assignments by: horse | level | weight_band | month. Returns complete counts (no cap) in grouped.counts.' },
       },
       required: [],
     },
