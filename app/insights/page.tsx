@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { GuestAnalyticsPanel, type AnalyticsGuest } from '@/components/GuestAnalyticsPanel'
 import { HorseAnalyticsPanel } from '@/components/HorseAnalyticsPanel'
@@ -68,13 +68,102 @@ function toTucsonTime(isoStr: string): string {
 
 // ─── PatternsSection ─────────────────────────────────────────────────────────
 
-function FindingCard({ f }: { f: Finding }) {
+type ExplainResult = {
+  meaning: string[]
+  howToCheck: string[]
+  whatToDo: string[]
+  howSure: string
+}
+
+function ExplainSection({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>{label}</div>
+      {items.map((item, i) => (
+        <div key={i} style={{ fontSize: 12, color: 'var(--color-text-2)', paddingLeft: 8, marginBottom: 2 }}>• {item}</div>
+      ))}
+    </div>
+  )
+}
+
+function FindingCard({ f, isAdmin, onRefresh }: { f: Finding; isAdmin: boolean; onRefresh: () => void }) {
+  const [explainOpen,  setExplainOpen]  = useState(false)
+  const [explanation,  setExplanation]  = useState<ExplainResult | null>(null)
+  const [explaining,   setExplaining]   = useState(false)
+  const [explainError, setExplainError] = useState<string | null>(null)
+  const [voteState,    setVoteState]    = useState<'none' | 'liked' | 'hidden'>('none')
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleExplain = async () => {
+    if (explainOpen) { setExplainOpen(false); return }
+    setExplainOpen(true)
+    if (explanation) return
+    setExplaining(true)
+    setExplainError(null)
+    try {
+      const res = await fetch('/api/patterns/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finding: f }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed')
+      setExplanation(data)
+    } catch (e) {
+      setExplainError(e instanceof Error ? e.message : 'Explanation failed')
+    } finally {
+      setExplaining(false)
+    }
+  }
+
+  const handleVote = async (vote: 'up' | 'down') => {
+    await fetch('/api/patterns/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ findingId: f.id, factsHash: f.factsHash, vote, title: f.title }),
+    }).catch(() => {})
+    if (vote === 'down') {
+      setVoteState('hidden')
+      timerRef.current = setTimeout(() => { onRefresh() }, 4000)
+    } else {
+      setVoteState('liked')
+      setTimeout(() => setVoteState('none'), 2000)
+    }
+  }
+
+  const handleUndo = async () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    await fetch('/api/patterns/feedback', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ findingId: f.id, factsHash: f.factsHash }),
+    }).catch(() => {})
+    setVoteState('none')
+  }
+
+  if (voteState === 'hidden') {
+    return (
+      <div style={{ padding: '12px 0', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 12, color: 'var(--color-text-3)', flex: 1, fontStyle: 'italic' }}>Hidden — marked not useful</span>
+        <button onClick={handleUndo} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}>Undo</button>
+      </div>
+    )
+  }
+
   return (
     <div style={{ padding: '12px 0', borderBottom: '1px solid var(--color-border)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <span style={{ fontSize: 16, lineHeight: 1.3, flexShrink: 0 }}>{CAT_EMOJI[f.category] || '•'}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)', marginBottom: 3 }}>{f.title}</div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)', marginBottom: 3 }}>{f.title}</div>
+            {isAdmin && f.kind === 'action' && (
+              <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                <button onClick={() => handleVote('up')} title="Useful" style={{ background: 'none', border: 'none', padding: '1px 3px', fontSize: 13, cursor: 'pointer', opacity: voteState === 'liked' ? 1 : 0.35 }}>👍</button>
+                <button onClick={() => handleVote('down')} title="Not useful" style={{ background: 'none', border: 'none', padding: '1px 3px', fontSize: 13, cursor: 'pointer', opacity: 0.35 }}>👎</button>
+              </div>
+            )}
+          </div>
           <div style={{ fontSize: 12, color: 'var(--color-text-2)', marginBottom: 5 }}>{f.detail}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Based on {f.nLabel}</span>
@@ -86,7 +175,35 @@ function FindingCard({ f }: { f: Finding }) {
             }}>
               {f.strength === 'strong' ? 'Strong' : 'Moderate'}
             </span>
+            {f.kind === 'action' && (
+              <button onClick={handleExplain} disabled={explaining} style={{
+                background: 'none', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+                padding: '1px 8px', fontSize: 11, color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600,
+              }}>
+                {explaining ? 'Thinking…' : explainOpen ? 'Close' : 'Explain'}
+              </button>
+            )}
           </div>
+
+          {explainOpen && (
+            <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+              {explaining ? (
+                <p style={{ fontSize: 12, color: 'var(--color-text-3)', margin: 0 }}>Generating explanation…</p>
+              ) : explainError ? (
+                <p style={{ fontSize: 12, color: '#c2410c', margin: 0 }}>{explainError}</p>
+              ) : explanation ? (
+                <>
+                  <ExplainSection label="What this means" items={explanation.meaning} />
+                  <ExplainSection label="How to check" items={explanation.howToCheck} />
+                  <ExplainSection label="What to do" items={explanation.whatToDo} />
+                  <div style={{ marginTop: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>How sure: </span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-2)' }}>{explanation.howSure}</span>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -94,29 +211,34 @@ function FindingCard({ f }: { f: Finding }) {
 }
 
 function PatternsSection() {
-  const [findings,   setFindings]   = useState<Finding[]>([])
-  const [statuses,   setStatuses]   = useState<DetectorStatus[]>([])
+  const [findings,    setFindings]    = useState<Finding[]>([])
+  const [statuses,    setStatuses]    = useState<DetectorStatus[]>([])
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [catFilter,  setCatFilter]  = useState<string>('all')
-  const [bgOpen,     setBgOpen]     = useState(false)
+  const [isAdmin,     setIsAdmin]     = useState(false)
+  const [hiddenCount, setHiddenCount] = useState(0)
+  const [showHidden,  setShowHidden]  = useState(false)
+  const [loading,     setLoading]     = useState(true)
+  const [refreshing,  setRefreshing]  = useState(false)
+  const [catFilter,   setCatFilter]   = useState<string>('all')
+  const [bgOpen,      setBgOpen]      = useState(false)
 
-  const doFetch = (isRefresh = false) => {
+  const doFetch = (isRefresh: boolean, sh: boolean) => {
     if (isRefresh) setRefreshing(true)
-    fetch('/api/patterns', { cache: 'no-store' })
+    fetch(`/api/patterns${sh ? '?showHidden=1' : ''}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
         setFindings(d.findings || [])
         setStatuses(d.statuses || [])
         setGeneratedAt(d.generatedAt || null)
+        setIsAdmin(d.isAdmin ?? false)
+        setHiddenCount(d.hiddenCount ?? 0)
         setLoading(false)
         setRefreshing(false)
       })
       .catch(() => { setLoading(false); setRefreshing(false) })
   }
 
-  useEffect(() => { doFetch() }, [])
+  useEffect(() => { doFetch(false, false) }, [])
 
   const allVisible = catFilter === 'all' ? findings : findings.filter(f => f.category === catFilter)
   const actionFindings = allVisible.filter(f => f.kind === 'action')
@@ -142,6 +264,12 @@ function PatternsSection() {
     cursor: 'pointer', whiteSpace: 'nowrap' as const,
   })
 
+  const handleToggleShowHidden = () => {
+    const next = !showHidden
+    setShowHidden(next)
+    doFetch(true, next)
+  }
+
   return (
     <div style={SEC_STYLE}>
       {/* Header row */}
@@ -150,7 +278,7 @@ function PatternsSection() {
         <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
           {generatedAt
             ? <>Last checked {toTucsonTime(generatedAt)} · <button
-                onClick={() => doFetch(true)}
+                onClick={() => doFetch(true, showHidden)}
                 disabled={refreshing}
                 style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}>
                 {refreshing ? '↻ Refreshing…' : 'Refresh'}
@@ -175,7 +303,7 @@ function PatternsSection() {
         <>
           {/* Action findings */}
           {actionFindings.length > 0
-            ? actionFindings.map(f => <FindingCard key={f.id} f={f} />)
+            ? actionFindings.map(f => <FindingCard key={f.id} f={f} isAdmin={isAdmin} onRefresh={() => doFetch(true, showHidden)} />)
             : <p style={{ fontSize: 12, color: 'var(--color-text-3)', padding: '10px 0' }}>
                 No strong patterns yet — they'll appear as more data comes in.
               </p>
@@ -194,6 +322,16 @@ function PatternsSection() {
             </div>
           )}
 
+          {/* Hidden count */}
+          {hiddenCount > 0 && (
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8, marginBottom: 0 }}>
+              {hiddenCount} hidden ·{' '}
+              <button onClick={handleToggleShowHidden} style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}>
+                {showHidden ? 'Unhide' : 'Show'}
+              </button>
+            </p>
+          )}
+
           {/* Background findings (collapsed) */}
           {bgFindings.length > 0 && (
             <div style={{ marginTop: 14, borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
@@ -208,7 +346,7 @@ function PatternsSection() {
               </button>
               {bgOpen && (
                 <>
-                  {bgFindings.map(f => <FindingCard key={f.id} f={f} />)}
+                  {bgFindings.map(f => <FindingCard key={f.id} f={f} isAdmin={isAdmin} onRefresh={() => doFetch(true, showHidden)} />)}
                   <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 12, fontStyle: 'italic' }}>
                     Patterns are found with plain math from your data. They show what tends to happen together, not proof of cause.
                   </p>

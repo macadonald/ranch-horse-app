@@ -10,6 +10,7 @@ export type Finding = {
   nLabel: string
   strength: 'strong' | 'moderate'
   facts: Record<string, number | string>
+  factsHash?: string
 }
 
 export type DetectorStatus = {
