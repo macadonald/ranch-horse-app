@@ -7,6 +7,7 @@ import { ShoeAnalyticsPanel } from '@/components/ShoeAnalyticsPanel'
 import { DbHorse } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
 import { WEIGHT_BANDS } from '@/lib/weightBands'
+import type { Finding, FindingCategory } from '@/lib/patterns/index'
 
 type AnalyticsView = 'correlations' | 'guests' | 'horses' | 'shoes'
 
@@ -40,6 +41,111 @@ const SEC_STYLE: React.CSSProperties = {
   borderRadius: 'var(--radius-lg)',
   padding: '14px 16px',
   marginBottom: 14,
+}
+
+// ─── Category config ──────────────────────────────────────────────────────────
+
+const CAT_EMOJI: Record<string, string> = {
+  calendar: '📅', guests: '👥', weather: '🌡️', swaps: '🔄', health: '🏥', shoes: '🔧',
+}
+const CAT_LABELS: Array<{ key: string; label: string }> = [
+  { key: 'all',      label: 'All'      },
+  { key: 'calendar', label: 'Calendar' },
+  { key: 'guests',   label: 'Guests'   },
+  { key: 'weather',  label: 'Weather'  },
+  { key: 'swaps',    label: 'Swaps'    },
+  { key: 'health',   label: 'Health'   },
+  { key: 'shoes',    label: 'Shoes'    },
+]
+
+// ─── PatternsSection ─────────────────────────────────────────────────────────
+
+function PatternsSection() {
+  const [findings, setFindings] = useState<Finding[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [catFilter, setCatFilter] = useState<string>('all')
+
+  useEffect(() => {
+    fetch('/api/patterns')
+      .then(r => r.json())
+      .then(d => { setFindings(d.findings || []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const visible = catFilter === 'all'
+    ? findings
+    : findings.filter(f => f.category === catFilter)
+
+  const chipStyle = (active: boolean): React.CSSProperties => ({
+    padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+    background: active ? 'var(--color-accent)' : 'var(--color-surface)',
+    color: active ? '#fff' : 'var(--color-text-2)',
+    cursor: 'pointer', whiteSpace: 'nowrap' as const,
+  })
+
+  return (
+    <div style={SEC_STYLE}>
+      <SectionHeader title="Patterns found" />
+
+      {/* Filter chips */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        {CAT_LABELS.map(c => (
+          <button key={c.key} style={chipStyle(catFilter === c.key)} onClick={() => setCatFilter(c.key)}>
+            {c.key !== 'all' && CAT_EMOJI[c.key] + ' '}
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Finding patterns…</p>
+      ) : visible.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', padding: '12px 0' }}>
+          No strong patterns yet — they'll appear as more data comes in.
+        </p>
+      ) : (
+        <>
+          {visible.map(f => (
+            <div key={f.id} style={{
+              padding: '12px 0',
+              borderBottom: '1px solid var(--color-border)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ fontSize: 16, lineHeight: 1.3, flexShrink: 0 }}>
+                  {CAT_EMOJI[f.category] || '•'}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)', marginBottom: 3 }}>
+                    {f.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-2)', marginBottom: 5 }}>
+                    {f.detail}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                      Based on {f.nLabel}
+                    </span>
+                    <span style={{
+                      padding: '1px 7px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                      background: f.strength === 'strong' ? '#f0fdf4' : 'var(--color-bg)',
+                      color:      f.strength === 'strong' ? '#15803d' : 'var(--color-text-3)',
+                      border: `1px solid ${f.strength === 'strong' ? '#86efac' : 'var(--color-border)'}`,
+                    }}>
+                      {f.strength === 'strong' ? 'Strong' : 'Moderate'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 14, fontStyle: 'italic' }}>
+            Patterns are found with plain math from your data. They show what tends to happen together, not proof of cause.
+          </p>
+        </>
+      )}
+    </div>
+  )
 }
 
 // ─── CorrelationsView ─────────────────────────────────────────────────────────
@@ -269,6 +375,9 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 48px' }}>
       <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Correlations</h2>
+
+      {/* ── Patterns found ── */}
+      <PatternsSection />
 
       {/* ── 4. Best Match Finder ── */}
       <div style={SEC_STYLE}>
