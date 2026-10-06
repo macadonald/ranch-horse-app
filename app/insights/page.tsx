@@ -7,7 +7,7 @@ import { ShoeAnalyticsPanel } from '@/components/ShoeAnalyticsPanel'
 import { DbHorse } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
 import { WEIGHT_BANDS } from '@/lib/weightBands'
-import type { Finding, FindingCategory } from '@/lib/patterns/index'
+import type { Finding, FindingCategory, DetectorStatus } from '@/lib/patterns/index'
 
 type AnalyticsView = 'correlations' | 'guests' | 'horses' | 'shoes'
 
@@ -46,35 +46,93 @@ const SEC_STYLE: React.CSSProperties = {
 // ─── Category config ──────────────────────────────────────────────────────────
 
 const CAT_EMOJI: Record<string, string> = {
-  calendar: '📅', guests: '👥', weather: '🌡️', swaps: '🔄', health: '🏥', shoes: '🔧',
+  calendar: '📅', guests: '👥', weather: '🌡️', swaps: '🔄', health: '🏥', shoes: '🔧', horses: '🐴',
 }
 const CAT_LABELS: Array<{ key: string; label: string }> = [
   { key: 'all',      label: 'All'      },
+  { key: 'horses',   label: 'Horses'   },
+  { key: 'health',   label: 'Health'   },
+  { key: 'swaps',    label: 'Swaps'    },
+  { key: 'shoes',    label: 'Shoes'    },
   { key: 'calendar', label: 'Calendar' },
   { key: 'guests',   label: 'Guests'   },
   { key: 'weather',  label: 'Weather'  },
-  { key: 'swaps',    label: 'Swaps'    },
-  { key: 'health',   label: 'Health'   },
-  { key: 'shoes',    label: 'Shoes'    },
 ]
+
+function toTucsonTime(isoStr: string): string {
+  const d = new Date(new Date(isoStr).getTime() - 7 * 60 * 60 * 1000)
+  const h = d.getUTCHours(), m = d.getUTCMinutes()
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`
+}
 
 // ─── PatternsSection ─────────────────────────────────────────────────────────
 
+function FindingCard({ f }: { f: Finding }) {
+  return (
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--color-border)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={{ fontSize: 16, lineHeight: 1.3, flexShrink: 0 }}>{CAT_EMOJI[f.category] || '•'}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)', marginBottom: 3 }}>{f.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-2)', marginBottom: 5 }}>{f.detail}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Based on {f.nLabel}</span>
+            <span style={{
+              padding: '1px 7px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+              background: f.strength === 'strong' ? '#f0fdf4' : 'var(--color-bg)',
+              color:      f.strength === 'strong' ? '#15803d' : 'var(--color-text-3)',
+              border: `1px solid ${f.strength === 'strong' ? '#86efac' : 'var(--color-border)'}`,
+            }}>
+              {f.strength === 'strong' ? 'Strong' : 'Moderate'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PatternsSection() {
-  const [findings, setFindings] = useState<Finding[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [catFilter, setCatFilter] = useState<string>('all')
+  const [findings,   setFindings]   = useState<Finding[]>([])
+  const [statuses,   setStatuses]   = useState<DetectorStatus[]>([])
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
+  const [loading,    setLoading]    = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [catFilter,  setCatFilter]  = useState<string>('all')
+  const [bgOpen,     setBgOpen]     = useState(false)
 
-  useEffect(() => {
-    fetch('/api/patterns')
+  const doFetch = (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true)
+    fetch('/api/patterns', { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { setFindings(d.findings || []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [])
+      .then(d => {
+        setFindings(d.findings || [])
+        setStatuses(d.statuses || [])
+        setGeneratedAt(d.generatedAt || null)
+        setLoading(false)
+        setRefreshing(false)
+      })
+      .catch(() => { setLoading(false); setRefreshing(false) })
+  }
 
-  const visible = catFilter === 'all'
-    ? findings
-    : findings.filter(f => f.category === catFilter)
+  useEffect(() => { doFetch() }, [])
+
+  const allVisible = catFilter === 'all' ? findings : findings.filter(f => f.category === catFilter)
+  const actionFindings = allVisible.filter(f => f.kind === 'action')
+  const bgFindings     = allVisible.filter(f => f.kind === 'background')
+
+  // Status lines: categories with no action findings in the current filter view
+  const catsInView = catFilter === 'all'
+    ? CAT_LABELS.filter(c => c.key !== 'all').map(c => c.key)
+    : [catFilter]
+  const statusLines = catsInView
+    .map(cat => {
+      const hasAction = findings.some(f => f.category === cat && f.kind === 'action')
+      if (hasAction) return null
+      return statuses.find(s => s.category === cat) ?? null
+    })
+    .filter((s): s is DetectorStatus => s !== null)
 
   const chipStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600,
@@ -86,7 +144,20 @@ function PatternsSection() {
 
   return (
     <div style={SEC_STYLE}>
-      <SectionHeader title="Patterns found" />
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <SectionHeader title="Patterns found" />
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>
+          {generatedAt
+            ? <>Last checked {toTucsonTime(generatedAt)} · <button
+                onClick={() => doFetch(true)}
+                disabled={refreshing}
+                style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: 'var(--color-accent)', cursor: 'pointer', fontWeight: 600 }}>
+                {refreshing ? '↻ Refreshing…' : 'Refresh'}
+              </button></>
+            : null}
+        </span>
+      </div>
 
       {/* Filter chips */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -100,48 +171,51 @@ function PatternsSection() {
 
       {loading ? (
         <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>Finding patterns…</p>
-      ) : visible.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--color-text-3)', padding: '12px 0' }}>
-          No strong patterns yet — they'll appear as more data comes in.
-        </p>
       ) : (
         <>
-          {visible.map(f => (
-            <div key={f.id} style={{
-              padding: '12px 0',
-              borderBottom: '1px solid var(--color-border)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <span style={{ fontSize: 16, lineHeight: 1.3, flexShrink: 0 }}>
-                  {CAT_EMOJI[f.category] || '•'}
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)', marginBottom: 3 }}>
-                    {f.title}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-2)', marginBottom: 5 }}>
-                    {f.detail}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
-                      Based on {f.nLabel}
-                    </span>
-                    <span style={{
-                      padding: '1px 7px', borderRadius: 999, fontSize: 10, fontWeight: 700,
-                      background: f.strength === 'strong' ? '#f0fdf4' : 'var(--color-bg)',
-                      color:      f.strength === 'strong' ? '#15803d' : 'var(--color-text-3)',
-                      border: `1px solid ${f.strength === 'strong' ? '#86efac' : 'var(--color-border)'}`,
-                    }}>
-                      {f.strength === 'strong' ? 'Strong' : 'Moderate'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+          {/* Action findings */}
+          {actionFindings.length > 0
+            ? actionFindings.map(f => <FindingCard key={f.id} f={f} />)
+            : <p style={{ fontSize: 12, color: 'var(--color-text-3)', padding: '10px 0' }}>
+                No strong patterns yet — they'll appear as more data comes in.
+              </p>
+          }
+
+          {/* Status lines for categories with no action findings */}
+          {statusLines.length > 0 && (
+            <div style={{ marginTop: actionFindings.length > 0 ? 8 : 0 }}>
+              {statusLines.map(s => (
+                <p key={s.category} style={{ fontSize: 11, color: 'var(--color-text-3)', margin: '3px 0' }}>
+                  {CAT_EMOJI[s.category] || ''} {s.error
+                    ? `Couldn't check ${s.category}: ${s.error}`
+                    : `Checked ${s.checked} · nothing to act on yet.`}
+                </p>
+              ))}
             </div>
-          ))}
-          <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 14, fontStyle: 'italic' }}>
-            Patterns are found with plain math from your data. They show what tends to happen together, not proof of cause.
-          </p>
+          )}
+
+          {/* Background findings (collapsed) */}
+          {bgFindings.length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
+              <button
+                onClick={() => setBgOpen(o => !o)}
+                style={{
+                  background: 'none', border: 'none', padding: '2px 0', fontSize: 12,
+                  color: 'var(--color-text-2)', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                <span style={{ fontSize: 11 }}>{bgOpen ? '▾' : '▸'}</span>
+                Background ({bgFindings.length})
+              </button>
+              {bgOpen && (
+                <>
+                  {bgFindings.map(f => <FindingCard key={f.id} f={f} />)}
+                  <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 12, fontStyle: 'italic' }}>
+                    Patterns are found with plain math from your data. They show what tends to happen together, not proof of cause.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

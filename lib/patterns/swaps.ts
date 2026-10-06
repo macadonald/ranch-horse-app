@@ -1,9 +1,22 @@
-import { Finding, PatternGuest } from './types'
+import { DetectorResult, PatternGuest } from './types'
+import { LEVEL_LABELS } from '@/lib/horses'
 
-export function detectSwaps(guests: PatternGuest[]): Finding[] {
-  const findings: Finding[] = []
+export function detectSwaps(guests: PatternGuest[]): DetectorResult {
+  const findings: DetectorResult['findings'] = []
 
   const gwa = guests.filter(g => (g.horse_assignments || []).length > 0)
+
+  const status: DetectorResult['status'] = {
+    category: 'swaps',
+    checked: `${gwa.length} guests with assignments`,
+  }
+
+  const topOf = (arr: string[]): string | null => {
+    if (!arr.length) return null
+    const c: Record<string, number> = {}
+    arr.forEach(r => { c[r] = (c[r] || 0) + 1 })
+    return Object.entries(c).sort(([, a], [, b]) => b - a)[0][0]
+  }
 
   // 1. Horses with not-a-fit from 3+ distinct guests
   const dwByHorse: Record<string, { guestIds: Set<string>; reasons: string[]; swapReasons: string[] }> = {}
@@ -24,18 +37,9 @@ export function detectSwaps(guests: PatternGuest[]): Finding[] {
     .filter(([, v]) => v.guestIds.size >= 3)
     .sort(([, a], [, b]) => b.guestIds.size - a.guestIds.size)
 
-  const topOf = (arr: string[]): string | null => {
-    if (!arr.length) return null
-    const c: Record<string, number> = {}
-    arr.forEach(r => { c[r] = (c[r] || 0) + 1 })
-    return Object.entries(c).sort(([, a], [, b]) => b - a)[0][0]
-  }
-
   if (flagged.length > 0) {
-    // Surface the top horse as a specific finding; report count of flagged horses
     const [topHorse, topData] = flagged[0]
     const count = topData.guestIds.size
-
     const topReason = topOf(topData.swapReasons) ?? topOf(topData.reasons)
     const detail = topReason
       ? `${count} different guests · top reason: "${topReason}"`
@@ -44,6 +48,7 @@ export function detectSwaps(guests: PatternGuest[]): Finding[] {
     const totalFlagged = flagged.length
     findings.push({
       id: 'swaps.horse-flags',
+      kind: 'action',
       category: 'swaps',
       title: totalFlagged === 1
         ? `${topHorse} has not-a-fit flags from ${count}+ different guests`
@@ -62,7 +67,6 @@ export function detectSwaps(guests: PatternGuest[]): Finding[] {
   }
 
   // 2. Swap-reason breakdown by riding level
-  // For each level, among incompatible assignments, what reason dominates?
   const levelSwaps: Record<string, string[]> = {}
   gwa.forEach(g => {
     const lvl = g.riding_level
@@ -83,17 +87,20 @@ export function detectSwaps(guests: PatternGuest[]): Finding[] {
     const pct = Math.round((topCount / reasons.length) * 100)
     if (pct < 50) return
 
+    const levelLabel = LEVEL_LABELS[lvl] || lvl
+
     findings.push({
       id: `swaps.level-reason-${lvl}`,
+      kind: 'action',
       category: 'swaps',
-      title: `"${topReason}" is the main swap reason for ${lvl} riders`,
+      title: `"${topReason}" is the main swap reason for ${levelLabel} riders`,
       detail: `${pct}% of ${reasons.length} swaps for this level`,
       n: reasons.length,
-      nLabel: `${reasons.length} swaps for ${lvl} level`,
+      nLabel: `${reasons.length} swaps for ${levelLabel}`,
       strength: pct >= 70 ? 'strong' : 'moderate',
       facts: { level: lvl, topReason, pct, total: reasons.length },
     })
   })
 
-  return findings
+  return { findings, status }
 }

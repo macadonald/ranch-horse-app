@@ -1,12 +1,17 @@
-import { Finding, PatternGuest } from './types'
+import { DetectorResult, PatternGuest } from './types'
 
 const DOW    = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-export function detectCalendar(guests: PatternGuest[]): Finding[] {
-  const findings: Finding[] = []
+export function detectCalendar(guests: PatternGuest[]): DetectorResult {
+  const findings: DetectorResult['findings'] = []
   const withCI = guests.filter(g => g.check_in_date)
   const withCO = guests.filter(g => g.check_out_date)
+
+  const status: DetectorResult['status'] = {
+    category: 'calendar',
+    checked: `${withCI.length.toLocaleString()} check-ins`,
+  }
 
   // 1. Busiest check-in DOW (min 200)
   if (withCI.length >= 200) {
@@ -22,6 +27,7 @@ export function detectCalendar(guests: PatternGuest[]): Finding[] {
       const pct = Math.round((+topN / withCI.length) * 100)
       findings.push({
         id: 'calendar.checkin-dow',
+        kind: 'background',
         category: 'calendar',
         title: `${DOW[+topDow]}s are your busiest check-in day`,
         detail: `${pct}% of check-ins vs ${Math.round(100 / 7)}% if spread evenly`,
@@ -47,6 +53,7 @@ export function detectCalendar(guests: PatternGuest[]): Finding[] {
       const pct = Math.round((+topN / withCO.length) * 100)
       findings.push({
         id: 'calendar.checkout-dow',
+        kind: 'background',
         category: 'calendar',
         title: `${DOW[+topDow]}s are your busiest checkout day`,
         detail: `${pct}% of checkouts vs ${Math.round(100 / 7)}% if spread evenly`,
@@ -75,6 +82,7 @@ export function detectCalendar(guests: PatternGuest[]): Finding[] {
       const label = MONTHS[+m - 1]
       findings.push({
         id: 'calendar.busiest-month',
+        kind: 'background',
         category: 'calendar',
         title: `${label} is your busiest arrival month`,
         detail: `${topN} check-ins vs ${Math.round(avg)} avg across ${monthKeys.length} months`,
@@ -95,7 +103,6 @@ export function detectCalendar(guests: PatternGuest[]): Finding[] {
       womCounts[wom] = (womCounts[wom] || 0) + 1
     })
 
-    // Per-day normalization: count calendar days each WOM has across observed months
     const coDates = withCO.map(g => g.check_out_date!).sort()
     const womCalDays: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     const cur = new Date(coDates[0].slice(0, 7) + '-01T12:00:00')
@@ -119,6 +126,7 @@ export function detectCalendar(guests: PatternGuest[]): Finding[] {
       if (avgPD > 0 && top.perDay >= 1.25 * avgPD) {
         findings.push({
           id: 'calendar.wom-checkout',
+          kind: 'background',
           category: 'calendar',
           title: `Week ${top.wom} of the month has the most checkouts per day`,
           detail: `${top.perDay.toFixed(2)} checkouts/calendar-day vs ${avgPD.toFixed(2)} average`,
@@ -131,5 +139,5 @@ export function detectCalendar(guests: PatternGuest[]): Finding[] {
     }
   }
 
-  return findings
+  return { findings, status }
 }

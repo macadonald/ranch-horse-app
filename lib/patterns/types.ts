@@ -1,7 +1,8 @@
-export type FindingCategory = 'calendar' | 'guests' | 'weather' | 'swaps' | 'health' | 'shoes'
+export type FindingCategory = 'calendar' | 'guests' | 'weather' | 'swaps' | 'health' | 'shoes' | 'horses'
 
 export type Finding = {
   id: string
+  kind: 'action' | 'background'
   category: FindingCategory
   title: string
   detail: string
@@ -9,6 +10,17 @@ export type Finding = {
   nLabel: string
   strength: 'strong' | 'moderate'
   facts: Record<string, number | string>
+}
+
+export type DetectorStatus = {
+  category: FindingCategory
+  checked: string
+  error?: string
+}
+
+export type DetectorResult = {
+  findings: Finding[]
+  status: DetectorStatus
 }
 
 // ── Shared input types used by multiple detectors ─────────────────────────────
@@ -37,7 +49,7 @@ export type PatternGuest = {
 export type PatternFlag = {
   horse_name: string
   flag_type: string
-  flagged_at: string  // ISO timestamp or date string
+  flagged_at: string
   status: string
 }
 
@@ -48,5 +60,22 @@ export type PatternVisitHorse = {
 
 export type PatternVisit = {
   visit_date: string
+  farrier_name: string | null
   farrier_visit_horses: PatternVisitHorse[]
+}
+
+export type PatternHorseFlag = {
+  flag_type: string
+  status: string
+  day_off_date: string | null
+  flagged_at: string
+}
+
+export type PatternHorse = {
+  name: string
+  level: string
+  weight: number | null
+  is_active: boolean
+  farrier: string | null
+  flags: PatternHorseFlag[]
 }

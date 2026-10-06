@@ -1,4 +1,4 @@
-import { Finding, PatternGuest } from './types'
+import { DetectorResult, PatternGuest } from './types'
 
 function toYMD(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -29,39 +29,42 @@ function guestsInWindow(all: PatternGuest[], winStart: string, winEnd: string, t
   })
 }
 
-export function detectGuestShifts(guests: PatternGuest[], today: string): Finding[] {
-  const findings: Finding[] = []
+export function detectGuestShifts(guests: PatternGuest[], today: string): DetectorResult {
+  const findings: DetectorResult['findings'] = []
 
   const todaySun  = getSundayOf(today)
-  const recentEnd = addDays(todaySun, -1)      // last Saturday
-  const recentStart = addDays(todaySun, -56)   // 8 weeks back
+  const recentEnd = addDays(todaySun, -1)
+  const recentStart = addDays(todaySun, -56)
   const priorEnd  = addDays(recentStart, -1)
-  const priorStart = addDays(todaySun, -112)   // prior 8 weeks
+  const priorStart = addDays(todaySun, -112)
 
   const recentG = guestsInWindow(guests, recentStart, recentEnd, today)
   const priorG  = guestsInWindow(guests, priorStart,  priorEnd,  today)
 
-  if (recentG.length < 20 || priorG.length < 20) return findings
+  const status: DetectorResult['status'] = {
+    category: 'guests',
+    checked: recentG.length + priorG.length >= 40
+      ? `${recentG.length + priorG.length} guests across 16 weeks`
+      : `${guests.length} guests total`,
+  }
 
-  // Avg guests per week
+  if (recentG.length < 20 || priorG.length < 20) return { findings, status }
+
   const recentAvgPerWeek = recentG.length / 8
   const priorAvgPerWeek  = priorG.length  / 8
 
-  // % 200+ lb
   function heavyPct(grp: PatternGuest[]) {
     const withWt = grp.filter(g => g.weight && g.weight > 0)
     if (!withWt.length) return null
     return withWt.filter(g => g.weight! >= 200).length / withWt.length
   }
 
-  // % kids under 13
   function kidsPct(grp: PatternGuest[]) {
     const withAge = grp.filter(g => g.age && g.age > 0)
     if (!withAge.length) return null
     return withAge.filter(g => g.age! < 13).length / withAge.length
   }
 
-  // Not-a-fit rate
   function nafRate(grp: PatternGuest[]) {
     let total = 0, incompat = 0
     grp.forEach(g => {
@@ -73,12 +76,12 @@ export function detectGuestShifts(guests: PatternGuest[], today: string): Findin
     return total >= 5 ? incompat / total : null
   }
 
-  interface Metric { label: string; recent: number | null; prior: number | null; id: string; higherIsMore: boolean }
+  interface Metric { label: string; recent: number | null; prior: number | null; id: string }
   const metrics: Metric[] = [
-    { id: 'guestCount', label: 'avg guests/week', recent: recentAvgPerWeek, prior: priorAvgPerWeek, higherIsMore: true },
-    { id: 'heavy200',   label: '% riders 200+ lb', recent: heavyPct(recentG), prior: heavyPct(priorG), higherIsMore: true },
-    { id: 'kids13',     label: '% kids under 13',  recent: kidsPct(recentG),  prior: kidsPct(priorG),  higherIsMore: true },
-    { id: 'nafRate',    label: 'not-a-fit rate',    recent: nafRate(recentG),  prior: nafRate(priorG),  higherIsMore: false },
+    { id: 'guestCount', label: 'avg guests/week', recent: recentAvgPerWeek, prior: priorAvgPerWeek },
+    { id: 'heavy200',   label: '% riders 200+ lb', recent: heavyPct(recentG), prior: heavyPct(priorG) },
+    { id: 'kids13',     label: '% kids under 13',  recent: kidsPct(recentG),  prior: kidsPct(priorG)  },
+    { id: 'nafRate',    label: 'not-a-fit rate',    recent: nafRate(recentG),  prior: nafRate(priorG)  },
   ]
 
   metrics.forEach(m => {
@@ -114,6 +117,7 @@ export function detectGuestShifts(guests: PatternGuest[], today: string): Findin
 
     findings.push({
       id: `guests.shift-${m.id}`,
+      kind: 'background',
       category: 'guests',
       title,
       detail,
@@ -130,5 +134,5 @@ export function detectGuestShifts(guests: PatternGuest[], today: string): Findin
     })
   })
 
-  return findings
+  return { findings, status }
 }

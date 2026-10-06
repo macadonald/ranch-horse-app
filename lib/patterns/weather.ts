@@ -1,4 +1,4 @@
-import { Finding, PatternGuest } from './types'
+import { DetectorResult, PatternGuest } from './types'
 import { WeatherMap } from '@/lib/weather'
 import { schoolBreakFor } from '@/lib/calendar'
 
@@ -9,12 +9,6 @@ function toYMD(d: Date): string {
 function getSundayOf(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00')
   d.setDate(d.getDate() - d.getDay())
-  return toYMD(d)
-}
-
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  d.setDate(d.getDate() + n)
   return toYMD(d)
 }
 
@@ -32,7 +26,6 @@ function pearson(xs: number[], ys: number[]): number | null {
   return denom === 0 ? null : num / denom
 }
 
-// Build week → guest count map from guest stays (same logic as GuestAnalyticsPanel weekMap)
 function buildWeekGuestCounts(guests: PatternGuest[], today: string): Record<string, number> {
   const weekMap: Record<string, number> = {}
   guests.forEach(g => {
@@ -59,15 +52,14 @@ function weekAvgHigh(sundayKey: string, weatherMap: WeatherMap): number | null {
     const w = weatherMap[toYMD(d)]
     if (w?.highF != null) { sum += w.highF; count++ }
   }
-  return count >= 4 ? Math.round(sum / count) : null  // require at least 4 days of data
+  return count >= 4 ? Math.round(sum / count) : null
 }
 
-export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, today: string): Finding[] {
-  const findings: Finding[] = []
+export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, today: string): DetectorResult {
+  const findings: DetectorResult['findings'] = []
   const weekGuests = buildWeekGuestCounts(guests, today)
   const todaySun = getSundayOf(today)
 
-  // Only use weeks that are complete (ended before today's week) and have weather data
   const weekKeys = Object.keys(weekGuests)
     .filter(k => k < todaySun)
     .sort()
@@ -77,13 +69,19 @@ export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, to
     .map(k => ({ guests: weekGuests[k], avgHigh: weekAvgHigh(k, weatherMap) }))
     .filter((o): o is WeekObs => o.avgHigh !== null)
 
-  // 1. Pearson correlation: weekly avg high vs weekly guests (min 12 weeks)
+  const status: DetectorResult['status'] = {
+    category: 'weather',
+    checked: `${obs.length} weeks with weather data`,
+  }
+
+  // 1. Pearson correlation (min 12 weeks)
   if (obs.length >= 12) {
     const r = pearson(obs.map(o => o.avgHigh), obs.map(o => o.guests))
     if (r !== null && Math.abs(r) >= 0.4) {
       const direction = r > 0 ? 'Hotter weeks tend to have more guests' : 'Hotter weeks tend to have fewer guests'
       findings.push({
         id: 'weather.temp-guest-corr',
+        kind: 'background',
         category: 'weather',
         title: direction,
         detail: `r = ${r.toFixed(2)} across ${obs.length} weeks with weather data`,
@@ -95,7 +93,7 @@ export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, to
     }
   }
 
-  // 2. Hot weeks (avg high >= 100°) vs others (min 3 each side, diff >= 25%)
+  // 2. Hot weeks (avg high >= 100°) vs others
   const hotWeeks   = obs.filter(o => o.avgHigh >= 100)
   const otherWeeks = obs.filter(o => o.avgHigh < 100)
   if (hotWeeks.length >= 3 && otherWeeks.length >= 3) {
@@ -107,6 +105,7 @@ export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, to
         const dir = avgHot > avgOther ? 'more' : 'fewer'
         findings.push({
           id: 'weather.hot-weeks',
+          kind: 'background',
           category: 'weather',
           title: `Weeks above 100° avg high have ${dir} guests`,
           detail: `${avgHot.toFixed(1)} guests/week above 100° vs ${avgOther.toFixed(1)} below (${hotWeeks.length} vs ${otherWeeks.length} weeks)`,
@@ -125,7 +124,7 @@ export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, to
     }
   }
 
-  // 3. Kid share in school-break weeks vs non-break weeks (min 100 guests each side)
+  // 3. Kid share in school-break vs non-break weeks
   const breakGuestCount   = { total: 0, kids: 0 }
   const nonBreakGuestCount = { total: 0, kids: 0 }
 
@@ -146,6 +145,7 @@ export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, to
       if (ratio >= 1.3) {
         findings.push({
           id: 'weather.school-break-kids',
+          kind: 'background',
           category: 'weather',
           title: 'School-break weeks bring significantly more kids',
           detail: `${Math.round(breakKidShare * 100)}% kids during school breaks vs ${Math.round(nonBreakKidShare * 100)}% at other times`,
@@ -164,5 +164,5 @@ export function detectWeather(guests: PatternGuest[], weatherMap: WeatherMap, to
     }
   }
 
-  return findings
+  return { findings, status }
 }
