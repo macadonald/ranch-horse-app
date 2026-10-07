@@ -1078,6 +1078,19 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
   )
 }
 
+// ─── ToggleSwitch (local) ─────────────────────────────────────────────────────
+
+function ToggleSwitch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={onToggle}>
+      <div style={{ width: 36, height: 20, borderRadius: 999, background: on ? 'var(--color-accent)' : '#d1d5db', position: 'relative', flexShrink: 0, transition: 'background 0.15s' }}>
+        <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: on ? 19 : 3, transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+      </div>
+      <span style={{ fontSize: 12, color: 'var(--color-text-2)', fontWeight: 500 }}>{label}</span>
+    </div>
+  )
+}
+
 // ─── ReportsView ─────────────────────────────────────────────────────────────
 
 type FactsSummary = {
@@ -1259,6 +1272,134 @@ function ReportsView() {
       )}
 
       <div style={{ height: 32 }} />
+
+      <ReportGenerator />
+    </div>
+  )
+}
+
+// ─── ReportGenerator ─────────────────────────────────────────────────────────
+
+const ALL_SECTIONS = ['guests', 'horses', 'swaps', 'health', 'shoes', 'patterns'] as const
+type ReportSection = typeof ALL_SECTIONS[number]
+
+const SECTION_LABELS: Record<ReportSection, string> = {
+  guests: 'Guests', horses: 'Horses', swaps: 'Swaps',
+  health: 'Health', shoes: 'Shoes', patterns: 'Patterns',
+}
+
+function addDaysRG(date: string, n: number): string {
+  const d = new Date(date + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+function getPreset(key: string, today: string): { start: string; end: string } {
+  const d = new Date(today + 'T12:00:00Z')
+  if (key === 'lastweek') {
+    const dow = d.getUTCDay()
+    const sunEnd = new Date(d); sunEnd.setUTCDate(d.getUTCDate() - dow - 1)
+    const sunStart = new Date(sunEnd); sunStart.setUTCDate(sunEnd.getUTCDate() - 6)
+    return { start: sunStart.toISOString().slice(0, 10), end: sunEnd.toISOString().slice(0, 10) }
+  }
+  if (key === 'lastmonth') {
+    const y = d.getUTCMonth() === 0 ? d.getUTCFullYear() - 1 : d.getUTCFullYear()
+    const m = d.getUTCMonth() === 0 ? 12 : d.getUTCMonth()
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+    return {
+      start: `${y}-${String(m).padStart(2, '0')}-01`,
+      end:   `${y}-${String(m).padStart(2, '0')}-${lastDay}`,
+    }
+  }
+  if (key === 'last3months') {
+    return { start: addDaysRG(today, -90), end: addDaysRG(today, -1) }
+  }
+  if (key === 'season') {
+    const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1
+    const seasonYear = m >= 10 ? y : y - 1
+    return { start: `${seasonYear}-10-01`, end: today }
+  }
+  return { start: addDaysRG(today, -7), end: addDaysRG(today, -1) }
+}
+
+function ReportGenerator() {
+  const today = getTucsonToday()
+  const [preset, setPreset] = useState<string>('lastmonth')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd]     = useState('')
+  const [sections, setSections] = useState<Set<ReportSection>>(new Set(ALL_SECTIONS))
+  const [aiOn, setAiOn]         = useState(true)
+
+  const presetDates = getPreset(preset, today)
+  const start = preset === 'custom' ? customStart : presetDates.start
+  const end   = preset === 'custom' ? customEnd   : presetDates.end
+
+  function toggleSection(s: ReportSection) {
+    setSections(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) { if (next.size > 1) next.delete(s) } else next.add(s)
+      return next
+    })
+  }
+
+  function openReport() {
+    if (!start || !end) return
+    const secs = Array.from(sections).join(',')
+    const url = `/reports/print?start=${start}&end=${end}&sections=${encodeURIComponent(secs)}&ai=${aiOn ? '1' : '0'}`
+    window.open(url, '_blank')
+  }
+
+  return (
+    <div style={{ ...SEC_STYLE, marginTop: 16 }}>
+      <SectionHeader title="Generate a report" />
+
+      {/* Presets */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {[
+          { key: 'lastweek',   label: 'Last week' },
+          { key: 'lastmonth',  label: 'Last month' },
+          { key: 'last3months',label: 'Last 3 months' },
+          { key: 'season',     label: 'This season' },
+          { key: 'custom',     label: 'Custom' },
+        ].map(p => (
+          <button key={p.key} onClick={() => setPreset(p.key)}
+            style={{ padding: '4px 12px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontWeight: preset === p.key ? 600 : 400, border: `1px solid ${preset === p.key ? 'var(--color-accent)' : 'var(--color-border)'}`, background: preset === p.key ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: preset === p.key ? 'var(--color-accent)' : 'var(--color-text-2)' }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Custom date inputs */}
+      {preset === 'custom' ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+          <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={{ fontSize: 13, width: 140 }} />
+          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>to</span>
+          <input type="date" value={customEnd}   onChange={e => setCustomEnd(e.target.value)}   style={{ fontSize: 13, width: 140 }} />
+        </div>
+      ) : (
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12 }}>
+          {start} → {end}
+        </p>
+      )}
+
+      {/* Section toggles */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+        {ALL_SECTIONS.map(s => (
+          <ToggleSwitch key={s} on={sections.has(s)} onToggle={() => toggleSection(s)} label={SECTION_LABELS[s]} />
+        ))}
+      </div>
+
+      {/* AI summary toggle + generate button */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <ToggleSwitch on={aiOn} onToggle={() => setAiOn(v => !v)} label="AI summary" />
+        <button
+          onClick={openReport}
+          disabled={!start || !end || sections.size === 0}
+          style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: start && end && sections.size > 0 ? 'pointer' : 'not-allowed', opacity: start && end && sections.size > 0 ? 1 : 0.5 }}
+        >
+          Generate →
+        </button>
+      </div>
     </div>
   )
 }
