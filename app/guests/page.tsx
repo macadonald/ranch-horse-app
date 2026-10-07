@@ -22,6 +22,12 @@ const LEVEL_LABELS: Record<string, string> = {
   'AI': 'Adv Intermediate', 'A': 'Advanced',
 }
 
+const SWAP_REASON_LABELS: Record<string, string> = {
+  too_much_horse: 'too much horse', too_slow: 'too slow', behavior: 'behavior issue',
+  guest_preference: 'guest preference', lame: 'lame', sore: 'sore',
+  other_health: 'other health', other: 'other',
+}
+
 // Normalises freeform height input to X'Y" on blur.
 // Handles: 6'5  6'5"  6-5  6 5  65  510  6'10
 
@@ -30,6 +36,9 @@ type GuestGroup = { id: string; name: string; notes: string | null; guest_count?
 type Assignment = {
   id: string; horse_name: string; assignment_type: string; status: string
   incompatible: boolean; requested_by_guest: boolean; reason: string
+  swap_category?: string | null
+  swap_reason?: string | null
+  removed_at?: string | null
 }
 
 type SwapTarget = { horseName: string; assignmentId: string; assignmentType: string }
@@ -258,6 +267,7 @@ export default function GuestsPage() {
   const [guestLimitStatus, setGuestLimitStatus] = useState<{ count: number; loaded: number; truncated: boolean; nearingLimit: boolean } | null>(null)
   const [guestLimitDismissed, setGuestLimitDismissed] = useState(false)
   const [groups, setGroups] = useState<GuestGroup[]>([])
+  const [pastVisitRecords, setPastVisitRecords] = useState<HistoryRecord[]>([])
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const matchAbortRef = useRef<AbortController | null>(null)
   const swapAbortRef = useRef<AbortController | null>(null)
@@ -301,6 +311,10 @@ export default function GuestsPage() {
   useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
   useEffect(() => { if (!isMobile) detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id, isMobile])
   useEffect(() => {
+    if (selectedHistoryGuest) fetchPastVisitRecords(selectedHistoryGuest.name, selectedHistoryGuest.id)
+    else setPastVisitRecords([])
+  }, [selectedHistoryGuest?.id])
+  useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
     check()
     window.addEventListener('resize', check)
@@ -321,6 +335,16 @@ export default function GuestsPage() {
       const res = await fetch('/api/assignment-history?archived=true').then(r => r.json())
       setArchivedGuests(res.guests || [])
     } catch {} finally { setArchivedLoading(false) }
+  }
+
+  async function fetchPastVisitRecords(name: string, currentGuestId: string) {
+    try {
+      const res = await fetch(`/api/assignment-history?check_returning=${encodeURIComponent(name)}`).then(r => r.json())
+      const records: HistoryRecord[] = (res.records || []).filter((r: HistoryRecord) => r.guest_id !== currentGuestId && r.doesnt_work)
+      // Deduplicate by horse_name — keep first occurrence
+      const seen = new Set<string>()
+      setPastVisitRecords(records.filter(r => { if (seen.has(r.horse_name)) return false; seen.add(r.horse_name); return true }))
+    } catch { setPastVisitRecords([]) }
   }
 
   async function logHistory(guestName: string, guestId: string, horseName: string, assignmentType: string, source: string) {
@@ -412,7 +436,8 @@ export default function GuestsPage() {
 
   async function openGuest(guest: Guest) {
     setSelectedGuest(guest); setMatches([]); setDismissedHorses([]); setManualHorse(''); setManualType('primary'); setAssignmentConfirmation(null)
-    await Promise.all([runMatch(guest, []), fetchGuestHistory(guest.id)])
+    setPastVisitRecords([])
+    await Promise.all([runMatch(guest, []), fetchGuestHistory(guest.id), fetchPastVisitRecords(guest.name, guest.id)])
   }
 
   async function runMatch(guest: Guest, dismissed: string[]) {
@@ -742,6 +767,14 @@ export default function GuestsPage() {
   const incompatibleHorses: typeof incompatibleHorsesRaw = []
   incompatibleHorsesMap.forEach(v => incompatibleHorses.push(v))
 
+  const removedAssignments = (selectedGuest?.horse_assignments || [])
+    .filter(a => a.status === 'removed')
+    .sort((a, b) => (b.removed_at || b.id || '').localeCompare(a.removed_at || a.id || ''))
+
+  const historyRemovedAssignments = (selectedHistoryGuest?.horse_assignments || [])
+    .filter(a => a.status === 'removed')
+    .sort((a, b) => (b.removed_at || b.id || '').localeCompare(a.removed_at || a.id || ''))
+
   const swapAnyHorseData = swapAnyHorse ? dbHorses.find(h => h.name === swapAnyHorse) : null
   const swapAnyRiderCount = swapAnyHorse
     ? activeGuests.filter(g => (g.horse_assignments || []).some(a => a.horse_name === swapAnyHorse && a.status === 'active' && !a.incompatible)).length
@@ -1036,6 +1069,30 @@ export default function GuestsPage() {
                       </div>
                     )}
 
+                    {/* Swap history — all status='removed' rows, newest first */}
+                    {removedAssignments.length > 0 && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
+                        <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Swap history:</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {removedAssignments.map(a => (
+                            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {a.incompatible ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
+                                  {a.horse_name}{a.reason ? ` — ${a.reason}` : ''}
+                                  {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} title="Clear this signal" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                  {a.horse_name}{a.swap_reason ? ` — ${SWAP_REASON_LABELS[a.swap_reason] ?? a.swap_reason}` : ' — swapped off'}
+                                </span>
+                              )}
+                              {a.removed_at && <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{a.removed_at.slice(0, 10)}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {!isViewer && (
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                       <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
@@ -1049,6 +1106,21 @@ export default function GuestsPage() {
                     </div>
                     )}
                   </div>
+
+                  {/* From past visits — Not-a-fit horses from prior stays (read-only) */}
+                  {pastVisitRecords.length > 0 && (
+                    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
+                      <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--color-danger)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>From Past Visits</h3>
+                      <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 8 }}>Not a fit on prior stays:</p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {pastVisitRecords.map(r => (
+                          <span key={r.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
+                            {r.horse_name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Horse matches */}
                   <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 14 }}>
@@ -1377,6 +1449,44 @@ export default function GuestsPage() {
                       </div>
                     ))
                   })()}
+
+                  {/* Swap history for checked-out guest */}
+                  {historyRemovedAssignments.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Swap History</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {historyRemovedAssignments.map(a => (
+                          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {a.incompatible ? (
+                              <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
+                                {a.horse_name}{a.reason ? ` — ${a.reason}` : ''} — not a fit
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                {a.horse_name}{a.swap_reason ? ` — ${SWAP_REASON_LABELS[a.swap_reason] ?? a.swap_reason}` : ' — swapped off'}
+                              </span>
+                            )}
+                            {a.removed_at && <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{a.removed_at.slice(0, 10)}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* From past visits — Not-a-fit on prior stays (read-only) */}
+                  {pastVisitRecords.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-danger)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>From Past Visits</div>
+                      <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>Not a fit on prior stays:</p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {pastVisitRecords.map(r => (
+                          <span key={r.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
+                            {r.horse_name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 )}
                 </div>
