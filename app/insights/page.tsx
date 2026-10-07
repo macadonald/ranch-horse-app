@@ -1536,7 +1536,7 @@ function SuggestionAccuracy() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 14 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                {['Source','Picks','#1','Top 3','In list','First pick','Latest pick'].map(h => (
+                {['Source','Picks','#1','Top 3','In list','Recording since','Last recorded'].map(h => (
                   <th key={h} style={{ textAlign: h === 'Source' ? 'left' : 'right', padding: '4px 0', fontWeight: 600, color: 'var(--color-text-2)' }}>{h}</th>
                 ))}
               </tr>
