@@ -133,7 +133,7 @@ export async function DELETE(req: NextRequest) {
 
     const { data: assignment } = await supabase
       .from('horse_assignments')
-      .select('horse_name, guest_id')
+      .select('horse_name, guest_id, status')
       .eq('id', id)
       .single()
 
@@ -151,11 +151,14 @@ export async function DELETE(req: NextRequest) {
       guestName = guestRow?.name ?? '?'
     }
 
+    const isRemovedRow = assignment?.status === 'removed'
     await logActivity(supabase, { id: userId, email }, {
-      action: 'assignment.delete',
+      action: isRemovedRow ? 'assignment.swap_record_delete' : 'assignment.delete',
       entityType: 'horse_assignments',
       entityId: id,
-      summary: `Removed assignment: ${assignment?.horse_name ?? '?'} from ${guestName}`,
+      summary: isRemovedRow
+        ? `Removed swap record: ${assignment?.horse_name ?? '?'} for ${guestName}`
+        : `Removed assignment: ${assignment?.horse_name ?? '?'} from ${guestName}`,
       details: { horse_name: assignment?.horse_name, guest_name: guestName },
     })
 

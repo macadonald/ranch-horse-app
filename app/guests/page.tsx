@@ -268,6 +268,7 @@ export default function GuestsPage() {
   const [guestLimitDismissed, setGuestLimitDismissed] = useState(false)
   const [groups, setGroups] = useState<GuestGroup[]>([])
   const [pastVisitRecords, setPastVisitRecords] = useState<HistoryRecord[]>([])
+  const [swapRecordError, setSwapRecordError] = useState<string | null>(null)
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const matchAbortRef = useRef<AbortController | null>(null)
   const swapAbortRef = useRef<AbortController | null>(null)
@@ -314,6 +315,9 @@ export default function GuestsPage() {
     if (selectedHistoryGuest) fetchPastVisitRecords(selectedHistoryGuest.name, selectedHistoryGuest.id)
     else setPastVisitRecords([])
   }, [selectedHistoryGuest?.id])
+  useEffect(() => {
+    if (selectedHistoryGuest) { const u = guests.find(g => g.id === selectedHistoryGuest.id); if (u) setSelectedHistoryGuest(u) }
+  }, [guests])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
     check()
@@ -369,6 +373,29 @@ export default function GuestsPage() {
     await fetch(`/api/assignments?id=${assignmentId}`, { method: 'DELETE' })
     await fetchGuests()
     await fetchGuestHistory(selectedGuest.id)
+  }
+
+  async function removeSwapRecord(a: Assignment) {
+    if (!confirm("Remove this swap record? This can't be undone.")) return
+    try {
+      if (a.incompatible) {
+        const histRec = guestHistory.find(h => h.horse_name === a.horse_name && h.doesnt_work)
+        if (histRec) {
+          await fetch('/api/assignment-history', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: histRec.id, doesnt_work: false, doesnt_work_reason: null, match_quality: null })
+          })
+        }
+      }
+      const res = await fetch(`/api/assignments?id=${a.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed')
+      await fetchGuests()
+      const guestId = selectedGuest?.id || selectedHistoryGuest?.id
+      if (guestId) await fetchGuestHistory(guestId)
+    } catch {
+      setSwapRecordError('Failed to remove swap record. Try again.')
+      setTimeout(() => setSwapRecordError(null), 4000)
+    }
   }
 
   const cutoffDate = (() => {
@@ -1079,17 +1106,19 @@ export default function GuestsPage() {
                               {a.incompatible ? (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
                                   {a.horse_name}{a.reason ? ` — ${a.reason}` : ''}
-                                  {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); clearDoesntWork(a.horse_name, a.id); }} title="Clear this signal" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
+                                  {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
                                 </span>
                               ) : (
-                                <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
                                   {a.horse_name}{a.swap_reason ? ` — ${SWAP_REASON_LABELS[a.swap_reason] ?? a.swap_reason}` : ' — swapped off'}
+                                  {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#64748b', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
                                 </span>
                               )}
                               {a.removed_at && <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{a.removed_at.slice(0, 10)}</span>}
                             </div>
                           ))}
                         </div>
+                        {swapRecordError && <p style={{ fontSize: 12, color: 'var(--color-danger)', marginTop: 6 }}>{swapRecordError}</p>}
                       </div>
                     )}
 
@@ -1458,18 +1487,21 @@ export default function GuestsPage() {
                         {historyRemovedAssignments.map(a => (
                           <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             {a.incompatible ? (
-                              <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
                                 {a.horse_name}{a.reason ? ` — ${a.reason}` : ''} — not a fit
+                                {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
                               </span>
                             ) : (
-                              <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
                                 {a.horse_name}{a.swap_reason ? ` — ${SWAP_REASON_LABELS[a.swap_reason] ?? a.swap_reason}` : ' — swapped off'}
+                                {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#64748b', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
                               </span>
                             )}
                             {a.removed_at && <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{a.removed_at.slice(0, 10)}</span>}
                           </div>
                         ))}
                       </div>
+                      {swapRecordError && <p style={{ fontSize: 12, color: 'var(--color-danger)', marginTop: 6 }}>{swapRecordError}</p>}
                     </div>
                   )}
 
