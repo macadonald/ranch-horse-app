@@ -588,87 +588,94 @@ export function HorseAnalyticsPanel({ horses, guests: propGuests, onSelectHorse,
             if (todayD.tripled > 0) parts.push(`${todayD.tripled} tripled`)
             parts.push(`${todayD.unused} unused`)
             return (
-              <div style={{ marginBottom: 20, marginTop: -10 }}>
-                <button
-                  onClick={() => { setHerdLoadOpen(v => !v); setHerdLoadSelIdx(null) }}
-                  style={{ fontSize: 11, color: 'var(--color-text-3)', background: 'none', border: 'none', cursor: 'pointer', padding: '3px 0', textAlign: 'left' as const }}
-                >
-                  Herd load today: {parts.join(' · ')} {herdLoadOpen ? '▾' : '▸'}
-                </button>
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 12 }}>Herd Load</div>
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
 
-                {herdLoadOpen && (
-                  <div style={{ marginTop: 6, padding: '12px 14px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)' }}>
+                  {/* Collapsed header — always visible */}
+                  <div
+                    onClick={() => { setHerdLoadOpen(v => !v); setHerdLoadSelIdx(null) }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', cursor: 'pointer', userSelect: 'none' as const }}
+                  >
+                    <span style={{ fontSize: 13, color: 'var(--color-text-2)' }}>Today: {parts.join(' · ')}</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{herdLoadOpen ? '▾' : '▸'}</span>
+                  </div>
 
-                    {/* Legend */}
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, marginBottom: 8 }}>
-                      {[
-                        { color: '#4ade80', label: '1 rider' },
-                        { color: '#fb923c', label: '2 riders' },
-                        { color: '#ef4444', label: '3+ riders' },
-                        { color: 'var(--color-border)', label: 'Unused' },
-                      ].map(({ color, label }) => (
-                        <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-text-3)' }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
-                          {label}
-                        </span>
-                      ))}
-                    </div>
+                  {/* Expanded content */}
+                  {herdLoadOpen && (
+                    <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--color-border)' }}>
 
-                    {/* Stacked bar chart */}
-                    <div style={{ display: 'flex', alignItems: 'flex-end', height: 64, gap: 1, marginBottom: 4 }}>
-                      {herdLoadDays.map((d, i) => {
-                        const total = d.single + d.doubled + d.tripled + d.unused
-                        const h = (n: number) => `${Math.round((n / maxTotal) * 64)}px`
-                        const isSel = herdLoadSelIdx === i
-                        return (
-                          <div
-                            key={d.date}
-                            title={`${fmtDay(d.date)}: ${d.single}+${d.doubled}+${d.tripled} used, ${d.unused} unused`}
-                            onClick={() => setHerdLoadSelIdx(isSel ? null : i)}
-                            style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse' as const, height: `${Math.round((total / maxTotal) * 64)}px`, cursor: 'pointer', outline: isSel ? '1px solid var(--color-accent)' : 'none', borderRadius: 1 }}
-                          >
-                            {d.single  > 0 && <div style={{ height: h(d.single),  background: '#4ade80', minHeight: 1, flexShrink: 0 }} />}
-                            {d.doubled > 0 && <div style={{ height: h(d.doubled), background: '#fb923c', minHeight: 1, flexShrink: 0 }} />}
-                            {d.tripled > 0 && <div style={{ height: h(d.tripled), background: '#ef4444', minHeight: 1, flexShrink: 0 }} />}
-                            {d.unused  > 0 && <div style={{ height: h(d.unused),  background: 'var(--color-border)', minHeight: 1, flexShrink: 0 }} />}
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* X-axis date labels at ~7-day intervals */}
-                    <div style={{ display: 'flex', marginBottom: herdLoadSelIdx !== null ? 8 : 0 }}>
-                      {herdLoadDays.map((d, i) => (
-                        <div key={d.date} style={{ flex: 1, textAlign: 'center' as const, fontSize: 8, color: 'var(--color-text-3)', overflow: 'hidden', whiteSpace: 'nowrap' as const }}>
-                          {(i === 0 || i === 6 || i === 13 || i === 20 || i === 27 || i === herdLoadDays.length - 1) ? fmtDay(d.date) : ''}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Selected day detail */}
-                    {herdLoadSelIdx !== null && (() => {
-                      const sel = herdLoadDays[herdLoadSelIdx]
-                      return (
-                        <div style={{ fontSize: 11, color: 'var(--color-text-2)', padding: '6px 8px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
-                          <span style={{ fontWeight: 600, marginRight: 6 }}>{fmtDay(sel.date)}:</span>
-                          {sel.single} single · {sel.doubled} doubled{sel.tripled > 0 ? ` · ${sel.tripled} tripled` : ''} · {sel.unused} unused
-                        </div>
-                      )
-                    })()}
-
-                    {/* No-suggestion summary */}
-                    {herdLoadNoSugTotal > 0 ? (
-                      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--color-text-3)' }}>
-                        Assign All couldn&apos;t suggest a horse for {herdLoadNoSugTotal} guest{herdLoadNoSugTotal !== 1 ? 's' : ''} in the last 30 days:&nbsp;
-                        {herdLoadNoSug.map((n, i) => (
-                          <span key={n.date}>{i > 0 ? ' · ' : ''}{fmtDay(n.date)}: {n.count}</span>
+                      {/* Legend */}
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, marginBottom: 8, marginTop: 12 }}>
+                        {[
+                          { color: '#4ade80', label: '1 rider' },
+                          { color: '#fb923c', label: '2 riders' },
+                          { color: '#ef4444', label: '3+ riders' },
+                          { color: 'var(--color-border)', label: 'Unused' },
+                        ].map(({ color, label }) => (
+                          <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-text-3)' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
+                            {label}
+                          </span>
                         ))}
                       </div>
-                    ) : (
-                      <p style={{ marginTop: 10, fontSize: 11, color: 'var(--color-text-3)', margin: '10px 0 0' }}>No unmatched guests in Assign All for the last 30 days.</p>
-                    )}
-                  </div>
-                )}
+
+                      {/* Stacked bar chart */}
+                      <div style={{ display: 'flex', alignItems: 'flex-end', height: 64, gap: 1, marginBottom: 4 }}>
+                        {herdLoadDays.map((d, i) => {
+                          const total = d.single + d.doubled + d.tripled + d.unused
+                          const h = (n: number) => `${Math.round((n / maxTotal) * 64)}px`
+                          const isSel = herdLoadSelIdx === i
+                          return (
+                            <div
+                              key={d.date}
+                              title={`${fmtDay(d.date)}: ${d.single}+${d.doubled}+${d.tripled} used, ${d.unused} unused`}
+                              onClick={() => setHerdLoadSelIdx(isSel ? null : i)}
+                              style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse' as const, height: `${Math.round((total / maxTotal) * 64)}px`, cursor: 'pointer', outline: isSel ? '1px solid var(--color-accent)' : 'none', borderRadius: 1 }}
+                            >
+                              {d.single  > 0 && <div style={{ height: h(d.single),  background: '#4ade80', minHeight: 1, flexShrink: 0 }} />}
+                              {d.doubled > 0 && <div style={{ height: h(d.doubled), background: '#fb923c', minHeight: 1, flexShrink: 0 }} />}
+                              {d.tripled > 0 && <div style={{ height: h(d.tripled), background: '#ef4444', minHeight: 1, flexShrink: 0 }} />}
+                              {d.unused  > 0 && <div style={{ height: h(d.unused),  background: 'var(--color-border)', minHeight: 1, flexShrink: 0 }} />}
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* X-axis date labels at ~7-day intervals */}
+                      <div style={{ display: 'flex', marginBottom: herdLoadSelIdx !== null ? 8 : 0 }}>
+                        {herdLoadDays.map((d, i) => (
+                          <div key={d.date} style={{ flex: 1, textAlign: 'center' as const, fontSize: 8, color: 'var(--color-text-3)', overflow: 'hidden', whiteSpace: 'nowrap' as const }}>
+                            {(i === 0 || i === 6 || i === 13 || i === 20 || i === 27 || i === herdLoadDays.length - 1) ? fmtDay(d.date) : ''}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Selected day detail */}
+                      {herdLoadSelIdx !== null && (() => {
+                        const sel = herdLoadDays[herdLoadSelIdx]
+                        return (
+                          <div style={{ fontSize: 11, color: 'var(--color-text-2)', padding: '6px 8px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                            <span style={{ fontWeight: 600, marginRight: 6 }}>{fmtDay(sel.date)}:</span>
+                            {sel.single} single · {sel.doubled} doubled{sel.tripled > 0 ? ` · ${sel.tripled} tripled` : ''} · {sel.unused} unused
+                          </div>
+                        )
+                      })()}
+
+                      {/* No-suggestion summary */}
+                      {herdLoadNoSugTotal > 0 ? (
+                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--color-text-3)' }}>
+                          Assign All couldn&apos;t suggest a horse for {herdLoadNoSugTotal} guest{herdLoadNoSugTotal !== 1 ? 's' : ''} in the last 30 days:&nbsp;
+                          {herdLoadNoSug.map((n, i) => (
+                            <span key={n.date}>{i > 0 ? ' · ' : ''}{fmtDay(n.date)}: {n.count}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p style={{ marginTop: 10, fontSize: 11, color: 'var(--color-text-3)', margin: '10px 0 0' }}>No unmatched guests in Assign All for the last 30 days.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )
           })()}
