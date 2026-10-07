@@ -1408,7 +1408,7 @@ function ReportGenerator() {
 // ─── SuggestionAccuracy ───────────────────────────────────────────────────────
 
 type WeekBucket  = { weekStart: string; picks: number; top1: number; top3: number; inList: number }
-type SrcBucket   = { picks: number; top1: number; top3: number; inList: number }
+type SrcBucket   = { picks: number; top1: number; top3: number; inList: number; firstPick: string | null; lastPick: string | null }
 type AccuracyData = {
   weeks: WeekBucket[]
   bySource: Record<string, SrcBucket>
@@ -1417,6 +1417,8 @@ type AccuracyData = {
     offList: { n: number; notAFitPct: number | null }
   }
   total: number
+  firstPick: string | null
+  lastPick:  string | null
 }
 
 function fmtWeekShort(dateStr: string): string {
@@ -1489,10 +1491,12 @@ function SuggestionAccuracy() {
 
   return (
     <div style={{ ...SEC_STYLE, marginTop: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-        <SectionHeader title="Suggestion accuracy" />
-        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Last 12 weeks</span>
-      </div>
+      <SectionHeader title="Suggestion accuracy" />
+      {data && data.total >= 10 && data.firstPick && data.lastPick && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12, marginTop: -4 }}>
+          {fmtWeekShort(data.firstPick)} – {fmtWeekShort(data.lastPick)}: {data.total} picks · {pctStr(top1Total, data.total)} top pick · {pctStr(top3Total, data.total)} top 3
+        </p>
+      )}
 
       {loading && <p style={{ fontSize: 13, color: 'var(--color-text-3)', margin: 0 }}>Loading…</p>}
       {error   && <p style={{ fontSize: 13, color: '#c2410c', margin: 0 }}>{error}</p>}
@@ -1532,7 +1536,7 @@ function SuggestionAccuracy() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 14 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                {['Source','Picks','#1','Top 3','In list'].map(h => (
+                {['Source','Picks','#1','Top 3','In list','First pick','Latest pick'].map(h => (
                   <th key={h} style={{ textAlign: h === 'Source' ? 'left' : 'right', padding: '4px 0', fontWeight: 600, color: 'var(--color-text-2)' }}>{h}</th>
                 ))}
               </tr>
@@ -1547,6 +1551,8 @@ function SuggestionAccuracy() {
                     <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{pctStr(v.top1, v.picks)}</td>
                     <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{pctStr(v.top3, v.picks)}</td>
                     <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{pctStr(v.inList, v.picks)}</td>
+                    <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{v.firstPick ? fmtWeekShort(v.firstPick) : '—'}</td>
+                    <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{v.lastPick  ? fmtWeekShort(v.lastPick)  : '—'}</td>
                   </tr>
                 ))}
             </tbody>

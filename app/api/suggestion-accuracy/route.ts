@@ -16,7 +16,7 @@ function getWeekStart(dateStr: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-type Bucket = { picks: number; top1: number; top3: number; inList: number }
+type Bucket = { picks: number; top1: number; top3: number; inList: number; firstPick: string | null; lastPick: string | null }
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin()
@@ -64,17 +64,19 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Build unified outcome list ──
-  type OutcomeRow = { source: string; pickedRank: number | null; hasList: boolean; wasNotAFit: boolean; weekStart: string }
+  type OutcomeRow = { source: string; pickedRank: number | null; hasList: boolean; wasNotAFit: boolean; weekStart: string; tucsonDate: string }
   const outcomes: OutcomeRow[] = []
 
   for (const row of soRows ?? []) {
     const suggested = Array.isArray(row.suggested) ? (row.suggested as string[]) : null
+    const td = toTucsonDate(new Date(row.created_at as string))
     outcomes.push({
       source: row.source as string,
       pickedRank: row.picked_rank as number | null,
       hasList: suggested != null,
       wasNotAFit: incompatibleSet.has(row.assignment_id as string),
-      weekStart: getWeekStart(toTucsonDate(new Date(row.created_at as string))),
+      weekStart: getWeekStart(td),
+      tucsonDate: td,
     })
   }
 
@@ -94,31 +96,39 @@ export async function GET(req: NextRequest) {
       hasList: topCandidates.length > 0,
       wasNotAFit: false,
       weekStart: getWeekStart(d),
+      tucsonDate: d,
     })
   }
 
   // ── Aggregate ──
-  const empty = (): Bucket => ({ picks: 0, top1: 0, top3: 0, inList: 0 })
-  const weekMap = new Map<string, Bucket>()
+  const emptyBucket = (): Bucket => ({ picks: 0, top1: 0, top3: 0, inList: 0, firstPick: null, lastPick: null })
+  const weekMap   = new Map<string, { picks: number; top1: number; top3: number; inList: number }>()
   const sourceMap = new Map<string, Bucket>()
 
   let onListPicks = 0, onListNotAFit = 0
   let offListPicks = 0, offListNotAFit = 0
+  let overallFirst: string | null = null
+  let overallLast:  string | null = null
 
   for (const o of outcomes) {
-    const w = weekMap.get(o.weekStart) ?? empty()
+    const w = weekMap.get(o.weekStart) ?? { picks: 0, top1: 0, top3: 0, inList: 0 }
     w.picks++
     if (o.pickedRank === 1) w.top1++
     if (o.pickedRank != null && o.pickedRank <= 3) w.top3++
     if (o.pickedRank != null) w.inList++
     weekMap.set(o.weekStart, w)
 
-    const s = sourceMap.get(o.source) ?? empty()
+    const s = sourceMap.get(o.source) ?? emptyBucket()
     s.picks++
     if (o.pickedRank === 1) s.top1++
     if (o.pickedRank != null && o.pickedRank <= 3) s.top3++
     if (o.pickedRank != null) s.inList++
+    if (s.firstPick == null || o.tucsonDate < s.firstPick) s.firstPick = o.tucsonDate
+    if (s.lastPick  == null || o.tucsonDate > s.lastPick)  s.lastPick  = o.tucsonDate
     sourceMap.set(o.source, s)
+
+    if (overallFirst == null || o.tucsonDate < overallFirst) overallFirst = o.tucsonDate
+    if (overallLast  == null || o.tucsonDate > overallLast)  overallLast  = o.tucsonDate
 
     if (o.hasList) {
       if (o.pickedRank != null) { onListPicks++; if (o.wasNotAFit) onListNotAFit++ }
@@ -137,9 +147,11 @@ export async function GET(req: NextRequest) {
     weeks: weeksSorted,
     bySource,
     outcomes: {
-      onList: { n: onListPicks, notAFitPct: onListPicks > 0 ? Math.round((onListNotAFit / onListPicks) * 1000) / 10 : null },
+      onList:  { n: onListPicks,  notAFitPct: onListPicks  > 0 ? Math.round((onListNotAFit  / onListPicks)  * 1000) / 10 : null },
       offList: { n: offListPicks, notAFitPct: offListPicks > 0 ? Math.round((offListNotAFit / offListPicks) * 1000) / 10 : null },
     },
     total: outcomes.length,
+    firstPick: overallFirst,
+    lastPick:  overallLast,
   })
 }
