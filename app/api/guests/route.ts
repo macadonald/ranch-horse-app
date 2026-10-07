@@ -9,14 +9,14 @@ export async function GET() {
   const { supabase } = auth
   try {
     const [{ data, error }, { count }] = await Promise.all([
-      supabase.from('guests').select(`*, horse_assignments (*)`),
+      supabase.from('guests').select(`*, horse_assignments (*), guest_groups(id, name)`),
       supabase.from('guests').select('*', { count: 'exact', head: true }),
     ])
 
     if (error) throw error
 
     // Sort by room number numerically, then by created_at ascending for same room
-    const sorted = (data || []).sort((a, b) => {
+    const sorted = (data || []).map((g: any) => ({ ...g, group_name: g.guest_groups?.name ?? null })).sort((a, b) => {
       const aNum = parseInt(a.room_number) || 0
       const bNum = parseInt(b.room_number) || 0
       if (aNum !== bNum) return aNum - bNum
@@ -71,14 +71,26 @@ export async function PUT(req: NextRequest) {
     if (error) throw error
 
     let summary: string
+    let action = 'guest.update'
     if (updates.checked_out === true) {
       summary = `Checked out ${data.name}`
+      action = 'guest.checkout'
+    } else if ('group_id' in updates) {
+      if (updates.group_id) {
+        const { data: grp } = await supabase.from('guest_groups').select('name').eq('id', updates.group_id).single()
+        summary = grp?.name ? `Tagged ${data.name} with group ${grp.name}` : `Edited guest ${data.name}: group_id`
+      } else {
+        summary = `Removed group tag from ${data.name}`
+      }
+    } else if ('repeat_guest' in updates) {
+      summary = updates.repeat_guest ? `Marked ${data.name} as repeat guest` : `Unmarked ${data.name} as repeat guest`
+      action = 'guest.update'
     } else {
       summary = `Edited guest ${data.name}: ${Object.keys(updates).join(', ')}`
     }
 
     await logActivity(supabase, { id: userId, email }, {
-      action: updates.checked_out === true ? 'guest.checkout' : 'guest.update',
+      action,
       entityType: 'guests',
       entityId: id,
       summary,

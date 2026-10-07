@@ -7,6 +7,7 @@ import { SUPABASE_MAX_ROWS } from '@/lib/supabase'
 import { GuestAnalyticsPanel } from '@/components/GuestAnalyticsPanel'
 import { useRole } from '@/lib/auth-context'
 import { formatHeight } from '@/lib/format'
+import { getHorseWarnings } from '@/lib/horseWarnings'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -24,6 +25,8 @@ const LEVEL_LABELS: Record<string, string> = {
 // Normalises freeform height input to X'Y" on blur.
 // Handles: 6'5  6'5"  6-5  6 5  65  510  6'10
 
+type GuestGroup = { id: string; name: string; notes: string | null; guest_count?: number }
+
 type Assignment = {
   id: string; horse_name: string; assignment_type: string; status: string
   incompatible: boolean; requested_by_guest: boolean; reason: string
@@ -38,6 +41,9 @@ type Guest = {
   checked_out?: boolean
   checked_out_at?: string
   repeat_guest?: boolean
+  repeat_guest_notes?: string | null
+  group_id?: string | null
+  group_name?: string | null
   created_at?: string
   horse_assignments?: Assignment[]
 }
@@ -101,6 +107,50 @@ function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { valu
       {show && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
           {suggestions.map(name => <div key={name} onMouseDown={e => { e.preventDefault(); onChange(name); setShow(false) }} onTouchEnd={e => { e.preventDefault(); onChange(name); setShow(false) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>🐴 {name}</div>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GroupSelect({ groupId, groupName, onChange, groups }: {
+  groupId: string | null; groupName: string
+  onChange: (id: string | null, name: string) => void
+  groups: GuestGroup[]
+}) {
+  const [input, setInput] = useState('')
+  const [show, setShow] = useState(false)
+  const filtered = input.length >= 1
+    ? groups.filter(g => g.name.toLowerCase().includes(input.toLowerCase()))
+    : groups.slice(0, 8)
+  const exactMatch = groups.some(g => g.name.toLowerCase() === input.trim().toLowerCase())
+  const showCreate = input.trim().length >= 1 && !exactMatch
+  async function pick(name: string) {
+    const trimmed = name.trim()
+    setShow(false); setInput('')
+    const existing = groups.find(g => g.name.toLowerCase() === trimmed.toLowerCase())
+    if (existing) { onChange(existing.id, existing.name); return }
+    try {
+      const res = await fetch('/api/guest-groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: trimmed }) })
+      const data = await res.json()
+      if (data.group) onChange(data.group.id, data.group.name)
+    } catch {}
+  }
+  if (groupId) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{groupName}</span>
+        <button onClick={() => onChange(null, '')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1, padding: '2px 4px' }}>✕</button>
+      </div>
+    )
+  }
+  return (
+    <div style={{ position: 'relative' }}>
+      <input value={input} onChange={e => { setInput(e.target.value); setShow(true) }} onFocus={() => setShow(true)} onBlur={() => setTimeout(() => setShow(false), 150)} placeholder="Type group name..." style={{ width: '100%', fontSize: 13 }} />
+      {show && (filtered.length > 0 || showCreate) && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2, maxHeight: 200, overflowY: 'auto' }}>
+          {filtered.map(g => <div key={g.id} onMouseDown={e => { e.preventDefault(); pick(g.name) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>{g.name}{g.guest_count ? ` (${g.guest_count})` : ''}</div>)}
+          {showCreate && <div onMouseDown={e => { e.preventDefault(); pick(input) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: 'var(--color-accent)', fontWeight: 600 }}>+ Create group "{input.trim()}"</div>}
         </div>
       )}
     </div>
@@ -177,6 +227,7 @@ export default function GuestsPage() {
   const [swapMatchLoading, setSwapMatchLoading] = useState(false)
   const [swapPickSaving, setSwapPickSaving] = useState(false)
   const [swapPickError, setSwapPickError] = useState<string | null>(null)
+  const [swapAnyHorse, setSwapAnyHorse] = useState('')
   const [assignAllPastRideMap, setAssignAllPastRideMap] = useState<Record<string, Record<string, PastRideDetail>>>({})
   // Active / History view toggle
   const [guestViewMode, setGuestViewMode] = useState<'active' | 'history'>('active')
@@ -195,6 +246,7 @@ export default function GuestsPage() {
   const [deleteHistoryTarget, setDeleteHistoryTarget] = useState<Guest | null>(null)
   const [guestLimitStatus, setGuestLimitStatus] = useState<{ count: number; loaded: number; truncated: boolean; nearingLimit: boolean } | null>(null)
   const [guestLimitDismissed, setGuestLimitDismissed] = useState(false)
+  const [groups, setGroups] = useState<GuestGroup[]>([])
   const detailPanelRef = useRef<HTMLDivElement>(null)
   const matchAbortRef = useRef<AbortController | null>(null)
   const swapAbortRef = useRef<AbortController | null>(null)
@@ -204,16 +256,18 @@ export default function GuestsPage() {
 
   const fetchGuests = useCallback(async () => {
     try {
-      const [guestRes, horsesRes, returningRes] = await Promise.all([
+      const [guestRes, horsesRes, returningRes, groupsRes] = await Promise.all([
         fetch('/api/guests').then(r => r.json()),
         fetch('/api/horses').then(r => r.json()),
         fetch('/api/assignment-history?all_returning=true').then(r => r.json()),
+        fetch('/api/guest-groups').then(r => r.json()),
       ])
       const allGuests: Guest[] = guestRes.guests || []
       setGuests(allGuests)
       if (guestRes.rowLimitStatus) { setGuestLimitStatus(guestRes.rowLimitStatus); setGuestLimitDismissed(false) }
       setDbHorses(horsesRes.horses || [])
       setReturningGuestNames(new Set((returningRes.names || []).map((n: string) => n.toLowerCase())))
+      setGroups(groupsRes.groups || [])
       // Auto-checkout guests whose check_out_date is in the past
       const tucsonToday = getTucsonToday()
       const overdue = allGuests.filter(g => g.check_out_date && g.check_out_date < tucsonToday && !g.checked_out)
@@ -311,6 +365,7 @@ export default function GuestsPage() {
   const filteredGuests = activeGuests.filter(g => {
     const q = search.toLowerCase()
     if (g.name?.toLowerCase().includes(q) || g.room_number?.toLowerCase().includes(q)) return true
+    if (g.group_name?.toLowerCase().includes(q)) return true
     const activeHorse = g.horse_assignments?.find(a => a.status === 'active' && !a.incompatible)
     return !!activeHorse?.horse_name?.toLowerCase().includes(q)
   })
@@ -325,6 +380,22 @@ export default function GuestsPage() {
         const updated = { ...selectedGuest, [field]: field === 'age' || field === 'weight' ? parseInt(value) : value }
         await runMatch(updated as Guest, dismissedHorses)
       }
+    } catch (err) { console.error(err) }
+  }
+
+  async function updateGuestGroup(groupId: string | null, _groupName: string) {
+    if (!selectedGuest) return
+    try {
+      await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, group_id: groupId }) })
+      await fetchGuests()
+    } catch (err) { console.error(err) }
+  }
+
+  async function updateGuestRepeat(value: boolean) {
+    if (!selectedGuest) return
+    try {
+      await fetch('/api/guests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selectedGuest.id, repeat_guest: value }) })
+      await fetchGuests()
     } catch (err) { console.error(err) }
   }
 
@@ -452,6 +523,7 @@ export default function GuestsPage() {
     setSwapMatchLoading(false)
     setSwapPickSaving(false)
     setSwapPickError(null)
+    setSwapAnyHorse('')
   }
 
   async function performSwap() {
@@ -659,6 +731,28 @@ export default function GuestsPage() {
   const incompatibleHorses: typeof incompatibleHorsesRaw = []
   incompatibleHorsesMap.forEach(v => incompatibleHorses.push(v))
 
+  const swapAnyHorseData = swapAnyHorse ? dbHorses.find(h => h.name === swapAnyHorse) : null
+  const swapAnyRiderCount = swapAnyHorse
+    ? activeGuests.filter(g => (g.horse_assignments || []).some(a => a.horse_name === swapAnyHorse && a.status === 'active' && !a.incompatible)).length
+    : 0
+  const swapAnyHasNotAFit = swapAnyHorse
+    ? guestHistory.some(h => h.horse_name === swapAnyHorse && h.doesnt_work)
+    : false
+  const swapAnyWarnings = selectedGuest && swapAnyHorseData
+    ? getHorseWarnings(
+        { weight: selectedGuest.weight, age: selectedGuest.age, ridingLevel: selectedGuest.riding_level, existingNotAFitHorse: swapAnyHasNotAFit },
+        { level: swapAnyHorseData.level, weight: swapAnyHorseData.weight, takes_kids: swapAnyHorseData.takes_kids, flags: swapAnyHorseData.flags },
+        swapAnyRiderCount, today,
+      )
+    : []
+
+  async function handleSwapAnyHorse() {
+    if (!swapAnyHorse.trim()) return
+    if (swapAnyWarnings.length > 0 && !confirm(`This horse has ${swapAnyWarnings.length} warning(s):\n${swapAnyWarnings.join('\n')}\n\nAssign anyway?`)) return
+    await assignSwapHorse(swapAnyHorse.trim())
+    setSwapAnyHorse('')
+  }
+
   return (
     <div style={{ display: 'flex', height: '100dvh', background: 'var(--color-bg)' }}>
       <Sidebar />
@@ -737,6 +831,7 @@ export default function GuestsPage() {
                               {checkoutSoon(guest) && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600 }}>Out</span>}
                               {isReturning && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600 }}>↩</span>}
                               {guest.repeat_guest && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1' }}>Repeat</span>}
+                              {guest.group_name && <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{guest.group_name}</span>}
                             </div>
                           </div>
                         )
@@ -753,6 +848,7 @@ export default function GuestsPage() {
                               {checkoutSoon(guest) && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', fontWeight: 600, whiteSpace: 'nowrap' }}>Checkout {guest.check_out_date === today ? 'today' : 'tomorrow'}</span>}
                               {isReturning && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd', whiteSpace: 'nowrap' }}>Returning</span>}
                               {guest.repeat_guest && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1', whiteSpace: 'nowrap' }}>Repeat</span>}
+                              {guest.group_name && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600, whiteSpace: 'nowrap' }}>{guest.group_name}</span>}
                               {guest.horse_request && !primary && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Request</span>}
                             </div>
                           </div>
@@ -822,6 +918,9 @@ export default function GuestsPage() {
                           {selectedGuest.repeat_guest && (
                             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #cbd5e1' }}>Repeat</span>
                           )}
+                          {selectedGuest.group_name && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600, border: '1px solid #bae6fd' }}>{selectedGuest.group_name}</span>
+                          )}
                         </div>
                         {!isViewer && <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>Tap any field to edit</p>}
                       </div>
@@ -862,6 +961,33 @@ export default function GuestsPage() {
                         </button>
                       )}
                     </div>
+                    <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)', marginTop: 8 }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Group</div>
+                      {isViewer ? (
+                        selectedGuest.group_name
+                          ? <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{selectedGuest.group_name}</span>
+                          : <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>—</span>
+                      ) : (
+                        <GroupSelect groupId={selectedGuest.group_id ?? null} groupName={selectedGuest.group_name ?? ''} onChange={updateGuestGroup} groups={groups} />
+                      )}
+                    </div>
+                    <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)', marginTop: 8 }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Repeat Guest</div>
+                      {isViewer ? (
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>{selectedGuest.repeat_guest ? 'Yes' : 'No'}</div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {([false, true] as const).map(val => (
+                            <button key={String(val)} type="button" onClick={() => updateGuestRepeat(val)} style={{ padding: '4px 12px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontWeight: !!selectedGuest.repeat_guest === val ? 600 : 400, border: `1px solid ${!!selectedGuest.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-border)'}`, background: !!selectedGuest.repeat_guest === val ? 'var(--color-accent)' : 'var(--color-surface)', color: !!selectedGuest.repeat_guest === val ? '#fff' : 'var(--color-text-2)' }}>{val ? 'Yes' : 'No'}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedGuest.repeat_guest && (
+                      <div style={{ marginTop: 8 }}>
+                        <EditableField label="Repeat notes" value={selectedGuest.repeat_guest_notes || ''} onSave={v => updateGuestField('repeat_guest_notes', v)} isViewer={isViewer} />
+                      </div>
+                    )}
                   </div>
 
                   {/* Assigned horses */}
@@ -1261,7 +1387,7 @@ export default function GuestsPage() {
         ` }} />
       </main>
 
-      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horseNames={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)} />}
+      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horses={dbHorses.filter(h => h.is_active && !h.is_deceased)} groups={groups} currentGuests={activeGuests} today={today} />}
 
       {/* Swap horse modal */}
       {swapTarget && (
@@ -1423,6 +1549,21 @@ export default function GuestsPage() {
                   )}
                 </div>
 
+                <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, marginBottom: 12 }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>Or pick any horse</p>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: swapAnyWarnings.length > 0 ? 8 : 0 }}>
+                    <HorseAutocomplete value={swapAnyHorse} onChange={v => setSwapAnyHorse(v)} placeholder="Horse name..." horses={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)} />
+                    <button onClick={handleSwapAnyHorse} disabled={!swapAnyHorse.trim() || swapPickSaving} style={{ padding: '7px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: swapAnyWarnings.length > 0 ? '#d97706' : 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: !swapAnyHorse.trim() || swapPickSaving ? 'not-allowed' : 'pointer', opacity: !swapAnyHorse.trim() || swapPickSaving ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                      {swapPickSaving ? '...' : swapAnyWarnings.length > 0 ? 'Assign anyway' : 'Assign'}
+                    </button>
+                  </div>
+                  {swapAnyWarnings.length > 0 && (
+                    <div style={{ padding: '6px 10px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 'var(--radius-sm)' }}>
+                      {swapAnyWarnings.map((w, i) => <p key={i} style={{ fontSize: 11, color: '#92400e', margin: i > 0 ? '2px 0 0' : 0 }}>⚠ {w}</p>)}
+                    </div>
+                  )}
+                </div>
+
                 {swapPickError && (
                   <p style={{ fontSize: 12, color: 'var(--color-danger)', marginBottom: 10 }}>{swapPickError}</p>
                 )}
@@ -1475,8 +1616,28 @@ export default function GuestsPage() {
 }
 
 
-function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => void; onSaved: () => void; horseNames?: string[] }) {
+function AddGuestModal({ onClose, onSaved, horses = [], groups = [], currentGuests = [], today = '' }: {
+  onClose: () => void; onSaved: () => void
+  horses?: DbHorse[]; groups?: GuestGroup[]; currentGuests?: Guest[]; today?: string
+}) {
   const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' as 'yes' | 'no' })
+  const [assignHorseName, setAssignHorseName] = useState('')
+  const [assignHorseType, setAssignHorseType] = useState('primary')
+  const [assignGroupId, setAssignGroupId] = useState<string | null>(null)
+  const [assignGroupName, setAssignGroupName] = useState('')
+  const [assignError, setAssignError] = useState<string | null>(null)
+  const horseNames = horses.map(h => h.name)
+  const modalHorseData = assignHorseName ? horses.find(h => h.name === assignHorseName) : null
+  const modalRiderCount = assignHorseName
+    ? currentGuests.filter(g => (g.horse_assignments || []).some(a => a.horse_name === assignHorseName && a.status === 'active' && !a.incompatible)).length
+    : 0
+  const modalWarnings = assignHorseName && modalHorseData && form.riding_level
+    ? getHorseWarnings(
+        { weight: form.weight ? parseInt(form.weight) : null, age: form.age ? parseInt(form.age) : null, ridingLevel: form.riding_level, existingNotAFitHorse: false },
+        { level: modalHorseData.level, weight: modalHorseData.weight, takes_kids: modalHorseData.takes_kids, flags: modalHorseData.flags },
+        modalRiderCount, today,
+      )
+    : []
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [count, setCount] = useState(0)
@@ -1520,13 +1681,26 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
     if (!form.name || !form.riding_level) return
     setSaving(true)
     setSaveError(null)
+    setAssignError(null)
     try {
-      const res = await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null, repeat_guest: form.repeat_guest === 'yes' }) })
+      const res = await fetch('/api/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, weight: form.weight ? parseInt(form.weight) : null, repeat_guest: form.repeat_guest === 'yes', group_id: assignGroupId || null }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Save failed')
+      const guestId = data.guest?.id
+      if (assignHorseName.trim() && guestId) {
+        try {
+          await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guestId, horse_name: assignHorseName.trim(), assignment_type: assignHorseType, status: 'active', incompatible: false, requested_by_guest: false, source: 'manual' }) })
+        } catch {
+          setAssignError(`Guest saved but couldn't assign ${assignHorseName} — assign manually from the profile`)
+        }
+      }
       onSaved()
-      if (addAnother) { setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null); setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' })); setTimeout(() => setLastSaved(null), 2000) }
-      else { onClose() }
+      if (addAnother) {
+        setCount(c => c + 1); setLastSaved(form.name); setReturningInfo(null)
+        setForm(prev => ({ name: '', room_number: '', check_in_date: prev.check_in_date, check_out_date: prev.check_out_date, age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' }))
+        setAssignHorseName(''); setAssignHorseType('primary'); setAssignGroupId(null); setAssignGroupName('')
+        setTimeout(() => setLastSaved(null), 2000)
+      } else { onClose() }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save guest — check your connection and try again')
     } finally { setSaving(false) }
@@ -1543,6 +1717,7 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
         </div>
         {lastSaved && <div style={{ background: 'var(--color-success-bg)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: 'var(--color-success)', fontWeight: 500 }}>✓ {lastSaved} saved — enter next guest</div>}
         {saveError && <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>⚠ {saveError}</div>}
+        {assignError && <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#92400e', fontWeight: 500 }}>⚠ {assignError}</div>}
         {returningInfo && (
           <div style={{ background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#6d28d9', fontWeight: 500 }}>
             🔄 Returning guest! Last rode {returningInfo.lastHorse} on {returningInfo.lastDate}
@@ -1580,6 +1755,26 @@ function AddGuestModal({ onClose, onSaved, horseNames = [] }: { onClose: () => v
           <div style={{ gridColumn: '1/-1' }}>
             <label>Horse Request</label>
             <HorseAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={horseNames} />
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label>Group (optional)</label>
+            <GroupSelect groupId={assignGroupId} groupName={assignGroupName} onChange={(id, name) => { setAssignGroupId(id); setAssignGroupName(name) }} groups={groups} />
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label>Assign horse now (optional)</label>
+            <div style={{ display: 'flex', gap: 7, marginTop: 2 }}>
+              <HorseAutocomplete value={assignHorseName} onChange={setAssignHorseName} placeholder="Horse name..." horses={horseNames} />
+              <select value={assignHorseType} onChange={e => setAssignHorseType(e.target.value)} style={{ fontSize: 13, width: 120 }}>
+                <option value="primary">Primary</option>
+                <option value="secondary">Secondary</option>
+                <option value="additional">Additional</option>
+              </select>
+            </div>
+            {modalWarnings.length > 0 && (
+              <div style={{ marginTop: 6, padding: '6px 10px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 'var(--radius-sm)' }}>
+                {modalWarnings.map((w, i) => <p key={i} style={{ fontSize: 11, color: '#92400e', margin: i > 0 ? '2px 0 0' : 0 }}>⚠ {w}</p>)}
+              </div>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 9, position: 'sticky', bottom: 0, background: 'var(--color-surface)', padding: '12px 16px', borderTop: '1px solid var(--color-border)', zIndex: 10, marginLeft: -22, marginRight: -22, marginBottom: -22 }}>
