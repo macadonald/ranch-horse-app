@@ -113,21 +113,22 @@ function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { valu
   )
 }
 
-function GroupSelect({ groupId, groupName, onChange, groups }: {
+function GroupSelect({ groupId, groupName, onChange, groups, isViewer = false }: {
   groupId: string | null; groupName: string
   onChange: (id: string | null, name: string) => void
   groups: GuestGroup[]
+  isViewer?: boolean
 }) {
+  const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
-  const [show, setShow] = useState(false)
-  const filtered = input.length >= 1
-    ? groups.filter(g => g.name.toLowerCase().includes(input.toLowerCase()))
-    : groups.slice(0, 8)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (open) { setInput(''); setTimeout(() => inputRef.current?.focus(), 0) } }, [open])
+  const filtered = input.length >= 1 ? groups.filter(g => g.name.toLowerCase().includes(input.toLowerCase())) : groups.slice(0, 8)
   const exactMatch = groups.some(g => g.name.toLowerCase() === input.trim().toLowerCase())
   const showCreate = input.trim().length >= 1 && !exactMatch
   async function pick(name: string) {
     const trimmed = name.trim()
-    setShow(false); setInput('')
+    setOpen(false); setInput('')
     const existing = groups.find(g => g.name.toLowerCase() === trimmed.toLowerCase())
     if (existing) { onChange(existing.id, existing.name); return }
     try {
@@ -138,22 +139,32 @@ function GroupSelect({ groupId, groupName, onChange, groups }: {
   }
   if (groupId) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{groupName}</span>
-        <button onClick={() => onChange(null, '')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1, padding: '2px 4px' }}>✕</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{groupName}</span>
+        {!isViewer && <button onClick={() => onChange(null, '')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1, padding: '2px 4px' }}>✕</button>}
       </div>
     )
   }
+  if (isViewer) return null
+  if (!open) return <button onClick={() => setOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--color-text-muted)', padding: 0, fontWeight: 500 }}>+ Add group</button>
   return (
     <div style={{ position: 'relative' }}>
-      <input value={input} onChange={e => { setInput(e.target.value); setShow(true) }} onFocus={() => setShow(true)} onBlur={() => setTimeout(() => setShow(false), 150)} placeholder="Type group name..." style={{ width: '100%', fontSize: 13 }} />
-      {show && (filtered.length > 0 || showCreate) && (
+      <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} onKeyDown={e => { if (e.key === 'Escape') { setOpen(false); setInput('') } else if (e.key === 'Enter' && input.trim()) pick(input) }} placeholder="Type group name..." style={{ width: '100%', fontSize: 13 }} />
+      {(filtered.length > 0 || showCreate) && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2, maxHeight: 200, overflowY: 'auto' }}>
-          {filtered.map(g => <div key={g.id} onMouseDown={e => { e.preventDefault(); pick(g.name) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>{g.name}{g.guest_count ? ` (${g.guest_count})` : ''}</div>)}
-          {showCreate && <div onMouseDown={e => { e.preventDefault(); pick(input) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: 'var(--color-accent)', fontWeight: 600 }}>+ Create group "{input.trim()}"</div>}
+          {filtered.map(g => <div key={g.id} onMouseDown={e => { e.preventDefault(); pick(g.name) }} style={{ padding: '7px 10px', fontSize: 12, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>{g.name}{g.guest_count ? ` (${g.guest_count})` : ''}</div>)}
+          {showCreate && <div onMouseDown={e => { e.preventDefault(); pick(input) }} style={{ padding: '7px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--color-accent)', fontWeight: 600 }}>+ Create "{input.trim()}"</div>}
         </div>
       )}
     </div>
+  )
+}
+
+function ToggleSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, background: on ? 'var(--color-accent)' : '#d1d5db', position: 'relative', transition: 'background 0.2s' }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: on ? 23 : 3, transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+    </button>
   )
 }
 
@@ -225,7 +236,7 @@ export default function GuestsPage() {
   const [swapSaving, setSwapSaving] = useState(false)
   const [swapMatches, setSwapMatches] = useState<Match[]>([])
   const [swapMatchLoading, setSwapMatchLoading] = useState(false)
-  const [swapPickSaving, setSwapPickSaving] = useState(false)
+  const [swapSavingHorse, setSwapSavingHorse] = useState<string | null>(null)
   const [swapPickError, setSwapPickError] = useState<string | null>(null)
   const [swapAnyHorse, setSwapAnyHorse] = useState('')
   const [assignAllPastRideMap, setAssignAllPastRideMap] = useState<Record<string, Record<string, PastRideDetail>>>({})
@@ -489,7 +500,7 @@ export default function GuestsPage() {
     if (!selectedGuest || !swapTarget) return
     const { assignmentType } = swapTarget
     const guest = selectedGuest
-    setSwapPickSaving(true); setSwapPickError(null)
+    setSwapSavingHorse(horseName); setSwapPickError(null)
     try {
       await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guest.id, horse_name: horseName, assignment_type: assignmentType, status: 'active', incompatible: false, requested_by_guest: false, source: 'swap_replacement' }) })
       await logHistory(guest.name, guest.id, horseName, assignmentType, 'manual')
@@ -499,7 +510,7 @@ export default function GuestsPage() {
     } catch (err) {
       setSwapPickError('Failed to assign horse. Please try again.')
       console.error(err)
-    } finally { setSwapPickSaving(false) }
+    } finally { setSwapSavingHorse(null) }
   }
 
   async function removeAssignment(id: string) { try { await fetch(`/api/assignments?id=${id}`, { method: 'DELETE' }); await fetchGuests() } catch (err) { console.error(err) } }
@@ -521,7 +532,7 @@ export default function GuestsPage() {
     setSwapHealthFlag(true)
     setSwapMatches([])
     setSwapMatchLoading(false)
-    setSwapPickSaving(false)
+    setSwapSavingHorse(null)
     setSwapPickError(null)
     setSwapAnyHorse('')
   }
@@ -772,35 +783,40 @@ export default function GuestsPage() {
         )}
 
         {/* Header */}
-        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)', paddingBottom: 16, paddingLeft: 24, paddingRight: 24, position: 'sticky', top: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+        <div className="guest-header" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 12, paddingLeft: 24, paddingRight: 24, position: 'sticky', top: 0, zIndex: 100 }}>
+          {/* Row 1: title + action buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
             <div>
               <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Guests</h1>
               <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>{activeGuests.length} active · Tucson: {today}</p>
             </div>
-            {/* Active / History toggle */}
-            <div style={{ display: 'flex', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', overflow: 'hidden', flexShrink: 0 }}>
-              <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null); setSelectedHistoryGuest(null); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
-              <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); setSelectedHistoryGuest(null); setSelectedArchived(null); fetchArchivedGuests(); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
+            <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+              {guestViewMode === 'active' && <>
+                {!isViewer && <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>}
+                <button onClick={() => { setShowAnalytics(v => !v); setSelectedGuest(null) }} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: showAnalytics ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: showAnalytics ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Insights</button>
+                {!isViewer && <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>}
+              </>}
+            </div>
+          </div>
+          {/* Row 2: Active/History toggle + Grid/List toggle + search */}
+          <div className="guest-header-row2" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <div style={{ display: 'flex', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', overflow: 'hidden' }}>
+                <button onClick={() => { setGuestViewMode('active'); setSelectedArchived(null); setSelectedHistoryGuest(null); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', background: guestViewMode === 'active' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'active' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>Active</button>
+                <button onClick={() => { setGuestViewMode('history'); setSelectedGuest(null); setSelectedHistoryGuest(null); setSelectedArchived(null); fetchArchivedGuests(); setCurrentHistoryPage(1) }} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--color-border)', background: guestViewMode === 'history' ? 'var(--color-accent)' : 'var(--color-surface)', color: guestViewMode === 'history' ? '#fff' : 'var(--color-text-2)', cursor: 'pointer' }}>History</button>
+              </div>
+              {guestViewMode === 'active' && (
+                <button onClick={() => { const next = !guestGridView; setGuestGridView(next); localStorage.setItem('guestGridView', next ? 'grid' : 'list') }} style={{ padding: '5px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {guestGridView ? '≡ List' : '⊞ Grid'}
+                </button>
+              )}
             </div>
             <input
-              placeholder={guestViewMode === 'history' ? 'Search past guests...' : 'Search name or room...'}
+              placeholder="Search name, room, horse, or group…"
               value={guestViewMode === 'history' ? historySearch : search}
               onChange={e => guestViewMode === 'history' ? (setHistorySearch(e.target.value), setCurrentHistoryPage(1)) : setSearch(e.target.value)}
-              style={{ fontSize: 13, width: 200 }}
+              style={{ fontSize: 13, flex: 1, minWidth: 220 }}
             />
-            {guestViewMode === 'active' && (
-              <button onClick={() => { const next = !guestGridView; setGuestGridView(next); localStorage.setItem('guestGridView', next ? 'grid' : 'list') }} style={{ padding: '6px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {guestGridView ? '≡ List' : '⊞ Grid'}
-              </button>
-            )}
-          </div>
-          <div className="guest-actions" style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
-            {guestViewMode === 'active' && <>
-              {!isViewer && <button onClick={runAssignAll} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Assign All</button>}
-              <button onClick={() => { setShowAnalytics(v => !v); setSelectedGuest(null) }} style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: showAnalytics ? 'var(--color-accent-bg)' : 'var(--color-surface)', color: showAnalytics ? 'var(--color-accent)' : 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Insights</button>
-              {!isViewer && <button onClick={() => setShowAdd(true)} style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add Guest</button>}
-            </>}
           </div>
         </div>
 
@@ -961,16 +977,12 @@ export default function GuestsPage() {
                         </button>
                       )}
                     </div>
+                    {(!isViewer || selectedGuest.group_id) && (
                     <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)', marginTop: 8 }}>
                       <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Group</div>
-                      {isViewer ? (
-                        selectedGuest.group_name
-                          ? <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{selectedGuest.group_name}</span>
-                          : <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>—</span>
-                      ) : (
-                        <GroupSelect groupId={selectedGuest.group_id ?? null} groupName={selectedGuest.group_name ?? ''} onChange={updateGuestGroup} groups={groups} />
-                      )}
+                      <GroupSelect groupId={selectedGuest.group_id ?? null} groupName={selectedGuest.group_name ?? ''} onChange={updateGuestGroup} groups={groups} isViewer={isViewer} />
                     </div>
+                    )}
                     <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)', marginTop: 8 }}>
                       <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Repeat Guest</div>
                       {isViewer ? (
@@ -1072,7 +1084,7 @@ export default function GuestsPage() {
                             <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 7 : 0 }}>{m.reason}</p>
                             {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', padding: '4px 7px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--radius-sm)', marginBottom: 7 }}>⚠ {m.warning}</p>}
                             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')} disabled={assigningHorse === m.name} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
+                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')} disabled={assigningHorse !== null} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: assigningHorse !== null ? 'not-allowed' : 'pointer', opacity: assigningHorse !== null && assigningHorse !== m.name ? 0.5 : 1 }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
                               <button onClick={() => dismissHorse(m.name)} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
@@ -1379,9 +1391,10 @@ export default function GuestsPage() {
             .guest-split { flex-direction: column !important; height: auto !important; flex: initial !important; min-height: initial !important; }
             .guest-split > div:first-child { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e8e0d5; overflow-y: visible !important; }
             .guest-profile-panel { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; z-index: 200 !important; background: var(--color-bg) !important; overflow-y: auto !important; padding: 0 !important; -webkit-overflow-scrolling: touch !important; }
-            .guest-header { padding-left: 12px !important; padding-right: 12px !important; padding-top: max(12px, env(safe-area-inset-top)) !important; flex-wrap: wrap !important; }
-            .guest-actions { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-end !important; padding-right: 0 !important; }
-            .guest-actions > input[type=text], .guest-actions > input:not([type]) { flex: 1 !important; min-width: 80px !important; width: auto !important; }
+            .guest-header { padding-left: 12px !important; padding-right: 12px !important; padding-top: max(12px, env(safe-area-inset-top)) !important; }
+            .guest-actions { flex-wrap: wrap !important; justify-content: flex-end !important; }
+            .guest-header-row2 { flex-wrap: wrap !important; }
+            .guest-header-row2 > input { flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important; }
             .add-guest-modal input, .add-guest-modal select, .add-guest-modal textarea { min-height: 44px !important; }
           }
         ` }} />
@@ -1457,10 +1470,10 @@ export default function GuestsPage() {
                 )}
 
                 {swapCategory === 'horse_issue' && (swapReason === 'lame' || swapReason === 'sore') && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
-                    <input type="checkbox" checked={swapHealthFlag} onChange={e => setSwapHealthFlag(e.target.checked)} style={{ width: 15, height: 15, flexShrink: 0 }} />
-                    Also flag {swapTarget.horseName} on the Health tab ({swapReason === 'lame' ? 'Lame' : 'Stiff/Sore'})
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                    <ToggleSwitch on={swapHealthFlag} onToggle={() => setSwapHealthFlag(v => !v)} />
+                    <span style={{ fontSize: 13, color: 'var(--color-text-2)' }}>Also flag {swapTarget.horseName} on the Health tab ({swapReason === 'lame' ? 'Lame' : 'Stiff/Sore'})</span>
+                  </div>
                 )}
 
                 <textarea
@@ -1508,7 +1521,7 @@ export default function GuestsPage() {
                             </div>
                           </div>
                           <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: 8 }}>{m.reason}</p>
-                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapPickSaving} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapPickSaving ? 'not-allowed' : 'pointer', opacity: swapPickSaving ? 0.6 : 1 }}>{swapPickSaving ? 'Assigning...' : 'Assign'}</button>
+                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapSavingHorse !== null} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: swapSavingHorse !== null ? 0.6 : 1 }}>{swapSavingHorse === m.name ? 'Assigning...' : 'Assign'}</button>
                         </div>
                       ))}
                     </>
@@ -1532,7 +1545,7 @@ export default function GuestsPage() {
                           </div>
                           <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 6 : 8 }}>{m.reason}</p>
                           {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 8 }}>⚠ {m.warning}</p>}
-                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapPickSaving} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapPickSaving ? 'not-allowed' : 'pointer', opacity: swapPickSaving ? 0.6 : 1 }}>{swapPickSaving ? 'Assigning...' : 'Assign'}</button>
+                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapSavingHorse !== null} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: swapSavingHorse !== null ? 0.6 : 1 }}>{swapSavingHorse === m.name ? 'Assigning...' : 'Assign'}</button>
                         </div>
                       ))}
                     </>
@@ -1553,8 +1566,8 @@ export default function GuestsPage() {
                   <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>Or pick any horse</p>
                   <div style={{ display: 'flex', gap: 8, marginBottom: swapAnyWarnings.length > 0 ? 8 : 0 }}>
                     <HorseAutocomplete value={swapAnyHorse} onChange={v => setSwapAnyHorse(v)} placeholder="Horse name..." horses={dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => h.name)} />
-                    <button onClick={handleSwapAnyHorse} disabled={!swapAnyHorse.trim() || swapPickSaving} style={{ padding: '7px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: swapAnyWarnings.length > 0 ? '#d97706' : 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: !swapAnyHorse.trim() || swapPickSaving ? 'not-allowed' : 'pointer', opacity: !swapAnyHorse.trim() || swapPickSaving ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                      {swapPickSaving ? '...' : swapAnyWarnings.length > 0 ? 'Assign anyway' : 'Assign'}
+                    <button onClick={handleSwapAnyHorse} disabled={!swapAnyHorse.trim() || swapSavingHorse !== null} style={{ padding: '7px 13px', borderRadius: 'var(--radius-sm)', border: 'none', background: swapAnyWarnings.length > 0 ? '#d97706' : 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: !swapAnyHorse.trim() || swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: !swapAnyHorse.trim() || swapSavingHorse !== null ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                      {swapSavingHorse === swapAnyHorse.trim() ? '...' : swapAnyWarnings.length > 0 ? 'Assign anyway' : 'Assign'}
                     </button>
                   </div>
                   {swapAnyWarnings.length > 0 && (
