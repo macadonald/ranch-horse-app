@@ -1274,6 +1274,7 @@ function ReportsView() {
       <div style={{ height: 32 }} />
 
       <ReportGenerator />
+      <SuggestionAccuracy />
     </div>
   )
 }
@@ -1400,6 +1401,183 @@ function ReportGenerator() {
           Generate →
         </button>
       </div>
+    </div>
+  )
+}
+
+// ─── SuggestionAccuracy ───────────────────────────────────────────────────────
+
+type WeekBucket  = { weekStart: string; picks: number; top1: number; top3: number; inList: number }
+type SrcBucket   = { picks: number; top1: number; top3: number; inList: number }
+type AccuracyData = {
+  weeks: WeekBucket[]
+  bySource: Record<string, SrcBucket>
+  outcomes: {
+    onList:  { n: number; notAFitPct: number | null }
+    offList: { n: number; notAFitPct: number | null }
+  }
+  total: number
+}
+
+function fmtWeekShort(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${mo[dt.getUTCMonth()]} ${dt.getUTCDate()}`
+}
+
+function MiniLineChart({ weeks }: { weeks: WeekBucket[] }) {
+  if (weeks.length < 2) return null
+  const W = 480, H = 80, PT = 8, PB = 24, PL = 30, PR = 8
+  const iW = W - PL - PR, iH = H - PT - PB
+  const rates = weeks.map(w => w.picks > 0 ? w.top3 / w.picks : null)
+  const xOf = (i: number) => PL + (i / (weeks.length - 1)) * iW
+  const yOf = (r: number) => PT + iH - r * iH
+  const pathD = weeks.map((_, i) => {
+    const r = rates[i]
+    if (r == null) return ''
+    return `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(1)},${yOf(r).toFixed(1)}`
+  }).filter(Boolean).join(' ')
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+      {[0, 0.5, 1].map(v => (
+        <g key={v}>
+          <line x1={PL - 4} y1={yOf(v)} x2={W - PR} y2={yOf(v)} stroke="var(--color-border)" strokeWidth={0.5} />
+          <text x={PL - 6} y={yOf(v) + 3} textAnchor="end" fontSize={8} fill="var(--color-text-3)">{(v * 100).toFixed(0)}%</text>
+        </g>
+      ))}
+      {pathD && <path d={pathD} fill="none" stroke="var(--color-accent)" strokeWidth={2} strokeLinejoin="round" />}
+      {weeks.map((_, i) => {
+        const r = rates[i]
+        if (r == null) return null
+        return <circle key={i} cx={xOf(i)} cy={yOf(r)} r={3} fill="var(--color-accent)" />
+      })}
+      {weeks.map((w, i) => {
+        if (weeks.length > 8 && i % 2 !== 0) return null
+        return <text key={i} x={xOf(i)} y={H - 4} textAnchor="middle" fontSize={8} fill="var(--color-text-3)">{fmtWeekShort(w.weekStart)}</text>
+      })}
+    </svg>
+  )
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  assign_all: 'Assign All', matches: 'Horse Matches', swap: 'Swap', manual: 'Manual',
+}
+
+function pctStr(n: number, d: number): string {
+  return d === 0 ? '—' : `${Math.round((n / d) * 100)}%`
+}
+
+function SuggestionAccuracy() {
+  const [data, setData]       = useState<AccuracyData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/suggestion-accuracy?weeks=12')
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) throw new Error(d.error)
+        setData(d as AccuracyData); setLoading(false)
+      })
+      .catch(e => { setError(e instanceof Error ? e.message : 'Failed to load'); setLoading(false) })
+  }, [])
+
+  const inListTotal = data ? Object.values(data.bySource).reduce((s, v) => s + v.inList, 0) : 0
+  const top1Total   = data ? Object.values(data.bySource).reduce((s, v) => s + v.top1, 0) : 0
+  const top3Total   = data ? Object.values(data.bySource).reduce((s, v) => s + v.top3, 0) : 0
+
+  return (
+    <div style={{ ...SEC_STYLE, marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+        <SectionHeader title="Suggestion accuracy" />
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Last 12 weeks</span>
+      </div>
+
+      {loading && <p style={{ fontSize: 13, color: 'var(--color-text-3)', margin: 0 }}>Loading…</p>}
+      {error   && <p style={{ fontSize: 13, color: '#c2410c', margin: 0 }}>{error}</p>}
+
+      {!loading && !error && data && data.total < 10 && (
+        <p style={{ fontSize: 13, color: 'var(--color-text-3)', margin: 0 }}>
+          Not enough data yet — need at least 10 picks to show accuracy stats.
+        </p>
+      )}
+
+      {!loading && !error && data && data.total >= 10 && (
+        <>
+          {/* Top-line KPIs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+            {[
+              { label: 'Top pick taken',     val: pctStr(top1Total, data.total) },
+              { label: 'In top 3',           val: pctStr(top3Total, data.total) },
+              { label: 'In suggested list',  val: pctStr(inListTotal, data.total) },
+            ].map(({ label, val }) => (
+              <div key={label} style={{ textAlign: 'center', padding: '10px 8px', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-accent)' }}>{val}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Weekly line chart */}
+          {data.weeks.length >= 2 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Top-3 hit rate by week</div>
+              <MiniLineChart weeks={data.weeks} />
+            </div>
+          )}
+
+          {/* By-source table */}
+          <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>By source</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 14 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                {['Source','Picks','#1','Top 3','In list'].map(h => (
+                  <th key={h} style={{ textAlign: h === 'Source' ? 'left' : 'right', padding: '4px 0', fontWeight: 600, color: 'var(--color-text-2)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(data.bySource)
+                .sort(([, a], [, b]) => b.picks - a.picks)
+                .map(([src, v]) => (
+                  <tr key={src} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <td style={{ padding: '5px 0', color: 'var(--color-text)' }}>{SOURCE_LABELS[src] ?? src}</td>
+                    <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{v.picks}</td>
+                    <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{pctStr(v.top1, v.picks)}</td>
+                    <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{pctStr(v.top3, v.picks)}</td>
+                    <td style={{ textAlign: 'right', padding: '5px 0', color: 'var(--color-text-2)' }}>{pctStr(v.inList, v.picks)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+
+          {/* Outcomes box */}
+          {(data.outcomes.onList.n > 0 || data.outcomes.offList.n > 0) && (
+            <div style={{ padding: '10px 12px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Not-a-fit rate</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>On suggested list (n={data.outcomes.onList.n})</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text)' }}>
+                    {data.outcomes.onList.notAFitPct != null ? `${data.outcomes.onList.notAFitPct}%` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>Off list / manual (n={data.outcomes.offList.n})</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text)' }}>
+                    {data.outcomes.offList.notAFitPct != null ? `${data.outcomes.offList.notAFitPct}%` : '—'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <p style={{ fontSize: 11, color: 'var(--color-text-3)', margin: 0 }}>
+            {data.total} picks recorded in the last 12 weeks. Assign All history included from Sep 29 onward.
+          </p>
+        </>
+      )}
     </div>
   )
 }

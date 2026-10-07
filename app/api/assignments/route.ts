@@ -26,8 +26,8 @@ export async function POST(req: NextRequest) {
   const { userId, email, supabase } = auth
   try {
     const body = await req.json()
-    // source is a client-only flag — read it for logging, do not store it
-    const { source, ...insertBody } = body
+    // source and suggested are client-only fields — do not store on horse_assignments
+    const { source, suggested, ...insertBody } = body
     const { data, error } = await supabase
       .from('horse_assignments')
       .insert([insertBody])
@@ -54,6 +54,22 @@ export async function POST(req: NextRequest) {
       summary: `Assigned ${data.horse_name} to ${guestName} (${typeLabel})`,
       details: { horse_name: data.horse_name, guest_name: guestName, assignment_type: data.assignment_type, source: source ?? null },
     })
+
+    // Fire-and-forget accuracy measurement — never block the assignment response
+    const suggestedArr: string[] | null = Array.isArray(suggested) ? suggested : null
+    const pickedLower = (data.horse_name as string).trim().toLowerCase()
+    const pickedRank = suggestedArr
+      ? (() => { const i = suggestedArr.findIndex(s => s.trim().toLowerCase() === pickedLower); return i >= 0 ? i + 1 : null })()
+      : null
+    supabase.from('suggestion_outcomes').insert({
+      source: source ?? 'manual',
+      guest_id: data.guest_id,
+      picked_horse: data.horse_name,
+      suggested: suggestedArr,
+      picked_rank: pickedRank,
+      assignment_id: data.id,
+      user_id: userId,
+    }).then(({ error: soErr }) => { if (soErr) console.error('[suggestion_outcomes] insert failed:', soErr) })
 
     return NextResponse.json({ assignment: data })
   } catch (err) {

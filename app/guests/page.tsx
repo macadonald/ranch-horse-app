@@ -95,6 +95,7 @@ type DraftRow = {
   flagged: boolean
   noHorseReason?: 'triple_cap' | 'no_match'
   suggestion_id?: string | null
+  top_candidates?: string[]
 }
 
 function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: string[] }) {
@@ -536,11 +537,11 @@ export default function GuestsPage() {
     } catch (err) { console.error(err) }
   }
 
-  async function assignHorse(horseName: string, type: string) {
+  async function assignHorse(horseName: string, type: string, source: string = 'manual', suggested: string[] | null = null) {
     if (!selectedGuest) return
     setAssigningHorse(horseName); setAssignmentConfirmation(null)
     try {
-      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: selectedGuest.id, horse_name: horseName, assignment_type: type, status: 'active', incompatible: false, requested_by_guest: false }) })
+      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: selectedGuest.id, horse_name: horseName, assignment_type: type, status: 'active', incompatible: false, requested_by_guest: false, source, suggested }) })
       await logHistory(selectedGuest.name, selectedGuest.id, horseName, type, 'manual')
       setAssignmentConfirmation(`✓ ${horseName} assigned to ${selectedGuest.name} as ${type} horse`)
       setTimeout(() => setAssignmentConfirmation(null), 4000)
@@ -548,13 +549,13 @@ export default function GuestsPage() {
     } catch (err) { console.error(err) } finally { setAssigningHorse(null) }
   }
 
-  async function assignSwapHorse(horseName: string) {
+  async function assignSwapHorse(horseName: string, swapSuggested: string[] | null = null) {
     if (!selectedGuest || !swapTarget) return
     const { assignmentType } = swapTarget
     const guest = selectedGuest
     setSwapSavingHorse(horseName); setSwapPickError(null)
     try {
-      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guest.id, horse_name: horseName, assignment_type: assignmentType, status: 'active', incompatible: false, requested_by_guest: false, source: 'swap_replacement' }) })
+      await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: guest.id, horse_name: horseName, assignment_type: assignmentType, status: 'active', incompatible: false, requested_by_guest: false, source: 'swap', suggested: swapSuggested }) })
       await logHistory(guest.name, guest.id, horseName, assignmentType, 'manual')
       await Promise.all([fetchGuests(), fetchGuestHistory(guest.id)])
       resetSwap()
@@ -708,7 +709,9 @@ export default function GuestsPage() {
 
   async function saveManualHorse() {
     if (!manualHorse.trim()) return
-    setSavingManual(true); await assignHorse(manualHorse.trim(), manualType); setManualHorse(''); setSavingManual(false)
+    setSavingManual(true)
+    await assignHorse(manualHorse.trim(), manualType, 'manual', matches.length > 0 ? matches.map(m => m.name) : null)
+    setManualHorse(''); setSavingManual(false)
   }
 
   async function runAssignAll() {
@@ -773,7 +776,7 @@ export default function GuestsPage() {
     const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
     await Promise.all(
       toSave.map(async r => {
-        await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false, source: 'assign_all' }) })
+        await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false, source: 'assign_all', suggested: r.top_candidates ?? null }) })
         await logHistory(r.guest.name, r.guest.id, r.suggestedHorse!, 'primary', 'assign_all')
         if (r.suggestion_id) {
           fetch('/api/assign-all/confirm', {
@@ -820,7 +823,7 @@ export default function GuestsPage() {
   async function handleSwapAnyHorse() {
     if (!swapAnyHorse.trim()) return
     if (swapAnyWarnings.length > 0 && !confirm(`This horse has ${swapAnyWarnings.length} warning(s):\n${swapAnyWarnings.join('\n')}\n\nAssign anyway?`)) return
-    await assignSwapHorse(swapAnyHorse.trim())
+    await assignSwapHorse(swapAnyHorse.trim(), null)
     setSwapAnyHorse('')
   }
 
@@ -1185,7 +1188,7 @@ export default function GuestsPage() {
                             <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 7 : 0 }}>{m.reason}</p>
                             {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', padding: '4px 7px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--radius-sm)', marginBottom: 7 }}>⚠ {m.warning}</p>}
                             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional')} disabled={assigningHorse !== null} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: assigningHorse !== null ? 'not-allowed' : 'pointer', opacity: assigningHorse !== null && assigningHorse !== m.name ? 0.5 : 1 }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
+                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional', 'matches', matches.map(mm => mm.name))} disabled={assigningHorse !== null} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: assigningHorse !== null ? 'not-allowed' : 'pointer', opacity: assigningHorse !== null && assigningHorse !== m.name ? 0.5 : 1 }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
                               <button onClick={() => dismissHorse(m.name)} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
@@ -1663,7 +1666,7 @@ export default function GuestsPage() {
                             </div>
                           </div>
                           <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: 8 }}>{m.reason}</p>
-                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapSavingHorse !== null} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: swapSavingHorse !== null ? 0.6 : 1 }}>{swapSavingHorse === m.name ? 'Assigning...' : 'Assign'}</button>
+                          <button onClick={() => assignSwapHorse(m.name, swapMatches.map(sm => sm.name))} disabled={swapSavingHorse !== null} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: swapSavingHorse !== null ? 0.6 : 1 }}>{swapSavingHorse === m.name ? 'Assigning...' : 'Assign'}</button>
                         </div>
                       ))}
                     </>
@@ -1687,7 +1690,7 @@ export default function GuestsPage() {
                           </div>
                           <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 6 : 8 }}>{m.reason}</p>
                           {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 8 }}>⚠ {m.warning}</p>}
-                          <button onClick={() => assignSwapHorse(m.name)} disabled={swapSavingHorse !== null} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: swapSavingHorse !== null ? 0.6 : 1 }}>{swapSavingHorse === m.name ? 'Assigning...' : 'Assign'}</button>
+                          <button onClick={() => assignSwapHorse(m.name, swapMatches.map(sm => sm.name))} disabled={swapSavingHorse !== null} style={{ width: '100%', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: swapSavingHorse !== null ? 'not-allowed' : 'pointer', opacity: swapSavingHorse !== null ? 0.6 : 1 }}>{swapSavingHorse === m.name ? 'Assigning...' : 'Assign'}</button>
                         </div>
                       ))}
                     </>

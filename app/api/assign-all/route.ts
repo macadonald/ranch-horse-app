@@ -25,6 +25,7 @@ type DraftRow = {
   flagged: boolean
   noHorseReason?: 'triple_cap' | 'no_match'
   suggestion_id?: string | null
+  top_candidates?: string[]
 }
 
 type TopCandidate = {
@@ -420,6 +421,11 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[assign-all] done in ${Date.now() - t0}ms — ${draft.length} assignments, ${pass3Queue.length} flagged`)
+
+    // Attach top-5 candidate names to each row so the client can pass them as `suggested`
+    draft.forEach(row => {
+      row.top_candidates = (guestCandidates.get(row.guest.id)?.topCandidates ?? []).map(c => c.horse_name)
+    })
 
     // ── Silent logging (non-fatal) ────────────────────────────────────────────
     let runId: string | null = null
