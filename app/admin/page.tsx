@@ -7,6 +7,15 @@ import Sidebar from '@/components/Sidebar'
 
 type Person = { id: string; email: string; name: string; role: string }
 
+type WsSyncChange = { field: string; old: unknown; new: unknown }
+type WsSyncGuest =
+  | { action: 'add';    external_guest_id: string; name: string; data: Record<string, unknown> }
+  | { action: 'update'; external_guest_id: string; name: string; changes: WsSyncChange[] }
+  | { action: 'link';   external_guest_id: string; name: string; herd_id: string; changes: WsSyncChange[] }
+  | { action: 'skip';   external_guest_id: string; name: string; reason: string }
+type WsSyncCounts = { add: number; update: number; link: number; skip: number; skippedNonRiders: number }
+type WsSyncResult = { error?: string; counts?: WsSyncCounts; guests?: WsSyncGuest[] }
+
 type LogRow = {
   id: string
   created_at: string
@@ -66,10 +75,28 @@ export default function AdminPage() {
     if (!roleLoading && role !== 'admin') router.replace('/guests')
   }, [role, roleLoading, router])
 
+  const [activeTab, setActiveTab] = useState<'activity' | 'ws-sync'>('activity')
+
   const [logs,     setLogs]     = useState<LogRow[]>([])
   const [total,    setTotal]    = useState(0)
   const [fetching, setFetching] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const [wsSyncLoading, setWsSyncLoading] = useState(false)
+  const [wsSyncResult,  setWsSyncResult]  = useState<WsSyncResult | null>(null)
+
+  async function runWsSync() {
+    setWsSyncLoading(true)
+    setWsSyncResult(null)
+    try {
+      const res = await fetch('/api/ws-sync')
+      const json: WsSyncResult = await res.json()
+      setWsSyncResult(json)
+    } catch {
+      setWsSyncResult({ error: 'Request failed' })
+    }
+    setWsSyncLoading(false)
+  }
 
   // People type-ahead
   const [allPeople,      setAllPeople]      = useState<Person[]>([])
@@ -197,10 +224,145 @@ export default function AdminPage() {
 
           {/* Tab bar */}
           <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-border)', marginBottom: 20 }}>
-            <div style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, color: 'var(--color-accent)', borderBottom: '2px solid var(--color-accent)', marginBottom: -1, cursor: 'default' }}>
-              Activity
-            </div>
+            {(['activity', 'ws-sync'] as const).map(tab => {
+              const label = tab === 'activity' ? 'Activity' : 'WS Sync Preview'
+              const active = activeTab === tab
+              return (
+                <div
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  style={{
+                    padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    color: active ? 'var(--color-accent)' : 'var(--color-text-3)',
+                    borderBottom: active ? '2px solid var(--color-accent)' : '2px solid transparent',
+                    marginBottom: -1,
+                  }}
+                >
+                  {label}
+                </div>
+              )
+            })}
           </div>
+
+          {/* ── WS Sync Preview tab ───────────────────────────────────────── */}
+          {activeTab === 'ws-sync' && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <button
+                  onClick={runWsSync}
+                  disabled={wsSyncLoading}
+                  style={{
+                    padding: '7px 16px', borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--color-border)',
+                    background: wsSyncLoading ? 'var(--color-surface)' : 'var(--color-accent)',
+                    color: wsSyncLoading ? 'var(--color-text-3)' : '#fff',
+                    fontSize: 13, fontWeight: 600, cursor: wsSyncLoading ? 'default' : 'pointer',
+                  }}
+                >
+                  {wsSyncLoading ? 'Running…' : 'Run Preview'}
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>
+                  Read-only — no data will be written.
+                </span>
+              </div>
+
+              {wsSyncResult?.error && (
+                <div style={{ padding: '12px 16px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: 13, color: 'var(--color-text-2)', marginBottom: 16 }}>
+                  {wsSyncResult.error}
+                </div>
+              )}
+
+              {wsSyncResult?.counts && (
+                <>
+                  {/* Counts summary */}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+                    {(
+                      [
+                        { label: 'Add',               value: wsSyncResult.counts.add,              color: '#16a34a' },
+                        { label: 'Update',             value: wsSyncResult.counts.update,           color: 'var(--color-accent)' },
+                        { label: 'Link',               value: wsSyncResult.counts.link,             color: '#9333ea' },
+                        { label: 'Skip',               value: wsSyncResult.counts.skip,             color: 'var(--color-text-3)' },
+                        { label: 'Non-riders skipped', value: wsSyncResult.counts.skippedNonRiders, color: 'var(--color-text-3)' },
+                      ] as const
+                    ).map(({ label, value, color }) => (
+                      <div
+                        key={label}
+                        style={{ padding: '8px 14px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}
+                      >
+                        <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Per-guest table */}
+                  {wsSyncResult.guests && wsSyncResult.guests.length > 0 && (
+                    <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
+                            {['Action', 'WS ID', 'Name', 'Check-in', 'Details'].map(h => (
+                              <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {wsSyncResult.guests.map((g, i) => {
+                            const actionColor =
+                              g.action === 'add'    ? '#16a34a' :
+                              g.action === 'update' ? 'var(--color-accent)' :
+                              g.action === 'link'   ? '#9333ea' :
+                              'var(--color-text-3)'
+
+                            const checkIn =
+                              g.action === 'add' ? (g.data.check_in_date as string | null) ?? '—' :
+                              g.action === 'update' || g.action === 'link'
+                                ? (g.changes.find(c => c.field === 'check_in_date')?.new as string | null) ?? '—'
+                                : '—'
+
+                            const detail =
+                              g.action === 'skip'
+                                ? g.reason
+                                : g.action === 'add'
+                                ? `${Object.keys(g.data).length} fields`
+                                : g.changes.length === 0
+                                ? 'no changes'
+                                : g.changes.map(c => `${c.field}: ${c.old ?? '—'} → ${c.new ?? '—'}`).join(' · ')
+
+                            return (
+                              <tr
+                                key={g.external_guest_id}
+                                style={{ borderBottom: i < (wsSyncResult.guests?.length ?? 0) - 1 ? '1px solid var(--color-border)' : 'none' }}
+                              >
+                                <td style={{ padding: '7px 12px', fontWeight: 600, color: actionColor, textTransform: 'uppercase', fontSize: 11 }}>
+                                  {g.action}
+                                </td>
+                                <td style={{ padding: '7px 12px', color: 'var(--color-text-3)', fontFamily: 'monospace' }}>
+                                  {g.external_guest_id}
+                                </td>
+                                <td style={{ padding: '7px 12px', color: 'var(--color-text)' }}>
+                                  {g.name}
+                                </td>
+                                <td style={{ padding: '7px 12px', color: 'var(--color-text-2)', whiteSpace: 'nowrap' }}>
+                                  {checkIn}
+                                </td>
+                                <td style={{ padding: '7px 12px', color: 'var(--color-text-3)', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={detail}>
+                                  {detail}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Activity log tab ──────────────────────────────────────────── */}
+          {activeTab === 'activity' && <>
 
           {/* Filter row */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
@@ -400,6 +562,8 @@ export default function AdminPage() {
               </button>
             </div>
           )}
+
+          </> /* end activity tab */}
 
         </div>
       </main>
