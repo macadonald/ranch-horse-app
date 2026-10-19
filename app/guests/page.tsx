@@ -1890,10 +1890,10 @@ function AddGuestModal({ onClose, onSaved, horses = [], groups = [], currentGues
           <div><label>Gender</label><select value={form.gender} onChange={f('gender')}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
           <div><label>Riding Level *</label><select value={form.riding_level} onChange={f('riding_level')}><option value="">Select...</option>{LEVELS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select></div>
           <div><label>Age</label><input type="number" placeholder="e.g. 42" value={form.age} onChange={f('age')} /></div>
-          <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} onTouchStart={blockSaveTemp} /></div>
-          <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} onTouchStart={blockSaveTemp} /></div>
           <div><label>Height</label><input placeholder="e.g. 5'9&quot;" value={form.height} onChange={f('height')} onBlur={e => setForm(prev => ({ ...prev, height: formatHeight(e.target.value) }))} /></div>
           <div><label>Weight (lbs)</label><input type="number" placeholder="e.g. 175" value={form.weight} onChange={f('weight')} /></div>
+          <div><label>Check-in Date</label><input type="date" value={form.check_in_date} onChange={f('check_in_date')} onTouchStart={blockSaveTemp} /></div>
+          <div><label>Check-out Date</label><input type="date" value={form.check_out_date} onChange={f('check_out_date')} onTouchStart={blockSaveTemp} /></div>
           <div style={{ gridColumn: '1/-1' }}><label>Notes</label><textarea rows={2} placeholder="Injuries, nervous rider, wants smooth horse..." value={form.notes} onChange={f('notes')} style={{ resize: 'vertical' }} /></div>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Repeat guest?</label>
