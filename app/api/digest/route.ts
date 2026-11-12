@@ -46,7 +46,7 @@ async function callClaude(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-5',
-      max_tokens: 800,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     }),
   })
@@ -60,10 +60,14 @@ async function callClaude(prompt: string): Promise<string> {
 type DigestSection = { title: string; bullets: string[] }
 type Digest = { headline: string; sections: DigestSection[]; watchlist: string[] }
 
-function parseDigest(text: string): Digest {
-  const match = text.match(/\{[\s\S]*\}/)
-  if (!match) throw new Error('No JSON in response')
-  const p = JSON.parse(match[0])
+function parseDigest(raw: string): Digest {
+  // Strip markdown code fences if present
+  let text = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+  // Extract from first { to last } to handle any surrounding text
+  const start = text.indexOf('{')
+  const end   = text.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) throw new Error('No JSON object in response')
+  const p = JSON.parse(text.slice(start, end + 1))
   if (typeof p.headline !== 'string' || !Array.isArray(p.sections) || !Array.isArray(p.watchlist)) {
     throw new Error('Invalid digest shape')
   }
@@ -156,11 +160,17 @@ Rules:
     const text = await callClaude(prompt)
     try {
       digest = parseDigest(text)
-    } catch {
+    } catch (parseErr) {
+      console.error('[digest] first parse failed:', (parseErr instanceof Error ? parseErr.message : parseErr), '— raw (first 600):', text.slice(0, 600))
       const text2 = await callClaude(
         prompt + '\n\nIMPORTANT: Return raw JSON only — no backticks, no text outside the JSON object.'
       )
-      digest = parseDigest(text2)
+      try {
+        digest = parseDigest(text2)
+      } catch (parseErr2) {
+        console.error('[digest] second parse failed:', (parseErr2 instanceof Error ? parseErr2.message : parseErr2), '— raw (first 600):', text2.slice(0, 600))
+        return NextResponse.json({ summaryUnavailable: true }, { status: 200 })
+      }
     }
   } catch (err) {
     return NextResponse.json(

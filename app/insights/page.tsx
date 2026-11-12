@@ -1147,11 +1147,12 @@ function KStat({ label, value, prev }: { label: string; value: number; prev: num
 function ReportsView() {
   const [savedWeeks,   setSavedWeeks]   = useState<string[]>([])
   const [selectedWeek, setSelectedWeek] = useState<string>(() => getDefaultWeek())
-  const [content,      setContent]      = useState<DigestContent | null>(null)
-  const [loading,      setLoading]      = useState(false)
-  const [error,        setError]        = useState<string | null>(null)
-  const [fetchKey,     setFetchKey]     = useState(0)
-  const [regenerating, setRegenerating] = useState(false)
+  const [content,            setContent]            = useState<DigestContent | null>(null)
+  const [loading,            setLoading]            = useState(false)
+  const [error,              setError]              = useState<string | null>(null)
+  const [summaryUnavailable, setSummaryUnavailable] = useState(false)
+  const [fetchKey,           setFetchKey]           = useState(0)
+  const [regenerating,       setRegenerating]       = useState(false)
 
   useEffect(() => {
     fetch('/api/digest?list=1')
@@ -1165,10 +1166,16 @@ function ReportsView() {
     setLoading(true)
     setError(null)
     setContent(null)
+    setSummaryUnavailable(false)
     fetch(`/api/digest?week=${selectedWeek}`)
       .then(r => r.json())
       .then(d => {
         if (d.error) throw new Error(d.error)
+        if (d.summaryUnavailable) {
+          setSummaryUnavailable(true)
+          setLoading(false)
+          return
+        }
         setContent(d.content as DigestContent)
         setSavedWeeks(prev => prev.includes(selectedWeek) ? prev : [selectedWeek, ...prev])
         setLoading(false)
@@ -1212,7 +1219,7 @@ function ReportsView() {
         >
           {allWeeks.map(w => <option key={w} value={w}>{fmtWeekLabel(w)}</option>)}
         </select>
-        {!loading && content && !regenerating && (
+        {!loading && (content || summaryUnavailable) && !regenerating && (
           <button onClick={handleRegenerate} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer', textDecoration: 'underline' }}>
             Regenerate
           </button>
@@ -1224,6 +1231,14 @@ function ReportsView() {
         <div style={SEC_STYLE}>
           <p style={{ fontSize: 13, color: 'var(--color-text-3)', margin: 0 }}>
             {isGenerating ? 'Generating this week\'s digest…' : 'Loading…'}
+          </p>
+        </div>
+      )}
+
+      {!loading && summaryUnavailable && (
+        <div style={SEC_STYLE}>
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)', fontStyle: 'italic', margin: 0 }}>
+            Summary unavailable — Claude couldn&apos;t produce valid JSON. Click Regenerate to try again.
           </p>
         </div>
       )}

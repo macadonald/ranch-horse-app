@@ -8,6 +8,7 @@ import { GuestAnalyticsPanel } from '@/components/GuestAnalyticsPanel'
 import { useRole } from '@/lib/auth-context'
 import { formatHeight } from '@/lib/format'
 import { getHorseWarnings } from '@/lib/horseWarnings'
+import { formatLabel } from '@/lib/labels'
 
 const LEVELS = [
   { key: 'B',  label: 'Beginner' },
@@ -20,12 +21,6 @@ const LEVELS = [
 const LEVEL_LABELS: Record<string, string> = {
   'B': 'Beginner', 'AB': 'Adv Beginner', 'I': 'Intermediate',
   'AI': 'Adv Intermediate', 'A': 'Advanced',
-}
-
-const SWAP_REASON_LABELS: Record<string, string> = {
-  too_much_horse: 'too much horse', too_slow: 'too slow', behavior: 'behavior issue',
-  guest_preference: 'guest preference', lame: 'lame', sore: 'sore',
-  other_health: 'other health', other: 'other',
 }
 
 // Normalises freeform height input to X'Y" on blur.
@@ -287,6 +282,7 @@ export default function GuestsPage() {
       ])
       const allGuests: Guest[] = guestRes.guests || []
       setGuests(allGuests)
+      setSelectedGuest(prev => prev ? allGuests.find(g => g.id === prev.id) ?? null : null)
       if (guestRes.rowLimitStatus) { setGuestLimitStatus(guestRes.rowLimitStatus); setGuestLimitDismissed(false) }
       setDbHorses(horsesRes.horses || [])
       setReturningGuestNames(new Set((returningRes.names || []).map((n: string) => n.toLowerCase())))
@@ -303,14 +299,15 @@ export default function GuestsPage() {
           })
         ))
         const refreshed = await fetch('/api/guests').then(r => r.json())
-        setGuests(refreshed.guests || [])
+        const refreshedGuests: Guest[] = refreshed.guests || []
+        setGuests(refreshedGuests)
+        setSelectedGuest(prev => prev ? refreshedGuests.find(g => g.id === prev.id) ?? null : null)
       }
     }
     catch (err) { console.error(err) } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { fetchGuests() }, [fetchGuests])
-  useEffect(() => { if (selectedGuest) { const u = guests.find(g => g.id === selectedGuest.id); if (u) setSelectedGuest(u) } }, [guests])
   useEffect(() => { if (!isMobile) detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [selectedGuest?.id, isMobile])
   useEffect(() => {
     if (selectedHistoryGuest) fetchPastVisitRecords(selectedHistoryGuest.name, selectedHistoryGuest.id)
@@ -1099,32 +1096,6 @@ export default function GuestsPage() {
                       </div>
                     )}
 
-                    {/* Swap history — all status='removed' rows, newest first */}
-                    {removedAssignments.length > 0 && (
-                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                        <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Swap history:</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {removedAssignments.map(a => (
-                            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {a.incompatible ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)' }}>
-                                  {a.horse_name}{a.reason ? ` — ${a.reason}` : ''}
-                                  {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--color-danger)', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
-                                </span>
-                              ) : (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                                  {a.horse_name}{a.swap_reason ? ` — ${SWAP_REASON_LABELS[a.swap_reason] ?? a.swap_reason}` : ' — swapped off'}
-                                  {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#64748b', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
-                                </span>
-                              )}
-                              {a.removed_at && <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{a.removed_at.slice(0, 10)}</span>}
-                            </div>
-                          ))}
-                        </div>
-                        {swapRecordError && <p style={{ fontSize: 12, color: 'var(--color-danger)', marginTop: 6 }}>{swapRecordError}</p>}
-                      </div>
-                    )}
-
                     {!isViewer && (
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                       <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 7, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Manual assignment</p>
@@ -1496,7 +1467,7 @@ export default function GuestsPage() {
                               </span>
                             ) : (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                                {a.horse_name}{a.swap_reason ? ` — ${SWAP_REASON_LABELS[a.swap_reason] ?? a.swap_reason}` : ' — swapped off'}
+                                {a.horse_name}{a.swap_reason ? ` — ${formatLabel(a.swap_reason)}` : ' — swapped off'}
                                 {!isViewer && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeSwapRecord(a) }} title="Remove swap record" style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#64748b', padding: 0, lineHeight: 1, opacity: 0.7, minWidth: 44, minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
                               </span>
                             )}

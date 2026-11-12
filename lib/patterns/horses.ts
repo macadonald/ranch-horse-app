@@ -2,6 +2,7 @@ import { DetectorResult, PatternGuest, PatternHorse } from './types'
 import { LEVEL_ORDER, LEVEL_LABELS } from '@/lib/horses'
 import { horseWeightCeiling, isHorseBlockedToday } from '@/lib/horseFit'
 import { getWeightBand } from '@/lib/weightBands'
+import { formatLabel } from '@/lib/labels'
 
 const MS = 24 * 60 * 60 * 1000
 
@@ -117,7 +118,7 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
       kind: 'action',
       category: 'horses',
       title: allMismatches.length === 1
-        ? `${top.name}: ${top.incompat} of ${top.total} ${top.bucket} riders not-a-fit${top.topReason ? ` (${top.topReason})` : ''}`
+        ? `${top.name}: ${top.incompat} of ${top.total} ${top.bucket} riders not-a-fit${top.topReason ? ` (${formatLabel(top.topReason)})` : ''}`
         : `${allMismatches.length} horses have rider-type mismatches`,
       detail: allMismatches.length === 1
         ? `${pct}% incompatible for ${top.bucket}`

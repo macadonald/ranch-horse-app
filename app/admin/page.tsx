@@ -82,6 +82,9 @@ export default function AdminPage() {
   const [fetching, setFetching] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  const [activityLogSetting, setActivityLogSetting] = useState<{ enabled: boolean } | null>(null)
+  const [togglingLog, setTogglingLog] = useState(false)
+
   const [wsSyncLoading, setWsSyncLoading] = useState(false)
   const [wsSyncResult,  setWsSyncResult]  = useState<WsSyncResult | null>(null)
 
@@ -122,6 +125,33 @@ export default function AdminPage() {
       .then(j => setAllPeople(j.people || []))
       .catch(() => {})
   }, [role])
+
+  useEffect(() => {
+    if (role !== 'admin') return
+    fetch('/api/app-settings')
+      .then(r => r.json())
+      .then(j => setActivityLogSetting({ enabled: j.enabled === true }))
+      .catch(() => {})
+  }, [role])
+
+  async function toggleActivityLog() {
+    if (!activityLogSetting || togglingLog) return
+    const next = !activityLogSetting.enabled
+    setActivityLogSetting({ enabled: next })
+    setTogglingLog(true)
+    try {
+      const res = await fetch('/api/app-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next, excluded_emails: [] }),
+      })
+      if (!res.ok) setActivityLogSetting({ enabled: !next })
+    } catch {
+      setActivityLogSetting({ enabled: !next })
+    } finally {
+      setTogglingLog(false)
+    }
+  }
 
   // Close person dropdown on outside click
   useEffect(() => {
@@ -363,6 +393,30 @@ export default function AdminPage() {
 
           {/* ── Activity log tab ──────────────────────────────────────────── */}
           {activeTab === 'activity' && <>
+
+          {/* Activity logging toggle */}
+          {activityLogSetting !== null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+              <button
+                onClick={toggleActivityLog}
+                disabled={togglingLog}
+                style={{
+                  width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer',
+                  background: activityLogSetting.enabled ? 'var(--color-accent)' : 'var(--color-border)',
+                  position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: activityLogSetting.enabled ? 20 : 3,
+                  width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.2s', display: 'block',
+                }} />
+              </button>
+              <span style={{ fontSize: 13, color: 'var(--color-text-2)', fontWeight: 500 }}>
+                Activity logging is {activityLogSetting.enabled ? 'on' : 'off'}
+              </span>
+            </div>
+          )}
 
           {/* Filter row */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>

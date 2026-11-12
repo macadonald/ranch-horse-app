@@ -5,6 +5,7 @@ import { DbHorse, LEVEL_ORDER } from '@/lib/horses'
 import { getTucsonToday, getTucsonTomorrow } from '@/lib/timezone'
 import { SUPABASE_MAX_ROWS } from '@/lib/supabase'
 import { useRole } from '@/lib/auth-context'
+import { formatLabel } from '@/lib/labels'
 
 const WORK_LABELS: Record<string, string> = {
   fronts: 'Fronts', rears: 'Rears', all_4s: 'All 4s', reset: 'Reset', full_set: 'Full set',
@@ -503,7 +504,7 @@ export default function BoardPage() {
                                 color: shoe.level === 'red' ? '#dc2626' : '#92400e',
                                 border: `1px solid ${shoe.level === 'red' ? '#fca5a5' : '#fcd34d'}`,
                               }}>
-                                {shoe.level === 'red' ? '🔴' : '🟠'} {WORK_LABELS[shoe.what_needed] || shoe.what_needed}
+                                {shoe.level === 'red' ? '🔴' : '🟠'} {WORK_LABELS[shoe.what_needed] || formatLabel(shoe.what_needed)}
                               </span>
                             )}
                             {isDouble && (

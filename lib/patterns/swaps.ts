@@ -1,5 +1,6 @@
 import { DetectorResult, PatternGuest } from './types'
 import { LEVEL_LABELS } from '@/lib/horses'
+import { formatLabel } from '@/lib/labels'
 
 export function detectSwaps(guests: PatternGuest[]): DetectorResult {
   const findings: DetectorResult['findings'] = []
@@ -42,7 +43,7 @@ export function detectSwaps(guests: PatternGuest[]): DetectorResult {
     const count = topData.guestIds.size
     const topReason = topOf(topData.swapReasons) ?? topOf(topData.reasons)
     const detail = topReason
-      ? `${count} different guests · top reason: "${topReason}"`
+      ? `${count} different guests · top reason: "${formatLabel(topReason)}"`
       : `${count} different guests flagged this horse`
 
     const totalFlagged = flagged.length
@@ -93,7 +94,7 @@ export function detectSwaps(guests: PatternGuest[]): DetectorResult {
       id: `swaps.level-reason-${lvl}`,
       kind: 'action',
       category: 'swaps',
-      title: `"${topReason}" is the main swap reason for ${levelLabel} riders`,
+      title: `"${formatLabel(topReason)}" is the main swap reason for ${levelLabel} riders`,
       detail: `${pct}% of ${reasons.length} swaps for this level`,
       n: reasons.length,
       nLabel: `${reasons.length} swaps for ${levelLabel}`,

@@ -4,6 +4,7 @@ import Sidebar from '@/components/Sidebar'
 import { HORSES } from '@/lib/horses'
 import { useRole } from '@/lib/auth-context'
 import { categorizeWork, WORK_LABELS as WORK_CAT_LABELS, type WorkCategory } from '@/lib/shoeWork'
+import { formatLabel } from '@/lib/labels'
 
 // TODO: track size history per horse, surface last known size,
 // run analytics on shoe types and sizes across the herd
@@ -386,7 +387,7 @@ function NeedRow({
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
         <ShoeTypeBadge shoeType={need.shoe_type || 'regular'} />
         {isViewer
-          ? <span style={{ fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600, flexShrink: 0, border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)', background: isFronts ? '#fee2e2' : 'var(--color-surface)', color: isFronts ? '#dc2626' : 'var(--color-text-3)' }}>{CARD_WORK_OPTIONS.find(o => o.key === need.what_needed)?.label ?? need.what_needed}</span>
+          ? <span style={{ fontSize: 10, borderRadius: 999, padding: '1px 5px', fontWeight: 600, flexShrink: 0, border: isFronts ? '1px solid #fca5a5' : '1px solid var(--color-border)', background: isFronts ? '#fee2e2' : 'var(--color-surface)', color: isFronts ? '#dc2626' : 'var(--color-text-3)' }}>{CARD_WORK_OPTIONS.find(o => o.key === need.what_needed)?.label ?? formatLabel(need.what_needed)}</span>
           : <select
               value={need.what_needed}
               onClick={e => e.stopPropagation()}
@@ -1106,6 +1107,7 @@ export default function ShoesPage() {
   const [addForm, setAddForm] = useState<{ horse_name: string; what_needed: string; shoe_type: string; notes: string; farrier: string | null; farrier_enabled: boolean } | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
   const [addingSaving, setAddingSaving] = useState(false)
+  const [addDuplicateHorse, setAddDuplicateHorse] = useState<string | null>(null)
   const [markingDone, setMarkingDone] = useState<string | null>(null)
   const [doneForm, setDoneForm] = useState<DoneForm>({ visit_date: '', farrier_name: '', shoe_type: 'regular', notes: '', work_done: '' })
   const [savingDone, setSavingDone] = useState(false)
@@ -1252,8 +1254,12 @@ export default function ShoesPage() {
   const pagedVisits = filteredVisits.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
 
 
-  async function addNeed() {
+  async function addNeed(opts: { skipDuplicateCheck?: boolean } = {}) {
     if (!addForm?.horse_name || !addForm.what_needed) return
+    if (!opts.skipDuplicateCheck && needs.some(n => n.horse_name.toLowerCase() === addForm.horse_name.toLowerCase())) {
+      setAddDuplicateHorse(addForm.horse_name)
+      return
+    }
     setAddingSaving(true)
     setAddError(null)
     try {
@@ -1460,6 +1466,31 @@ export default function ShoesPage() {
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
       <Sidebar />
 
+      {addDuplicateHorse && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 16 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Already on the list</h3>
+            <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 20, lineHeight: 1.5 }}>
+              <strong>{addDuplicateHorse}</strong> is already on the shoe list. Add a second entry anyway?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setAddDuplicateHorse(null)}
+                style={{ padding: '7px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setAddDuplicateHorse(null); addNeed({ skipDuplicateCheck: true }) }}
+                style={{ padding: '7px 16px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Add anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmation && (
         <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', padding: '12px 24px', borderRadius: 'var(--radius-md)', fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 1000, whiteSpace: 'nowrap' }}>
           {confirmation}
@@ -1597,7 +1628,7 @@ export default function ShoesPage() {
                   </div>
                 )}
                 <button
-                  onClick={addNeed}
+                  onClick={() => addNeed()}
                   disabled={addingSaving || !addForm.horse_name}
                   style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: !addForm.horse_name ? 0.5 : 1 }}
                 >

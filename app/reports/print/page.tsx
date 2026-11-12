@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatLabel } from '@/lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -226,14 +227,14 @@ function SwapsSection({ data }: { data: any }) {
       {data.by_category?.length > 0 && (
         <div className="avoid-break">
           <SubLabel>By category</SubLabel>
-          <BarChart data={data.by_category} labelKey="category" valueKey="count" color="#dc2626" />
+          <BarChart data={data.by_category.map((d: any) => ({ ...d, category: formatLabel(d.category) }))} labelKey="category" valueKey="count" color="#dc2626" />
         </div>
       )}
 
       {data.by_reason?.length > 0 && (
         <div className="avoid-break">
           <SubLabel>By reason</SubLabel>
-          <BarChart data={data.by_reason} labelKey="reason" valueKey="count" color="#ea580c" />
+          <BarChart data={data.by_reason.map((d: any) => ({ ...d, reason: formatLabel(d.reason) }))} labelKey="reason" valueKey="count" color="#ea580c" />
         </div>
       )}
 
@@ -242,7 +243,7 @@ function SwapsSection({ data }: { data: any }) {
           <SubLabel>Most swapped-off horses</SubLabel>
           <DataTable
             headers={['Horse', 'Swaps', 'Reasons']}
-            rows={data.most_swapped_off.map((h: any) => [h.name, h.swaps, (h.reasons || []).join(', ') || '—'])}
+            rows={data.most_swapped_off.map((h: any) => [h.name, h.swaps, (h.reasons || []).map(formatLabel).join(', ') || '—'])}
           />
         </div>
       )}
@@ -252,7 +253,7 @@ function SwapsSection({ data }: { data: any }) {
           <SubLabel>Not a fit — full list</SubLabel>
           <DataTable
             headers={['Horse', 'Guest', 'Reason', 'Date']}
-            rows={data.not_a_fit.map((r: any) => [r.horse, r.guest, r.reason || '—', r.date || '—'])}
+            rows={data.not_a_fit.map((r: any) => [r.horse, r.guest, r.reason ? formatLabel(r.reason) : '—', r.date || '—'])}
           />
         </div>
       )}
@@ -273,7 +274,7 @@ function HealthSection({ data }: { data: any }) {
       {data.opened_by_type?.length > 0 && (
         <div className="avoid-break">
           <SubLabel>Opened by type</SubLabel>
-          <BarChart data={data.opened_by_type} labelKey="type" valueKey="count" color="#dc2626" />
+          <BarChart data={data.opened_by_type.map((d: any) => ({ ...d, type: formatLabel(d.type) }))} labelKey="type" valueKey="count" color="#dc2626" />
         </div>
       )}
 
@@ -292,7 +293,7 @@ function HealthSection({ data }: { data: any }) {
           <SubLabel>Open flags at range end</SubLabel>
           <DataTable
             headers={['Horse', 'Type', 'Since']}
-            rows={data.open_at_range_end.map((f: any) => [f.horse, f.type, f.since || '—'])}
+            rows={data.open_at_range_end.map((f: any) => [f.horse, formatLabel(f.type), f.since || '—'])}
           />
         </div>
       )}
@@ -323,7 +324,7 @@ function ShoesSection({ data }: { data: any }) {
       {data.work_categories?.length > 0 && (
         <div className="avoid-break">
           <SubLabel>Work categories</SubLabel>
-          <BarChart data={data.work_categories} labelKey="category" valueKey="count" color="#0891b2" />
+          <BarChart data={data.work_categories.map((d: any) => ({ ...d, category: formatLabel(d.category) }))} labelKey="category" valueKey="count" color="#0891b2" />
         </div>
       )}
 
