@@ -26,7 +26,7 @@ async function callClaude(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-5',
-      max_tokens: 1200,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     }),
   })
@@ -37,12 +37,14 @@ async function callClaude(prompt: string): Promise<string> {
   return text
 }
 
-function parseAiSummary(text: string): { overview: string; highlights: string[] } {
-  const match = text.match(/\{[\s\S]*\}/)
-  if (!match) throw new Error('No JSON in response')
-  const p = JSON.parse(match[0])
-  if (typeof p.overview !== 'string' || !Array.isArray(p.highlights)) throw new Error('Invalid shape')
-  return { overview: p.overview, highlights: p.highlights as string[] }
+function parseAiSummary(raw: string): { paragraph: string } {
+  let text = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+  const start = text.indexOf('{')
+  const end   = text.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) throw new Error('No JSON object in response')
+  const p = JSON.parse(text.slice(start, end + 1))
+  if (typeof p.paragraph !== 'string' || !p.paragraph.trim()) throw new Error('Invalid shape')
+  return { paragraph: p.paragraph }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -70,35 +72,40 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let summary: { overview: string; highlights: string[] } | undefined
+  let summary: { paragraph: string } | undefined
   if (aiSummary) {
     const rangeLabel = fmtRange(start, end)
     const prompt = `${RANCH_CONTEXT}
 
-You are writing an executive summary for a ranch operations report.
+You are writing a one-paragraph executive summary for a ranch operations report.
 Date range: ${rangeLabel}
 Sections included: ${sections.join(', ')}
 
-DATA (exact numbers from the database — only use these, never invent numbers):
+DATA (exact numbers from the database — only use these, never invent numbers or thresholds):
 ${JSON.stringify(facts, null, 2)}
 
 Return ONLY valid JSON — no markdown fences, no text outside the JSON object:
-{
-  "overview": "<3-4 sentences summarising the period — use exact numbers, name specific horses where notable>",
-  "highlights": ["<3-6 specific highlights or concerns — actionable, reference horses or people by name>"]
-}
+{ "paragraph": "<one paragraph, 3-5 sentences, covering the main points — use exact numbers, name specific horses where notable>" }
 
-Rules: plain English, only numbers from the data above.`
+Rules:
+- Only state facts present in the DATA block above. Never invent weight limits, policies, or thresholds not in the data.
+- For pattern findings whose data window is longer than the report range, say "over this and prior periods" rather than "this month".
+- Plain English. No bullet lists. One paragraph only.`
 
     try {
       const text = await callClaude(prompt)
       try {
         summary = parseAiSummary(text)
-      } catch {
+      } catch (parseErr) {
+        console.error('[report] first parse failed:', parseErr instanceof Error ? parseErr.message : parseErr, '— raw (first 400):', text.slice(0, 400))
         const text2 = await callClaude(
           prompt + '\n\nIMPORTANT: Return raw JSON only — no backticks, no text outside the JSON object.'
         )
-        summary = parseAiSummary(text2)
+        try {
+          summary = parseAiSummary(text2)
+        } catch (parseErr2) {
+          console.error('[report] second parse failed:', parseErr2 instanceof Error ? parseErr2.message : parseErr2, '— raw (first 400):', text2.slice(0, 400))
+        }
       }
     } catch (err) {
       console.error('[report] AI summary failed (non-fatal):', err)

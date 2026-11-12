@@ -12,10 +12,21 @@ function addDays(dateStr: string, n: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], today: string): DetectorResult {
+export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], today: string, rangeStart?: string, rangeEnd?: string): DetectorResult {
   const findings: DetectorResult['findings'] = []
 
-  const activeHorses  = horses.filter(h => h.is_active)
+  const effectiveToday = rangeEnd ?? today
+  const windowLabel    = rangeStart ? '(this period)' : '(all time)'
+
+  const inRangeGuests = rangeStart && rangeEnd
+    ? guests.filter(g =>
+        g.check_in_date != null &&
+        g.check_out_date != null &&
+        g.check_in_date <= rangeEnd &&
+        g.check_out_date >= rangeStart)
+    : guests
+
+  const activeHorses    = horses.filter(h => h.is_active)
   const unblockedHorses = activeHorses.filter(h => !isHorseBlockedToday(h.flags, today))
 
   const status: DetectorResult['status'] = {
@@ -33,9 +44,9 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
     swapReason: string | null
   }
   const byHorse: Record<string, AssignRec[]> = {}
-  guests.forEach(g => {
+  inRangeGuests.forEach(g => {
     if (!g.check_in_date) return
-    const se = g.check_out_date || g.checked_out_at?.slice(0, 10) || today
+    const se = g.check_out_date || g.checked_out_at?.slice(0, 10) || effectiveToday
     ;(g.horse_assignments || []).forEach(a => {
       if (!byHorse[a.horse_name]) byHorse[a.horse_name] = []
       byHorse[a.horse_name].push({
@@ -121,8 +132,8 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
         ? `${top.name}: ${top.incompat} of ${top.total} ${top.bucket} riders not-a-fit${top.topReason ? ` (${formatLabel(top.topReason)})` : ''}`
         : `${allMismatches.length} horses have rider-type mismatches`,
       detail: allMismatches.length === 1
-        ? `${pct}% incompatible for ${top.bucket}`
-        : allMismatches.slice(0, 3).map(m => `${m.name}: ${m.incompat}/${m.total} ${m.bucket}`).join(' · '),
+        ? `${pct}% incompatible for ${top.bucket} ${windowLabel}`
+        : allMismatches.slice(0, 3).map(m => `${m.name}: ${m.incompat}/${m.total} ${m.bucket}`).join(' · ') + ` ${windowLabel}`,
       n: allMismatches.reduce((s, m) => s + m.total, 0),
       nLabel: `${allMismatches.reduce((s, m) => s + m.total, 0)} assignments`,
       strength: pct >= 60 ? 'strong' : 'moderate',
@@ -133,7 +144,7 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
   // ── 2. Workload imbalance (action) ────────────────────────────────────────
   // Last 8 weeks, top 3 horses carry >= 2× their fair share; min 30 active horses
   if (activeHorses.length >= 30) {
-    const eightWeeksAgo = addDays(today, -56)
+    const eightWeeksAgo = addDays(effectiveToday, -56)
     const assignCount: Record<string, number> = {}
 
     guests.forEach(g => {
@@ -172,8 +183,8 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
 
   // ── 3. Idle while available (action) ─────────────────────────────────────
   // Active, unflagged horses with no assignment in 14+ days while busiest 10% avg >= 5/week
-  const fourteenDaysAgo = addDays(today, -14)
-  const eightWeeksAgo2  = addDays(today, -56)
+  const fourteenDaysAgo = addDays(effectiveToday, -14)
+  const eightWeeksAgo2  = addDays(effectiveToday, -56)
 
   const lastAssign: Record<string, string> = {}
   const recentAssignCount: Record<string, number> = {}
@@ -211,7 +222,7 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
       const nameList = top5.map(h => {
         const last = lastAssign[h.name]
         const days = last
-          ? Math.round((new Date(today + 'T12:00:00').getTime() - new Date(last + 'T12:00:00').getTime()) / MS)
+          ? Math.round((new Date(effectiveToday + 'T12:00:00').getTime() - new Date(last + 'T12:00:00').getTime()) / MS)
           : null
         return days ? `${h.name} (${days}d)` : h.name
       }).join(', ')
@@ -231,7 +242,7 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
 
   // ── 4. Near weight limit (action) ─────────────────────────────────────────
   // >= 4 times in last 4 weeks carrying a rider within 10 lb of horseWeightCeiling
-  const fourWeeksAgo = addDays(today, -28)
+  const fourWeeksAgo = addDays(effectiveToday, -28)
 
   // Historical max weight per horse (all non-incompatible assignments)
   const histMaxWeight: Record<string, number> = {}

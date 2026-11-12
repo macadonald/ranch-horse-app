@@ -18,13 +18,14 @@ export async function GET(req: NextRequest) {
   const today = getTucsonToday()
 
   const [
-    { data: guestsRaw,    error: guestErr  },
-    { data: flagsRaw,     error: flagErr   },
-    { data: visitsRaw,    error: visitErr  },
-    { data: horsesRaw,    error: horseErr  },
-    { data: hFlagsRaw,    error: hFlagErr  },
+    { data: guestsRaw,       error: guestErr  },
+    { data: flagsRaw,        error: flagErr   },
+    { data: visitsRaw,       error: visitErr  },
+    { data: horsesRaw,       error: horseErr  },
+    { data: hFlagsRaw,       error: hFlagErr  },
     { data: downVotesRaw },
     { data: profileData  },
+    { data: activeFarriersRaw },
   ] = await Promise.all([
     supabase.from('guests').select(
       'id, check_in_date, check_out_date, checked_out_at, age, weight, gender, riding_level, horse_assignments(horse_name, incompatible, removed_at, swap_category, swap_reason, reason)'
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
     supabase.from('horse_status_flags').select('horse_name, flag_type, status, day_off_date, flagged_at').eq('status', 'active'),
     supabase.from('pattern_feedback').select('finding_id, facts_hash').eq('vote', 'down'),
     supabase.from('profiles').select('role').eq('id', userId).single(),
+    supabase.from('farriers').select('name').eq('active', true),
   ])
 
   if (guestErr) return NextResponse.json({ error: guestErr.message }, { status: 500 })
@@ -74,7 +76,8 @@ export async function GET(req: NextRequest) {
   const earliestCheckIn = checkInDates.length > 0 ? [...checkInDates].sort()[0] : today
   const { map: weatherMap } = await fetchWeather(earliestCheckIn, today, today)
 
-  const input: DetectorInput = { guests, flags, visits, horses, weatherMap, today }
+  const activeFarriers = (activeFarriersRaw || []).map((f: any) => f.name as string)
+  const input: DetectorInput = { guests, flags, visits, horses, weatherMap, today, activeFarriers }
   const { findings: rawFindings, statuses } = runAllDetectors(input)
 
   const findingsWithHash = rawFindings.map(f => ({ ...f, factsHash: hashFacts(f) }))

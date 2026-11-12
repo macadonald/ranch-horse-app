@@ -17,6 +17,9 @@ export interface DetectorInput {
   horses: PatternHorse[]
   weatherMap: WeatherMap
   today: string
+  activeFarriers?: string[]
+  rangeStart?: string
+  rangeEnd?: string
 }
 
 export interface AllDetectorsResult {
@@ -44,16 +47,16 @@ function tryDetect(
 }
 
 export function runAllDetectors(input: DetectorInput): AllDetectorsResult {
-  const { guests, flags, visits, horses, weatherMap, today } = input
+  const { guests, flags, visits, horses, weatherMap, today, activeFarriers, rangeStart, rangeEnd } = input
 
   const results: DetectorResult[] = [
     tryDetect('calendar', 'check-ins', () => detectCalendar(guests)),
     tryDetect('guests',   'guests',    () => detectGuestShifts(guests, today)),
     tryDetect('weather',  'weather data', () => detectWeather(guests, weatherMap, today)),
-    tryDetect('swaps',    'assignments', () => detectSwaps(guests)),
+    tryDetect('swaps',    'assignments', () => detectSwaps(guests, rangeStart, rangeEnd)),
     tryDetect('health',   'health flags', () => detectHealth(guests, flags)),
-    tryDetect('shoes',    'shoeing history', () => detectShoes(guests, visits, horses, today)),
-    tryDetect('horses',   'active horses', () => detectHorses(guests, horses, today)),
+    tryDetect('shoes',    'shoeing history', () => detectShoes(guests, visits, horses, today, activeFarriers)),
+    tryDetect('horses',   'active horses', () => detectHorses(guests, horses, today, rangeStart, rangeEnd)),
   ]
 
   const allFindings = results.flatMap(r => r.findings)

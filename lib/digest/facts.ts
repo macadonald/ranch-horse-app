@@ -3,6 +3,7 @@ import { fetchWeather } from '@/lib/weather'
 import { holidaysInRange, schoolBreakFor } from '@/lib/calendar'
 import { runAllDetectors } from '@/lib/patterns/index'
 import { isFullSet } from '@/lib/shoeWork'
+import { computeOverdueHorses } from '@/lib/shoes/overdue'
 import type { PatternGuest, PatternFlag, PatternHorse, PatternVisit } from '@/lib/patterns/types'
 
 const MS = 86400000
@@ -32,6 +33,7 @@ export async function buildWeekFacts(supabase: any, weekStart: string): Promise<
     { data: flagsRaw },
     { data: visitsRaw },
     { data: hFlagsRaw },
+    { data: activeFarriersRaw },
   ] = await Promise.all([
     supabase.from('guests').select(
       'id, name, check_in_date, check_out_date, checked_out_at, age, weight, gender, riding_level, horse_assignments(horse_name, incompatible, removed_at, swap_category, swap_reason, reason)'
@@ -47,13 +49,15 @@ export async function buildWeekFacts(supabase: any, weekStart: string): Promise<
     supabase.from('horse_status_flags')
       .select('horse_name, flag_type, status, day_off_date, flagged_at')
       .eq('status', 'active'),
+    supabase.from('farriers').select('name').eq('active', true),
   ])
 
-  const guests  = (guestsRaw  || []) as any[]
-  const allHorses = (horsesRaw  || []) as any[]
-  const flags   = (flagsRaw   || []) as any[]
-  const visits  = (visitsRaw  || []) as any[]
-  const activeHorses = allHorses.filter((h: any) => h.is_active)
+  const guests         = (guestsRaw        || []) as any[]
+  const allHorses      = (horsesRaw        || []) as any[]
+  const flags          = (flagsRaw         || []) as any[]
+  const visits         = (visitsRaw        || []) as any[]
+  const activeFarriers = (activeFarriersRaw || []).map((f: any) => f.name as string)
+  const activeHorses   = allHorses.filter((h: any) => h.is_active)
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -190,26 +194,9 @@ export async function buildWeekFacts(supabase: any, weekStart: string): Promise<
     }
   }
 
-  function computeOverdue(endDate: string) {
-    const result: any[] = []
-    for (const h of activeHorses) {
-      const dates = (horseShoeHistory[h.name] || []).filter((d: string) => d <= endDate).sort()
-      if (dates.length === 0) continue
-      const lastFS = dates[dates.length - 1]
-      const daysSince = daysBetween(lastFS, endDate)
-      if (dates.length < 2) continue
-      let total = 0
-      for (let i = 1; i < dates.length; i++) total += daysBetween(dates[i - 1], dates[i])
-      const avgGap = Math.round(total / (dates.length - 1))
-      if (avgGap > 0 && daysSince > avgGap + 14) {
-        result.push({ name: h.name, last_full_set: lastFS, days_since: daysSince, usual_gap: avgGap, days_overdue: daysSince - avgGap })
-      }
-    }
-    return result
-  }
-
-  const overdueHorses = computeOverdue(weekEnd)
-  const overdueHorsesPrevCount = computeOverdue(priorEnd).length
+  const activeHorseNames = new Set<string>(activeHorses.map((h: any) => h.name as string))
+  const overdueHorses = computeOverdueHorses(activeHorseNames, horseShoeHistory, weekEnd)
+  const overdueHorsesPrevCount = computeOverdueHorses(activeHorseNames, horseShoeHistory, priorEnd).length
 
   // ── Pattern findings ───────────────────────────────────────────────────────
 
@@ -249,6 +236,7 @@ export async function buildWeekFacts(supabase: any, weekStart: string): Promise<
     horses: patternHorses,
     weatherMap: weatherAllMap,
     today: weekEnd,
+    activeFarriers,
   })
 
   const topFindings = findings

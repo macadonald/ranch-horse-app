@@ -1,5 +1,6 @@
 import { DetectorResult, PatternGuest, PatternHorse, PatternVisit } from './types'
 import { isFullSet, categorizeWork } from '@/lib/shoeWork'
+import { computeOverdueHorses } from '@/lib/shoes/overdue'
 
 const MS = 24 * 60 * 60 * 1000
 
@@ -13,6 +14,7 @@ export function detectShoes(
   visits: PatternVisit[],
   horses: PatternHorse[],
   today: string,
+  activeFarriers?: string[],
 ): DetectorResult {
   const findings: DetectorResult['findings'] = []
 
@@ -102,26 +104,8 @@ export function detectShoes(
   }
 
   // ── 2. Past usual gap: active horses overdue (action) ─────────────────────
-  const pastGap: Array<{ name: string; daysPast: number }> = []
-  activeNames.forEach(name => {
-    const dates = fullSetsByHorse[name]
-    if (!dates || dates.length < 2) return
-    let totalDays = 0
-    for (let i = 1; i < dates.length; i++) {
-      totalDays += Math.round(
-        (new Date(dates[i] + 'T12:00:00').getTime() - new Date(dates[i - 1] + 'T12:00:00').getTime()) / MS
-      )
-    }
-    const avgDays = totalDays / (dates.length - 1)
-    const lastFS  = dates[dates.length - 1]
-    const curDays = Math.round(
-      (new Date(today + 'T12:00:00').getTime() - new Date(lastFS + 'T12:00:00').getTime()) / MS
-    )
-    if (curDays > avgDays) {
-      pastGap.push({ name, daysPast: Math.round(curDays - avgDays) })
-    }
-  })
-  pastGap.sort((a, b) => b.daysPast - a.daysPast)
+  const overdueResult = computeOverdueHorses(activeNames, fullSetsByHorse, today)
+  const pastGap = overdueResult.map(h => ({ name: h.name, daysPast: h.days_overdue }))
 
   if (pastGap.length >= 3) {
     const top5 = pastGap.slice(0, 5)
@@ -170,7 +154,12 @@ export function detectShoes(
     byFarrier[c.farrier].push(c)
   })
 
-  const qualified = Object.entries(byFarrier).filter(([, cs]) => cs.length >= 10)
+  const activeFarrierSet = activeFarriers
+    ? new Set(activeFarriers.map(n => n.trim().toLowerCase()))
+    : null
+  const qualified = Object.entries(byFarrier).filter(([name, cs]) =>
+    cs.length >= 10 && (!activeFarrierSet || activeFarrierSet.has(name))
+  )
   if (qualified.length >= 2) {
     const stats = qualified.map(([name, cs]) => ({
       name, count: cs.length,

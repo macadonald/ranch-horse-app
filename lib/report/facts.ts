@@ -2,6 +2,7 @@ import { LEVEL_LABELS } from '@/lib/horses'
 import { WEIGHT_BANDS, getWeightBand } from '@/lib/weightBands'
 import { categorizeWork, isFullSet } from '@/lib/shoeWork'
 import { runAllDetectors } from '@/lib/patterns/index'
+import { computeOverdueHorses } from '@/lib/shoes/overdue'
 import type { PatternGuest, PatternFlag, PatternHorse, PatternVisit } from '@/lib/patterns/types'
 
 const MS = 86400000
@@ -36,6 +37,7 @@ export async function buildRangeFacts(
     { data: visitsRaw },
     { data: activeFlagsRaw },
     { data: groupsRaw },
+    { data: activeFarriersRaw },
   ] = await Promise.all([
     supabase.from('guests').select(
       'id, name, check_in_date, check_out_date, age, weight, gender, riding_level, repeat_guest, group_id, horse_assignments(horse_name, incompatible, status, removed_at, swap_category, swap_reason, reason, assigned_at)'
@@ -51,15 +53,19 @@ export async function buildRangeFacts(
     has('guests')
       ? supabase.from('guest_groups').select('id, name')
       : Promise.resolve({ data: [] }),
+    has('patterns')
+      ? supabase.from('farriers').select('name').eq('active', true)
+      : Promise.resolve({ data: [] }),
   ])
 
-  const guests       = (guestsRaw      || []) as any[]
-  const allHorses    = (horsesRaw      || []) as any[]
-  const flags        = (flagsRaw       || []) as any[]
-  const visits       = (visitsRaw      || []) as any[]
-  const activeFlags  = (activeFlagsRaw || []) as any[]
-  const groups       = (groupsRaw      || []) as any[]
-  const activeHorses = allHorses.filter((h: any) => h.is_active)
+  const guests         = (guestsRaw        || []) as any[]
+  const allHorses      = (horsesRaw        || []) as any[]
+  const flags          = (flagsRaw         || []) as any[]
+  const visits         = (visitsRaw        || []) as any[]
+  const activeFlags    = (activeFlagsRaw   || []) as any[]
+  const groups         = (groupsRaw        || []) as any[]
+  const activeFarriers = (activeFarriersRaw || []).map((f: any) => f.name as string)
+  const activeHorses   = allHorses.filter((h: any) => h.is_active)
 
   const rangeGuests = guests.filter(g =>
     g.check_in_date != null && g.check_out_date != null &&
@@ -171,29 +177,9 @@ export async function buildRangeFacts(
       .slice(0, 10)
       .map(([name, guest_days]) => ({ name, guest_days: guest_days as number }))
 
-    // Last assigned date (all-time, for idle calc at range end)
-    const lastAssigned: Record<string, string> = {}
-    for (const g of guests) {
-      for (const a of g.horse_assignments || []) {
-        if (a.status === 'removed') continue
-        if (!lastAssigned[a.horse_name] || g.check_in_date > lastAssigned[a.horse_name]) {
-          lastAssigned[a.horse_name] = g.check_in_date
-        }
-      }
-    }
-
     const blockedNames = new Set<string>(
       activeFlags.filter((f: any) => f.flag_type !== 'day_off').map((f: any) => f.horse_name as string)
     )
-
-    const idleHorses = activeHorses
-      .filter((h: any) => !h.is_draft && !blockedNames.has(h.name))
-      .map((h: any) => {
-        const last = lastAssigned[h.name] || null
-        return { name: h.name, last_assigned: last, days_idle: last ? daysBetween(last, end) : 999 }
-      })
-      .filter((h: any) => h.days_idle >= 14)
-      .sort((a: any, b: any) => b.days_idle - a.days_idle)
 
     // Draft usage for 200+ lb riders
     const draftMap: Record<string, number> = {}
@@ -213,7 +199,6 @@ export async function buildRangeFacts(
 
     result.horses = {
       top_by_guest_days: topByGuestDays,
-      idle_14_plus: idleHorses,
       draft_usage_heavy_riders: draftUsage,
       herd_depth: {
         total_active: activeHorses.length,
@@ -354,20 +339,8 @@ export async function buildRangeFacts(
     }
     const avgFullSetGapDays = intervalCount ? Math.round(totalIntervals / intervalCount) : null
 
-    const overdueHorses: any[] = []
-    for (const h of activeHorses) {
-      const dates = (horseFSHistory[h.name] || []).filter((d: string) => d <= end).sort()
-      if (dates.length < 2) continue
-      const lastFS = dates[dates.length - 1]
-      const daysSince = daysBetween(lastFS, end)
-      let total = 0
-      for (let i = 1; i < dates.length; i++) total += daysBetween(dates[i - 1], dates[i])
-      const avgGap = Math.round(total / (dates.length - 1))
-      if (avgGap > 0 && daysSince > avgGap + 14) {
-        overdueHorses.push({ name: h.name, last_full_set: lastFS, days_since: daysSince, usual_gap: avgGap, days_overdue: daysSince - avgGap })
-      }
-    }
-    overdueHorses.sort((a, b) => b.days_overdue - a.days_overdue)
+    const activeHorseNameSet = new Set<string>(activeHorses.map((h: any) => h.name as string))
+    const overdueHorses = computeOverdueHorses(activeHorseNameSet, horseFSHistory, end)
 
     result.shoes = {
       visits_in_range: rangeVisits.length,
@@ -412,6 +385,9 @@ export async function buildRangeFacts(
       horses: patternHorses,
       weatherMap: {},
       today: end,
+      activeFarriers,
+      rangeStart: start,
+      rangeEnd:   end,
     })
 
     result.patterns = findings

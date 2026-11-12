@@ -5,7 +5,7 @@ import { formatLabel } from '@/lib/labels'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type AiSummary = { overview: string; highlights: string[] }
+type AiSummary = { paragraph: string }
 
 // ── Print styles ─────────────────────────────────────────────────────────────
 
@@ -177,7 +177,7 @@ function GuestsSection({ data }: { data: any }) {
   )
 }
 
-function HorsesSection({ data }: { data: any }) {
+function HorsesSection({ data, start, end }: { data: any; start: string; end: string }) {
   return (
     <section className="section">
       <div className="section-title">Horses</div>
@@ -186,21 +186,10 @@ function HorsesSection({ data }: { data: any }) {
         { label: 'Available',      value: data.herd_depth?.available    ?? '—' },
         { label: 'Blocked',        value: data.herd_depth?.blocked      ?? '—' },
         { label: 'Draft horses',   value: data.herd_depth?.draft_count  ?? '—' },
-        { label: 'Idle 14+ days',  value: data.idle_14_plus?.length     ?? 0 },
       ]} />
 
-      <SubLabel>Top 10 by guest-days (range)</SubLabel>
+      <SubLabel>{`Top 10 by guest-days (${fmtDateRange(start, end)})`}</SubLabel>
       <BarChart data={data.top_by_guest_days} labelKey="name" valueKey="guest_days" color="#d97706" />
-
-      {data.idle_14_plus?.length > 0 && (
-        <div className="avoid-break">
-          <SubLabel>Idle available horses (14+ days at range end)</SubLabel>
-          <DataTable
-            headers={['Horse', 'Last assigned', 'Days idle']}
-            rows={data.idle_14_plus.map((h: any) => [h.name, h.last_assigned ?? 'never', h.days_idle === 999 ? '999+' : h.days_idle])}
-          />
-        </div>
-      )}
 
       {data.draft_usage_heavy_riders?.length > 0 && (
         <div className="avoid-break">
@@ -328,15 +317,6 @@ function ShoesSection({ data }: { data: any }) {
         </div>
       )}
 
-      {data.overdue_horses?.length > 0 && (
-        <div className="avoid-break">
-          <SubLabel>Past usual shoeing gap (at range end)</SubLabel>
-          <DataTable
-            headers={['Horse', 'Last full set', 'Days since', 'Usual gap', 'Days overdue']}
-            rows={data.overdue_horses.map((h: any) => [h.name, h.last_full_set, h.days_since, h.usual_gap, h.days_overdue])}
-          />
-        </div>
-      )}
     </section>
   )
 }
@@ -458,20 +438,13 @@ export default function ReportPrintPage() {
             {summary && (
               <section className="section avoid-break">
                 <div className="section-title">Summary</div>
-                <p style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 12 }}>{summary.overview}</p>
-                {summary.highlights.length > 0 && (
-                  <ul style={{ paddingLeft: 20, margin: 0 }}>
-                    {summary.highlights.map((h, i) => (
-                      <li key={i} style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 4 }}>{h}</li>
-                    ))}
-                  </ul>
-                )}
+                <p style={{ fontSize: 13, lineHeight: 1.7, margin: 0 }}>{summary.paragraph}</p>
               </section>
             )}
 
             {/* Data sections */}
             {meta.sections.includes('guests')   && facts.guests   && <GuestsSection   data={facts.guests} />}
-            {meta.sections.includes('horses')   && facts.horses   && <HorsesSection   data={facts.horses} />}
+            {meta.sections.includes('horses')   && facts.horses   && <HorsesSection   data={facts.horses} start={meta.start} end={meta.end} />}
             {meta.sections.includes('swaps')    && facts.swaps    && <SwapsSection    data={facts.swaps} />}
             {meta.sections.includes('health')   && facts.health   && <HealthSection   data={facts.health} />}
             {meta.sections.includes('shoes')    && facts.shoes    && <ShoesSection    data={facts.shoes} />}
