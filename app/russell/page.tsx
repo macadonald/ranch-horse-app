@@ -79,6 +79,8 @@ export default function RussellPage() {
   const [saveErrors, setSaveErrors] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
   const [tapError, setTapError] = useState<string | null>(null)
+  const [practiceMode, setPracticeMode] = useState(true)
+  const [practiceResult, setPracticeResult] = useState<{ count: number; placements: { guestName: string; roomNumber: string; horseName: string }[] } | null>(null)
 
   const hasDraft = Object.keys(draft).length > 0
 
@@ -91,6 +93,17 @@ export default function RussellPage() {
 
   // Auto-save draft to localStorage whenever it changes
   useEffect(() => { saveDraft(today, draft) }, [draft, today])
+
+  // Load/save practice mode setting (device preference, not date-keyed)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('russell-practice-mode')
+      if (stored !== null) setPracticeMode(stored !== 'false')
+    } catch {}
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('russell-practice-mode', practiceMode ? 'true' : 'false') } catch {}
+  }, [practiceMode])
 
   // Fetch data on mount
   const fetchData = useCallback(async () => {
@@ -308,7 +321,31 @@ export default function RussellPage() {
     })
   }
 
+  function togglePractice() {
+    if (practiceMode) {
+      if (!confirm('Turn off practice? Keep All will save real assignments.')) return
+      setPracticeMode(false)
+    } else {
+      setPracticeMode(true)
+    }
+  }
+
   async function keepAll() {
+    if (practiceMode) {
+      const placements = Object.entries(draft)
+        .map(([guestId, placement]) => {
+          const g = stayingGuests.find(x => x.id === guestId)
+          return g ? { guestName: g.name, roomNumber: g.room_number, horseName: placement.horseName } : null
+        })
+        .filter(Boolean) as { guestName: string; roomNumber: string; horseName: string }[]
+      placements.sort((a, b) => (parseInt(a.roomNumber) || 0) - (parseInt(b.roomNumber) || 0))
+      clearDraft(today)
+      setDraft({})
+      setUndoStack([])
+      setPracticeResult({ count: placements.length, placements })
+      return
+    }
+
     setSavingAll(true)
     setSaveErrors([])
     setMsg(null)
@@ -467,9 +504,16 @@ export default function RussellPage() {
         </button>
 
         <button
+          onClick={togglePractice}
+          style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${practiceMode ? '#fbbf24' : '#374151'}`, background: practiceMode ? 'rgba(251,191,36,0.15)' : 'transparent', color: practiceMode ? '#fbbf24' : '#6b7280', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', letterSpacing: '0.02em' }}
+        >
+          {practiceMode ? '⚠ Practice ON' : 'Practice OFF'}
+        </button>
+
+        <button
           onClick={keepAll}
           disabled={savingAll || Object.keys(draft).length === 0}
-          style={{ padding: '7px 14px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', fontSize: 12, fontWeight: 600, cursor: (savingAll || Object.keys(draft).length === 0) ? 'default' : 'pointer', whiteSpace: 'nowrap', opacity: (savingAll || Object.keys(draft).length === 0) ? 0.45 : 1 }}
+          style={{ padding: '7px 14px', borderRadius: 6, border: 'none', background: practiceMode ? '#d97706' : '#059669', color: '#fff', fontSize: 12, fontWeight: 600, cursor: (savingAll || Object.keys(draft).length === 0) ? 'default' : 'pointer', whiteSpace: 'nowrap', opacity: (savingAll || Object.keys(draft).length === 0) ? 0.45 : 1 }}
         >
           {savingAll ? 'Saving...' : `Keep All (${Object.keys(draft).length})`}
         </button>
@@ -482,6 +526,13 @@ export default function RussellPage() {
           ← Board
         </Link>
       </div>
+
+      {/* Practice mode banner */}
+      {practiceMode && (
+        <div style={{ background: '#fef3c7', borderBottom: '1px solid #fcd34d', padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#92400e', textAlign: 'center', flexShrink: 0, letterSpacing: '0.03em' }}>
+          PRACTICE MODE — nothing will be saved
+        </div>
+      )}
 
       {/* Error banner */}
       {saveErrors.length > 0 && (
@@ -704,6 +755,34 @@ export default function RussellPage() {
           </div>
         </div>
       </div>
+
+      {/* Practice result modal */}
+      {practiceResult && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 12, padding: 24, maxWidth: 460, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>Practice — nothing was saved</div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 14 }}>
+              These {practiceResult.count} placement{practiceResult.count !== 1 ? 's' : ''} would have been saved:
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+              {practiceResult.placements.map((p, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border)', fontSize: 13 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, padding: '1px 5px', color: 'var(--color-text-3)', flexShrink: 0 }}>{roomLabel(p.roomNumber)}</span>
+                  <span style={{ color: 'var(--color-text-2)', flex: 1 }}>{p.guestName}</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>→</span>
+                  <span style={{ fontWeight: 600 }}>🐴 {p.horseName}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setPracticeResult(null)}
+              style={{ padding: '10px', borderRadius: 6, border: 'none', background: '#1a1a2e', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
