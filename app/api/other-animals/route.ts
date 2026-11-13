@@ -10,6 +10,7 @@ export async function GET() {
     .from('other_animals')
     .select('*')
     .order('group_name')
+    .order('board_order', { ascending: true, nullsFirst: false })
     .order('name')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ animals: data || [] })
@@ -20,13 +21,13 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth
   const { userId, email, supabase } = auth
   const body = await req.json()
-  const { name, group_name, age, notes } = body
+  const { name, group_name, age, notes, training_tier } = body
   if (!name || !group_name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
   const { data, error } = await supabase
     .from('other_animals')
-    .insert({ name, group_name, age: age || null, notes: notes || null })
+    .insert({ name, group_name, age: age || null, notes: notes || null, training_tier: training_tier || null })
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -47,7 +48,7 @@ export async function PUT(req: NextRequest) {
   if (auth instanceof NextResponse) return auth
   const { userId, email, supabase } = auth
   const body = await req.json()
-  const { id, name, group_name, age, notes, farrier } = body
+  const { id, name, group_name, age, notes, farrier, training_tier, board_order } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
   const fields: Record<string, unknown> = {}
   if (name !== undefined) fields.name = name
@@ -55,6 +56,8 @@ export async function PUT(req: NextRequest) {
   if (age !== undefined) fields.age = age
   if (notes !== undefined) fields.notes = notes
   if (farrier !== undefined) fields.farrier = farrier
+  if (training_tier !== undefined) fields.training_tier = training_tier
+  if (board_order !== undefined) fields.board_order = board_order
   const { data, error } = await supabase
     .from('other_animals')
     .update(fields)
