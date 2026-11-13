@@ -1,8 +1,8 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Component, useId } from 'react'
 import {
   DndContext, DragEndEvent, DragOverEvent, DragStartEvent,
-  PointerSensor, useSensor, useSensors, closestCenter,
+  PointerSensor, TouchSensor, useSensor, useSensors, closestCenter,
   DragOverlay, useDroppable,
 } from '@dnd-kit/core'
 import {
@@ -1014,6 +1014,40 @@ function TrainingAnimalCard({ animal }: { animal: OtherAnimal }) {
 
 // ─── Training Board ───────────────────────────────────────────────────────────
 
+// ─── Training utilities ───────────────────────────────────────────────────────
+
+function useWindowWidth(): number | null {
+  const [width, setWidth] = useState<number | null>(null)
+  useEffect(() => {
+    setWidth(window.innerWidth)
+    const handler = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return width
+}
+
+class TrainingErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() { return { hasError: true } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '16px 0', color: 'var(--color-text-3)', fontSize: 13, fontStyle: 'italic' }}>
+          Training board couldn't load — refresh to try again.
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 const TRAINING_TIERS = [
   { key: 'green',   label: 'Green',             colBg: '#f0fdf4', colBorder: '#bbf7d0' },
   { key: 'far',     label: 'Far from string',   colBg: 'transparent', colBorder: 'var(--color-border)' },
@@ -1056,12 +1090,13 @@ function BoardCard({ animal, tierKey, isViewer, onTapMove }: {
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.25 : 1, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', marginBottom: 6, userSelect: 'none' }}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.25 : 1, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', marginBottom: 6, userSelect: 'none', touchAction: isDragging ? 'none' : 'manipulation', cursor: isViewer ? 'default' : (isDragging ? 'grabbing' : 'grab') }}
       {...attributes}
+      {...(isViewer ? {} : listeners)}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5 }}>
         {!isViewer && (
-          <div {...listeners} style={{ cursor: isDragging ? 'grabbing' : 'grab', color: 'var(--color-text-3)', fontSize: 13, paddingTop: 1, flexShrink: 0, touchAction: 'none', lineHeight: 1 }}>⠿</div>
+          <div style={{ color: 'var(--color-text-3)', fontSize: 13, paddingTop: 1, flexShrink: 0, lineHeight: 1, opacity: 0.5 }}>⠿</div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 12, lineHeight: 1.3 }}>{animal.name}</div>
@@ -1097,7 +1132,7 @@ function BoardColumn({ tier, items, ids, isViewer, onTapMove }: {
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `col-${tier.key}` })
   return (
-    <div ref={setNodeRef} style={{ background: tier.colBg, border: `1px solid ${isOver ? 'var(--color-accent)' : tier.colBorder}`, borderRadius: 'var(--radius-md)', padding: '8px 7px 4px', minHeight: 90, transition: 'border-color 0.15s', display: 'flex', flexDirection: 'column' }}>
+    <div ref={setNodeRef} style={{ background: tier.colBg, border: `1px solid ${isOver ? 'var(--color-accent)' : tier.colBorder}`, borderRadius: 'var(--radius-md)', padding: '8px 7px 4px', minHeight: 90, transition: 'border-color 0.15s, box-shadow 0.15s', display: 'flex', flexDirection: 'column', boxShadow: isOver ? 'inset 0 0 0 2px var(--color-accent)' : 'none' }}>
       <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, textAlign: 'center', lineHeight: 1.3 }}>{tier.label}</div>
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
         {items.map(animal => (
@@ -1114,22 +1149,32 @@ function BoardColumn({ tier, items, ids, isViewer, onTapMove }: {
 function TrainingBoard({ animals, onUpdate, isViewer }: {
   animals: OtherAnimal[]; onUpdate: (id: string, tier: TrainingTierKey, order: number) => Promise<void>; isViewer: boolean
 }) {
+  const dndId = useId()
   const [local, setLocal] = useState<OtherAnimal[]>(() => sortTrainingAnimals(animals))
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [moveError, setMoveError] = useState<string | null>(null)
+  const snapshot = useRef<OtherAnimal[]>([])
   const activeAnimal = activeId ? local.find(a => a.id === activeId) ?? null : null
 
   useEffect(() => {
     if (!activeId) setLocal(sortTrainingAnimals(animals))
   }, [animals, activeId])
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  )
 
   function containerOf(id: string): TrainingTierKey | null {
     if (id.startsWith('col-')) { const k = id.slice(4) as TrainingTierKey; return TRAINING_TIERS.some(t => t.key === k) ? k : null }
     return local.find(a => a.id === id) ? getTier(local.find(a => a.id === id)!) : null
   }
 
-  function handleDragStart({ active }: DragStartEvent) { setActiveId(active.id as string) }
+  function handleDragStart({ active }: DragStartEvent) {
+    setActiveId(active.id as string)
+    setMoveError(null)
+    snapshot.current = local
+  }
 
   function handleDragOver({ active, over }: DragOverEvent) {
     if (!over) return
@@ -1139,7 +1184,7 @@ function TrainingBoard({ animals, onUpdate, isViewer }: {
     setLocal(prev => prev.map(a => a.id === active.id ? { ...a, training_tier: oTier } : a))
   }
 
-  function handleDragEnd({ active, over }: DragEndEvent) {
+  async function handleDragEnd({ active, over }: DragEndEvent) {
     setActiveId(null)
     if (!over) return
     const aId = active.id as string
@@ -1155,7 +1200,6 @@ function TrainingBoard({ animals, onUpdate, isViewer }: {
     const ordered = newTierItems.map((a, i) => ({ ...a, board_order: i }))
     const nextLocal = local.map(a => ordered.find(o => o.id === a.id) ?? a)
     setLocal(nextLocal)
-    // Save all changed items
     const origTier = getTier(animals.find(o => o.id === aId) as OtherAnimal ?? animal)
     const toSave: Array<[string, TrainingTierKey, number]> = []
     ordered.forEach((a, i) => {
@@ -1165,7 +1209,12 @@ function TrainingBoard({ animals, onUpdate, isViewer }: {
     if (origTier !== tier) {
       nextLocal.filter(a => getTier(a) === origTier).forEach((a, i) => { toSave.push([a.id, origTier, i]) })
     }
-    void Promise.all(toSave.map(([id, t, o]) => onUpdate(id, t, o)))
+    try {
+      await Promise.all(toSave.map(([id, t, o]) => onUpdate(id, t, o)))
+    } catch {
+      setLocal(snapshot.current)
+      setMoveError('Move failed — try again.')
+    }
   }
 
   function handleTapMove(id: string, newTier: TrainingTierKey) {
@@ -1191,21 +1240,40 @@ function TrainingBoard({ animals, onUpdate, isViewer }: {
   local.forEach(a => { tierItemIds[getTier(a)].push(a.id) })
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(130px, 1fr))', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
-        {TRAINING_TIERS.map(tier => (
-          <BoardColumn key={tier.key} tier={tier} items={local.filter(a => getTier(a) === tier.key)} ids={tierItemIds[tier.key]} isViewer={isViewer} onTapMove={handleTapMove} />
-        ))}
-      </div>
-      <DragOverlay>
-        {activeAnimal ? (
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', opacity: 0.95, minWidth: 110 }}>
-            <div style={{ fontWeight: 600, fontSize: 12 }}>{activeAnimal.name}</div>
-            {activeAnimal.age != null && <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>{activeAnimal.age} yr</div>}
+    <>
+      {moveError && (
+        <div style={{ marginBottom: 8, padding: '6px 10px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 'var(--radius-sm)', fontSize: 12, color: '#dc2626' }}>
+          {moveError}
+        </div>
+      )}
+      <div style={{ overflowX: 'auto' }}>
+        <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(220px, 1fr))', gap: 10, paddingBottom: 4 }}>
+            {TRAINING_TIERS.map(tier => (
+              <BoardColumn key={tier.key} tier={tier} items={local.filter(a => getTier(a) === tier.key)} ids={tierItemIds[tier.key]} isViewer={isViewer} onTapMove={handleTapMove} />
+            ))}
           </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+          <DragOverlay>
+            {activeAnimal ? (
+              <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', opacity: 0.95, minWidth: 180, userSelect: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+                  <div style={{ color: 'var(--color-text-3)', fontSize: 13, paddingTop: 1, flexShrink: 0, lineHeight: 1, opacity: 0.5 }}>⠿</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, lineHeight: 1.3 }}>{activeAnimal.name}</div>
+                    {activeAnimal.age != null && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 1 }}>{activeAnimal.age} yr</div>}
+                    {activeAnimal.notes && (
+                      <div style={{ fontSize: 11, color: 'var(--color-text-2)', marginTop: 3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, lineHeight: 1.4 }}>
+                        {activeAnimal.notes}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
+    </>
   )
 }
 
@@ -1237,24 +1305,140 @@ function TrainingList({ animals, onTierChange, isViewer }: {
             const tier = getTier(animal)
             const meta = TIER_META[tier]
             return (
-              <div key={animal.id} style={{ padding: '8px 14px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
+              <div key={animal.id} style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ flex: '1 1 140px', minWidth: 140, wordBreak: 'break-word' }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{animal.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                     {[animal.age != null ? `${animal.age} yr` : '', animal.notes].filter(Boolean).join(' · ')}
                   </div>
                 </div>
-                <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: meta.badgeBg, color: meta.badgeColor, border: `1px solid ${meta.badgeBorder}`, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  {meta.shortLabel}
-                </span>
-                {!isViewer && (
-                  <select value={tier} onChange={e => onTierChange(animal.id, e.target.value as TrainingTierKey)} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-2)', cursor: 'pointer' }}>
-                    {TRAINING_TIERS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                {!isViewer ? (
+                  <select value={tier} onChange={e => onTierChange(animal.id, e.target.value as TrainingTierKey)}
+                    style={{ fontSize: 10, padding: '3px 8px', borderRadius: 999, background: meta.badgeBg, color: meta.badgeColor, border: `1px solid ${meta.badgeBorder}`, fontWeight: 600, flexShrink: 0, cursor: 'pointer', minHeight: 28, appearance: 'none' }}>
+                    {TRAINING_TIERS.map(t => <option key={t.key} value={t.key}>{TIER_META[t.key].shortLabel}</option>)}
                   </select>
+                ) : (
+                  <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: meta.badgeBg, color: meta.badgeColor, border: `1px solid ${meta.badgeBorder}`, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                    {meta.shortLabel}
+                  </span>
                 )}
               </div>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MobileTrainingBoard({ animals, onUpdate, isViewer }: {
+  animals: OtherAnimal[]
+  onUpdate: (id: string, tier: TrainingTierKey, order: number) => Promise<void>
+  isViewer: boolean
+}) {
+  const [local, setLocal] = useState<OtherAnimal[]>(() => sortTrainingAnimals(animals))
+  const [selectedTier, setSelectedTier] = useState<TrainingTierKey>(() => {
+    for (const t of TRAINING_TIERS) { if (animals.some(a => getTier(a) === t.key)) return t.key }
+    return 'green'
+  })
+  const [moveOpenId, setMoveOpenId] = useState<string | null>(null)
+
+  useEffect(() => { setLocal(sortTrainingAnimals(animals)) }, [animals])
+
+  const tierItems = local
+    .filter(a => getTier(a) === selectedTier)
+    .sort((a, b) => (a.board_order ?? 0) - (b.board_order ?? 0))
+
+  function handleMove(id: string, newTier: TrainingTierKey) {
+    const animal = local.find(a => a.id === id)
+    if (!animal) return
+    const srcTier = getTier(animal)
+    const newOrder = local.filter(a => getTier(a) === newTier).length
+    const step1 = local.map(a => a.id === id ? { ...a, training_tier: newTier, board_order: newOrder } : a)
+    const srcRemaining = step1.filter(a => getTier(a) === srcTier).sort((a, b) => (a.board_order ?? 0) - (b.board_order ?? 0))
+    const next = step1.map(a => {
+      const idx = srcRemaining.findIndex(x => x.id === a.id)
+      return idx !== -1 ? { ...a, board_order: idx } : a
+    })
+    setLocal(next)
+    setMoveOpenId(null)
+    void onUpdate(id, newTier, newOrder)
+    srcRemaining.forEach((a, i) => { void onUpdate(a.id, srcTier, i) })
+  }
+
+  function handleReorder(id: string, dir: -1 | 1) {
+    const items = local.filter(a => getTier(a) === selectedTier).sort((a, b) => (a.board_order ?? 0) - (b.board_order ?? 0))
+    const idx = items.findIndex(a => a.id === id)
+    const swapIdx = idx + dir
+    if (swapIdx < 0 || swapIdx >= items.length) return
+    const a = items[idx]; const b = items[swapIdx]
+    const aOrder = a.board_order ?? idx; const bOrder = b.board_order ?? swapIdx
+    setLocal(local.map(x => x.id === a.id ? { ...x, board_order: bOrder } : x.id === b.id ? { ...x, board_order: aOrder } : x))
+    void onUpdate(a.id, selectedTier, bOrder)
+    void onUpdate(b.id, selectedTier, aOrder)
+  }
+
+  return (
+    <div>
+      {/* Tier tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', paddingBottom: 2 }}>
+        {TRAINING_TIERS.map(t => {
+          const count = local.filter(a => getTier(a) === t.key).length
+          const meta = TIER_META[t.key]
+          const active = selectedTier === t.key
+          return (
+            <button key={t.key} onClick={() => setSelectedTier(t.key)}
+              style={{ padding: '6px 14px', borderRadius: 999, border: `1px solid ${active ? meta.badgeBorder : 'var(--color-border)'}`, background: active ? meta.badgeBg : 'var(--color-surface)', color: active ? meta.badgeColor : 'var(--color-text-2)', fontWeight: active ? 700 : 400, fontSize: 12, cursor: 'pointer', flexShrink: 0, minHeight: 36, whiteSpace: 'nowrap' }}>
+              {meta.shortLabel}{count > 0 ? ` (${count})` : ''}
+            </button>
+          )
+        })}
+      </div>
+      {/* Cards */}
+      {tierItems.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--color-text-3)', fontStyle: 'italic' }}>No horses in this tier.</p>
+      ) : (
+        <div>
+          {tierItems.map((animal, idx) => (
+            <div key={animal.id} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{animal.name}</div>
+                  {animal.age != null && <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>{animal.age} yr</div>}
+                  {animal.notes && <div style={{ fontSize: 11, color: 'var(--color-text-2)', marginTop: 3, lineHeight: 1.4 }}>{animal.notes}</div>}
+                </div>
+                {!isViewer && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => handleReorder(animal.id, -1)} disabled={idx === 0}
+                      style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: idx === 0 ? 'default' : 'pointer', opacity: idx === 0 ? 0.4 : 1, minHeight: 36, minWidth: 36 }}>↑</button>
+                    <button onClick={() => handleReorder(animal.id, 1)} disabled={idx === tierItems.length - 1}
+                      style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 12, cursor: idx === tierItems.length - 1 ? 'default' : 'pointer', opacity: idx === tierItems.length - 1 ? 0.4 : 1, minHeight: 36, minWidth: 36 }}>↓</button>
+                  </div>
+                )}
+              </div>
+              {!isViewer && (
+                <div style={{ marginTop: 8 }}>
+                  {moveOpenId === animal.id ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>Move to:</span>
+                      {TRAINING_TIERS.filter(t => t.key !== selectedTier).map(t => (
+                        <button key={t.key} onClick={() => handleMove(animal.id, t.key)}
+                          style={{ fontSize: 11, padding: '5px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${TIER_META[t.key].badgeBorder}`, background: TIER_META[t.key].badgeBg, color: TIER_META[t.key].badgeColor, minHeight: 36 }}>
+                          {TIER_META[t.key].shortLabel}
+                        </button>
+                      ))}
+                      <button onClick={() => setMoveOpenId(null)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--color-border)', background: 'transparent', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--color-text-3)', minHeight: 36 }}>✕</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setMoveOpenId(animal.id)}
+                      style={{ fontSize: 11, padding: '5px 12px', border: '1px solid var(--color-border)', background: 'var(--color-bg)', borderRadius: 999, cursor: 'pointer', color: 'var(--color-text-2)', minHeight: 36 }}>
+                      Move to tier →
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1268,24 +1452,34 @@ function TrainingSection({ animals, aboveCount, trainingView, setTrainingView, o
   onTierChange: (id: string, tier: TrainingTierKey) => void
   isViewer: boolean
 }) {
+  const width = useWindowWidth()
+  if (width === null) return null  // wait for client to know actual width before rendering
+  const isMobile = width < 640
+
   return (
-    <div style={{ marginTop: aboveCount > 0 ? 20 : 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          In Training — Not in guest string · {animals.length}
+    <TrainingErrorBoundary>
+      <div style={{ marginTop: aboveCount > 0 ? 20 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            In Training — Not in guest string · {animals.length}
+          </div>
+          <div style={{ flex: 1 }} />
+          {!isMobile && (
+            <div style={{ display: 'flex', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 999, padding: 2, gap: 1 }}>
+              {([{ v: 'board', label: '⊞ Board' }, { v: 'list', label: '≡ List' }] as const).map(({ v, label }) => (
+                <button key={v} onClick={() => setTrainingView(v)} style={{ padding: '3px 10px', borderRadius: 999, border: 'none', background: trainingView === v ? 'var(--color-surface)' : 'transparent', color: trainingView === v ? 'var(--color-text)' : 'var(--color-text-3)', fontSize: 11, fontWeight: trainingView === v ? 600 : 400, cursor: 'pointer', boxShadow: trainingView === v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>{label}</button>
+              ))}
+            </div>
+          )}
         </div>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 999, padding: 2, gap: 1 }}>
-          {([{ v: 'board', label: '⊞ Board' }, { v: 'list', label: '≡ List' }] as const).map(({ v, label }) => (
-            <button key={v} onClick={() => setTrainingView(v)} style={{ padding: '3px 10px', borderRadius: 999, border: 'none', background: trainingView === v ? 'var(--color-surface)' : 'transparent', color: trainingView === v ? 'var(--color-text)' : 'var(--color-text-3)', fontSize: 11, fontWeight: trainingView === v ? 600 : 400, cursor: 'pointer', boxShadow: trainingView === v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>{label}</button>
-          ))}
-        </div>
+        {isMobile
+          ? <MobileTrainingBoard animals={animals} onUpdate={onUpdate} isViewer={isViewer} />
+          : trainingView === 'board'
+          ? <TrainingBoard animals={animals} onUpdate={onUpdate} isViewer={isViewer} />
+          : <TrainingList animals={animals} onTierChange={onTierChange} isViewer={isViewer} />
+        }
       </div>
-      {trainingView === 'board'
-        ? <TrainingBoard animals={animals} onUpdate={onUpdate} isViewer={isViewer} />
-        : <TrainingList animals={animals} onTierChange={onTierChange} isViewer={isViewer} />
-      }
-    </div>
+    </TrainingErrorBoundary>
   )
 }
 
@@ -1517,7 +1711,11 @@ export default function HorsesPage() {
 
   async function updateAnimalTier(id: string, tier: TrainingTierKey, order: number) {
     setAnimals(prev => prev.map(a => a.id === id ? { ...a, training_tier: tier, board_order: order } : a))
-    await fetch('/api/other-animals', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, training_tier: tier, board_order: order }) })
+    const res = await fetch('/api/other-animals', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, training_tier: tier, board_order: order }) })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error((data as { error?: string }).error || 'Failed to save')
+    }
   }
 
   async function handleListTierChange(id: string, tier: TrainingTierKey) {
