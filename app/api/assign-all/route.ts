@@ -26,6 +26,7 @@ type DraftRow = {
   noHorseReason?: 'triple_cap' | 'no_match'
   suggestion_id?: string | null
   top_candidates?: string[]
+  horseCheckoutToday?: boolean
 }
 
 type TopCandidate = {
@@ -139,6 +140,13 @@ export async function POST(req: NextRequest) {
       if (!dbAssignedMap[a.horse_name]) dbAssignedMap[a.horse_name] = []
       dbAssignedMap[a.horse_name].push({ checkOut: (g as any).check_out_date || '' })
     }
+
+    // ── Horses whose only current rider checks out today (effectively free) ──
+    const checkingOutTodayHorses = new Set<string>(
+      Object.entries(dbAssignedMap)
+        .filter(([, riders]) => riders.length > 0 && riders.every(r => r.checkOut === today))
+        .map(([name]) => name)
+    )
 
     // ── Scoring helpers ──
     const horseWeightCeiling = (listed: number | null, horseName: string): number => {
@@ -256,12 +264,12 @@ export async function POST(req: NextRequest) {
     const guestCandidates = new Map<string, { pass: 1 | 2 | 3; topCandidates: TopCandidate[] }>()
 
     const pickTop5 = (
-      arr: { horse: DbHorse; dirScore: number; weightScore: number; ageScore: number; draftBonus: number }[]
+      arr: { horse: DbHorse; dirScore: number; weightScore: number; ageScore: number; draftBonus: number; checkoutTodayBonus?: number }[]
     ): TopCandidate[] =>
       arr.slice(0, 5).map((c, i) => ({
         rank: i + 1,
         horse_name: c.horse.name,
-        score: Math.round((c.dirScore + c.weightScore + c.ageScore + c.draftBonus) * 1000) / 1000,
+        score: Math.round((c.dirScore + c.weightScore + c.ageScore + c.draftBonus + (c.checkoutTodayBonus ?? 0)) * 1000) / 1000,
         components: { dir: c.dirScore, weight: c.weightScore, age: c.ageScore, draft: c.draftBonus },
       }))
 
@@ -288,7 +296,7 @@ export async function POST(req: NextRequest) {
       const guestIsAdult = !!(guest.age && guest.age >= 16)
 
       const candidates = eligibleHorses
-        .filter(h => !dbAssignedMap[h.name] && !usedInPass1.has(h.name))
+        .filter(h => (!dbAssignedMap[h.name] || checkingOutTodayHorses.has(h.name)) && !usedInPass1.has(h.name))
         .filter(h => (guest.weight ?? 0) <= horseWeightCeiling(h.weight, h.name))
         .filter(h => !h.is_draft || !guestCanFitStandard)
         .filter(h => includeRankLast || !h.rank_last)
@@ -306,12 +314,13 @@ export async function POST(req: NextRequest) {
           weightScore: weightRoutingScore(guest.weight ?? 0, h.name, h.is_draft),
           ageScore: ageRoutingScore(guest.age, h.name),
           draftBonus: draftAffinityBonus(guest.weight ?? 0, h.is_draft),
+          checkoutTodayBonus: checkingOutTodayHorses.has(h.name) ? -0.5 : 0,
           margin: horseWeightCeiling(h.weight, h.name) - (guest.weight ?? 0),
         }))
         .sort((a, b) =>
           (Number(a.horse.rank_last) - Number(b.horse.rank_last)) ||
           (guestIsAdult ? Number(a.horse.takes_kids) - Number(b.horse.takes_kids) : 0) ||
-          (a.dirScore + a.weightScore + a.ageScore + a.draftBonus) - (b.dirScore + b.weightScore + b.ageScore + b.draftBonus) ||
+          (a.dirScore + a.weightScore + a.ageScore + a.draftBonus + a.checkoutTodayBonus) - (b.dirScore + b.weightScore + b.ageScore + b.draftBonus + b.checkoutTodayBonus) ||
           b.margin - a.margin
         )
 
@@ -322,7 +331,7 @@ export async function POST(req: NextRequest) {
       if (effectiveCandidates.length > 0) {
         guestCandidates.set(guest.id, { pass: 1, topCandidates: pickTop5(effectiveCandidates) })
         usedInPass1.add(effectiveCandidates[0].horse.name)
-        draft.push({ guest, suggestedHorse: effectiveCandidates[0].horse.name, isDouble: false, needsReview: false, flagged: false })
+        draft.push({ guest, suggestedHorse: effectiveCandidates[0].horse.name, isDouble: false, needsReview: false, flagged: false, horseCheckoutToday: checkingOutTodayHorses.has(effectiveCandidates[0].horse.name) })
       } else {
         pass2Queue.push(guest)
       }

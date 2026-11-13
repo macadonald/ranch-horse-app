@@ -57,6 +57,7 @@ type Match = {
   rodeThisBefore?: boolean; pastMatchQuality?: number | null
   lovesThisHorse?: boolean
   shoeWarning?: 'red' | 'amber' | null
+  checkingOutToday?: boolean
 }
 
 type HistoryRecord = {
@@ -91,6 +92,7 @@ type DraftRow = {
   noHorseReason?: 'triple_cap' | 'no_match'
   suggestion_id?: string | null
   top_candidates?: string[]
+  horseCheckoutToday?: boolean
 }
 
 function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: string[] }) {
@@ -1147,6 +1149,7 @@ export default function GuestsPage() {
                                 <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: m.fit === 'exact' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: m.fit === 'exact' ? 'var(--color-success)' : 'var(--color-warning)' }}>{m.fit === 'exact' ? 'Exact' : 'Adjacent'}</span>
                                 {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>Double</span>}
                                 {isSingle && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>Assigned</span>}
+                                {m.checkingOutToday && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600 }}>Checking out today</span>}
                                 {m.rodeThisBefore && (
                                   <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#ede9fe', color: '#6d28d9', fontWeight: 600, border: '1px solid #c4b5fd' }}>
                                     {m.pastMatchQuality === 1 ? '✓ Good match' : '🔄 Rode before'}
@@ -1738,6 +1741,18 @@ export default function GuestsPage() {
           horseMap={Object.fromEntries(dbHorses.filter(h => h.is_active && !h.is_deceased).map(h => [h.name, { level: h.level, weight: h.weight, is_draft: h.is_draft, rank_last: h.rank_last, takes_kids: h.takes_kids }]))}
           pastRideMap={assignAllPastRideMap}
           isViewer={isViewer}
+          boardAssignments={(() => {
+            const m = new Map<string, { guestName: string; room: string }>()
+            for (const g of activeGuests) {
+              if (g.check_out_date === today) continue
+              for (const a of g.horse_assignments || []) {
+                if (a.status === 'active' && !a.incompatible) {
+                  m.set(a.horse_name.toLowerCase(), { guestName: g.name, room: g.room_number === '45' ? 'H' : g.room_number })
+                }
+              }
+            }
+            return m
+          })()}
         />
       )}
     </div>
@@ -1995,23 +2010,43 @@ function buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, lev
   return secondary ? `${primary} ${secondary}` : primary
 }
 
-function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMap, isViewer }: {
+function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMap, isViewer, boardAssignments }: {
   initialRows: DraftRow[]
   onConfirm: (rows: DraftRow[]) => Promise<void>
   onCancel: () => void
   horseMap: Record<string, { level: string; weight: number | null; is_draft: boolean; rank_last: boolean; takes_kids: boolean }>
   pastRideMap: Record<string, Record<string, PastRideDetail>>
   isViewer?: boolean
+  boardAssignments: Map<string, { guestName: string; room: string }>
 }) {
   const [rows, setRows] = useState<DraftRow[]>(initialRows)
   const [saving, setSaving] = useState(false)
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null)
   const [aiExplanations, setAiExplanations] = useState<Record<string, string>>({})
   const [loadingExplanations, setLoadingExplanations] = useState<Set<string>>(new Set())
+  const [doubleWarn, setDoubleWarn] = useState<{ guestId: string; horse: string; conflict: 'draft' | 'board'; conflictGuest: string; conflictRoom: string } | null>(null)
   const today = getTucsonToday()
   const tomorrow = getTucsonTomorrow()
 
   function updateHorse(guestId: string, horseName: string) {
+    if (!horseName) {
+      setRows(prev => prev.map(r => r.guest.id === guestId ? { ...r, suggestedHorse: null, needsReview: true, isDouble: false } : r))
+      return
+    }
+    const key = horseName.toLowerCase()
+    const isValidHorse = Object.keys(horseMap).some(k => k.toLowerCase() === key)
+    if (isValidHorse) {
+      const draftConflict = rows.find(r => r.guest.id !== guestId && r.suggestedHorse?.toLowerCase() === key)
+      if (draftConflict) {
+        setDoubleWarn({ guestId, horse: horseName, conflict: 'draft', conflictGuest: draftConflict.guest.name, conflictRoom: draftConflict.guest.room_number === '45' ? 'H' : draftConflict.guest.room_number })
+        return
+      }
+      const boardConflict = boardAssignments.get(key)
+      if (boardConflict) {
+        setDoubleWarn({ guestId, horse: horseName, conflict: 'board', conflictGuest: boardConflict.guestName, conflictRoom: boardConflict.room })
+        return
+      }
+    }
     setRows(prev => prev.map(r => r.guest.id === guestId ? { ...r, suggestedHorse: horseName || null, needsReview: !horseName, isDouble: false } : r))
   }
   function toggleFlag(guestId: string) {
@@ -2068,6 +2103,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
           const levelDiff = horse && guestLevelIdx >= 0 && horseLevelIdx >= 0 ? Math.abs(guestLevelIdx - horseLevelIdx) : null
           const matchQuality = levelDiff === null ? null : levelDiff === 0 ? 'exact' : levelDiff === 1 ? 'adjacent' : 'mismatch'
           const nearWeight = !!(horse && horse.weight !== null && guest.weight && (horse.weight - guest.weight) <= 20)
+          const horseCheckoutToday = !!(row.horseCheckoutToday)
           const checkingOutToday = guest.check_out_date === today
           const checkingOutTomorrow = !checkingOutToday && guest.check_out_date === tomorrow
           // Past ride info for this guest + suggested horse
@@ -2101,6 +2137,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
                   {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap' }}>×2 Double</span>}
                   {needsReview && !suggestedHorse && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>{noHorseReason === 'triple_cap' ? '⛔ All horses at 2-rider limit' : 'Needs review'}</span>}
                   {nearWeight && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>⚖️ Near weight limit</span>}
+                  {horseCheckoutToday && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Horse checking out today</span>}
                   {pastRide && !pastRide.doesntWork && (
                     <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: pastRide.loves ? '#fff1f2' : 'var(--color-bg)', color: pastRide.loves ? '#9f1239' : 'var(--color-text-3)', border: `1px solid ${pastRide.loves ? '#fda4af' : 'var(--color-border)'}`, fontWeight: pastRide.loves ? 600 : 400, whiteSpace: 'nowrap' }}>
                       {pastRide.loves ? '❤️ Loves this horse' : 'Rode this horse before'}
@@ -2128,6 +2165,33 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
           .draft-row { grid-template-columns: 1fr 20px 1fr 32px !important; gap: 6px !important; }
         }
       ` }} />
+
+      {doubleWarn && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 16 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 380 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Already assigned</h3>
+            <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 20 }}>
+              <strong>{doubleWarn.horse}</strong> is already on <strong>{doubleWarn.conflictGuest}</strong>
+              {doubleWarn.conflictRoom ? `, Rm ${doubleWarn.conflictRoom}` : ''}.
+              {' '}{doubleWarn.conflict === 'draft' ? '(in this draft)' : '(on the board)'}
+            </p>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button
+                onClick={() => setDoubleWarn(null)}
+                style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', fontSize: 13, cursor: 'pointer', color: 'var(--color-text-2)' }}
+              >Change</button>
+              <button
+                onClick={() => {
+                  const { guestId, horse } = doubleWarn
+                  setRows(prev => prev.map(r => r.guest.id === guestId ? { ...r, suggestedHorse: horse, needsReview: false, isDouble: false } : r))
+                  setDoubleWarn(null)
+                }}
+                style={{ flex: 1, padding: '9px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >Keep it doubled</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

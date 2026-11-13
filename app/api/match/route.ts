@@ -217,7 +217,11 @@ export async function POST(req: NextRequest) {
       let availNote = 'Available'
       if (assigned.length === 1) {
         const a = assigned[0]
-        availNote = (a.checkOut === today || a.checkOut === tomorrowStr) ? `Single assigned to ${a.name} Room ${a.room} - CHECKING OUT SOON` : `Single assigned to ${a.name} Room ${a.room}`
+        availNote = a.checkOut === today
+          ? `Single assigned to ${a.name} Room ${a.room} - CHECKING OUT TODAY`
+          : a.checkOut === tomorrowStr
+            ? `Single assigned to ${a.name} Room ${a.room} - CHECKING OUT TOMORROW`
+            : `Single assigned to ${a.name} Room ${a.room}`
       } else if (assigned.length === 2) {
         availNote = `DOUBLE ASSIGNED: ${assigned.map(a => a.name + ' Room ' + a.room).join(' & ')}`
       } else if (assigned.length > 2) {
@@ -306,6 +310,7 @@ export async function POST(req: NextRequest) {
       ? 'SMALL GUEST: This guest is very small (under 80lbs or under age 10). Strongly prefer horses with a max weight of 150lbs or less. Only suggest larger horses if no appropriate smaller horse is available.'
       : ''
     const doubleAssignInstruction = riderCount >= 95 ? 'DOUBLE ASSIGNING IS NORMAL TODAY (95+ riders).' : riderCount >= 80 ? 'DOUBLE ASSIGNING IS ACCEPTABLE TODAY (80-95 riders).' : 'Prefer fully available horses.'
+    const checkoutTodayInstruction = 'CHECKING OUT TODAY: If a horse is marked "CHECKING OUT TODAY" in its availability note, that guest is leaving today — treat this horse as effectively available and prefer it over other equally-fit horses. It should rank higher than a horse with the same fit score that has no current assignment.'
     const rankLastInstruction = rankLastNames.length > 0 ? `CRITICAL: ${rankLastNames.join(', ')} must appear at the very bottom of your list — use only as an absolute last resort if no other suitable horse exists.` : ''
     const takesKidsInstruction = 'Horses marked "good with kids" are primarily suited for children and lighter/younger guests. For adult riders, prefer standard horses — only use a kids-friendly horse for an adult if no better option exists or if the pattern data strongly favors it for this profile.'
     const flexNote = 'When a horse shows an "extended weight limit", you may suggest it for guests up to that weight when options are limited — the ranch owner uses this buffer in practice. When a horse shows a rider level range (e.g. "works well with B to I riders"), use that range instead of rigid ±1 rules — it reflects actual historical assignment patterns. Always prefer horses whose listed level is closest to the guest\'s level when multiple options exist.'
@@ -317,6 +322,7 @@ export async function POST(req: NextRequest) {
     const prompt = `You are an experienced head wrangler at a dude ranch. Find the best 10 horse matches for this rider.
 Level scale: Beginner (B) -> Advanced Beginner (AB) -> Intermediate (I) -> Advanced Intermediate (AI) -> Advanced (A)
 ${doubleAssignInstruction}
+${checkoutTodayInstruction}
 ${cappedNote}
 Rules: 1. Prioritize exact level match. 2. Bleed to adjacent if needed. 3. Match size. 4. Notes are critical. 5. Mark exact or adjacent.
 ${flexNote}
@@ -408,7 +414,8 @@ Respond ONLY with valid JSON array, no markdown:
                 const shoeWarning: 'red' | 'amber' | null = shoeNeed === 'fronts' ? 'red' : shoeNeed ? 'amber' : null
                 const pastEntry = pastHorseMap[raw.name]
                 const lovesThisHorse = pastEntry?.loves_horse ?? false
-                const match = { ...raw, availability: dbAvailability, warning, shoeWarning, rodeThisBefore: !!pastEntry && !pastEntry.doesnt_work, pastMatchQuality: pastEntry?.match_quality ?? null, lovesThisHorse }
+                const checkingOutToday = assigned.length > 0 && assigned.every(a => a.checkOut === today)
+                const match = { ...raw, availability: dbAvailability, warning, shoeWarning, rodeThisBefore: !!pastEntry && !pastEntry.doesnt_work, pastMatchQuality: pastEntry?.match_quality ?? null, lovesThisHorse, checkingOutToday }
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'match', match })}\n\n`))
               } catch {}
               searchPos = result.end
