@@ -78,5 +78,6 @@ export type PatternHorse = {
   weight: number | null
   is_active: boolean
   farrier: string | null
+  active_since: string | null
   flags: PatternHorseFlag[]
 }

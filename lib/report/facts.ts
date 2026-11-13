@@ -42,7 +42,7 @@ export async function buildRangeFacts(
     supabase.from('guests').select(
       'id, name, check_in_date, check_out_date, age, weight, gender, riding_level, repeat_guest, group_id, horse_assignments(horse_name, incompatible, status, removed_at, swap_category, swap_reason, reason, assigned_at)'
     ).limit(10000),
-    supabase.from('horses').select('name, level, weight, is_active, is_draft, farrier').limit(500),
+    supabase.from('horses').select('name, level, weight, is_active, is_draft, farrier, active_since').limit(500),
     needHealth
       ? supabase.from('horse_status_flags').select('horse_name, flag_type, status, flagged_at, day_off_date, resolved_at, notes').order('flagged_at', { ascending: false })
       : Promise.resolve({ data: [] }),
@@ -370,6 +370,7 @@ export async function buildRangeFacts(
     const patternHorses: PatternHorse[] = allHorses.map((h: any) => ({
       name: h.name, level: h.level, weight: h.weight ?? null,
       is_active: h.is_active, farrier: h.farrier ?? null,
+      active_since: h.active_since ?? null,
       flags: hFlagsByHorse[h.name] || [],
     }))
 

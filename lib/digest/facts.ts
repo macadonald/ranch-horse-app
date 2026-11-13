@@ -38,7 +38,7 @@ export async function buildWeekFacts(supabase: any, weekStart: string): Promise<
     supabase.from('guests').select(
       'id, name, check_in_date, check_out_date, checked_out_at, age, weight, gender, riding_level, horse_assignments(horse_name, incompatible, removed_at, swap_category, swap_reason, reason)'
     ).limit(10000),
-    supabase.from('horses').select('name, level, weight, is_active, is_draft, farrier').limit(500),
+    supabase.from('horses').select('name, level, weight, is_active, is_draft, farrier, active_since').limit(500),
     supabase.from('horse_status_flags')
       .select('horse_name, flag_type, status, flagged_at, day_off_date, notes')
       .order('flagged_at', { ascending: false }),
@@ -212,6 +212,7 @@ export async function buildWeekFacts(supabase: any, weekStart: string): Promise<
   const patternHorses: PatternHorse[] = allHorses.map((h: any) => ({
     name: h.name, level: h.level, weight: h.weight ?? null,
     is_active: h.is_active, farrier: h.farrier ?? null,
+    active_since: h.active_since ?? null,
     flags: hFlagsByHorse[h.name] || [],
   }))
 

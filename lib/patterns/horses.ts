@@ -200,11 +200,21 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
     })
   })
 
+  // idleFrom: later of last assignment and active_since (null = oldest possible)
+  const idleFrom = (h: PatternHorse): string | null => {
+    const last = lastAssign[h.name] || null
+    const since = h.active_since || null
+    if (!last && !since) return null
+    if (!last) return since
+    if (!since) return last
+    return last > since ? last : since
+  }
+
   const idleHorses = unblockedHorses
-    .filter(h => { const last = lastAssign[h.name]; return !last || last < fourteenDaysAgo })
+    .filter(h => { const start = idleFrom(h); return !start || start < fourteenDaysAgo })
     .sort((a, b) => {
-      const la = lastAssign[a.name] || '0000-00-00'
-      const lb = lastAssign[b.name] || '0000-00-00'
+      const la = idleFrom(a) || '0000-00-00'
+      const lb = idleFrom(b) || '0000-00-00'
       return la.localeCompare(lb)
     })
 
@@ -220,9 +230,9 @@ export function detectHorses(guests: PatternGuest[], horses: PatternHorse[], tod
     if (avgPerWeek >= 5) {
       const top5 = idleHorses.slice(0, 5)
       const nameList = top5.map(h => {
-        const last = lastAssign[h.name]
-        const days = last
-          ? Math.round((new Date(effectiveToday + 'T12:00:00').getTime() - new Date(last + 'T12:00:00').getTime()) / MS)
+        const start = idleFrom(h)
+        const days = start
+          ? Math.round((new Date(effectiveToday + 'T12:00:00').getTime() - new Date(start + 'T12:00:00').getTime()) / MS)
           : null
         return days ? `${h.name} (${days}d)` : h.name
       }).join(', ')

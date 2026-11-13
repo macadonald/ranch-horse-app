@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     ),
     supabase.from('horse_status_flags').select('horse_name, flag_type, flagged_at, status'),
     supabase.from('farrier_visits').select('visit_date, farrier_name, farrier_visit_horses(horse_name, work_done)'),
-    supabase.from('horses').select('name, level, weight, is_active, farrier'),
+    supabase.from('horses').select('name, level, weight, is_active, farrier, active_since'),
     supabase.from('horse_status_flags').select('horse_name, flag_type, status, day_off_date, flagged_at').eq('status', 'active'),
     supabase.from('pattern_feedback').select('finding_id, facts_hash').eq('vote', 'down'),
     supabase.from('profiles').select('role').eq('id', userId).single(),
@@ -69,6 +69,7 @@ export async function GET(req: NextRequest) {
     weight: h.weight ?? null,
     is_active: h.is_active,
     farrier: h.farrier ?? null,
+    active_since: h.active_since ?? null,
     flags: hFlagsByHorse[h.name] || [],
   }))
 
