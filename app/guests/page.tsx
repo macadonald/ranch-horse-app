@@ -58,6 +58,7 @@ type Match = {
   lovesThisHorse?: boolean
   shoeWarning?: 'red' | 'amber' | null
   checkingOutToday?: boolean
+  from_request?: boolean
 }
 
 type HistoryRecord = {
@@ -93,6 +94,8 @@ type DraftRow = {
   suggestion_id?: string | null
   top_candidates?: string[]
   horseCheckoutToday?: boolean
+  from_request?: boolean
+  requestNote?: string
 }
 
 function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: string[] }) {
@@ -114,6 +117,43 @@ function HorseAutocomplete({ value, onChange, placeholder, horses = [] }: { valu
       {show && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
           {suggestions.map(name => <div key={name} onMouseDown={e => { e.preventDefault(); onChange(name); setShow(false) }} onTouchEnd={e => { e.preventDefault(); onChange(name); setShow(false) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}>🐴 {name}</div>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function HorseRequestAutocomplete({ value, onChange, placeholder, horses = [] }: { value: string; onChange: (v: string) => void; placeholder?: string; horses?: DbHorse[] }) {
+  const [suggestions, setSuggestions] = useState<DbHorse[]>([])
+  const [show, setShow] = useState(false)
+  function handleInput(v: string) {
+    onChange(v)
+    if (v.trim().length >= 2) {
+      const q = v.trim().toLowerCase()
+      const matches = horses
+        .filter(h => h.name.toLowerCase().includes(q))
+        .sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name))
+        .slice(0, 8)
+      setSuggestions(matches); setShow(matches.length > 0)
+    } else { setShow(false) }
+  }
+  function selectHorse(h: DbHorse) { onChange(h.name); setShow(false) }
+  return (
+    <div style={{ position: 'relative', flex: 1 }}>
+      <input placeholder={placeholder || 'Horse name...'} value={value} onChange={e => handleInput(e.target.value)} onBlur={() => setTimeout(() => setShow(false), 150)} style={{ width: '100%', fontSize: 13 }} />
+      {show && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
+          {suggestions.map(h => {
+            const inactive = !h.is_active && !h.is_deceased
+            const deceased = h.is_deceased
+            return (
+              <div key={h.name} onMouseDown={e => { e.preventDefault(); selectHorse(h) }} onTouchEnd={e => { e.preventDefault(); selectHorse(h) }} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>🐴 {h.name}</span>
+                {deceased && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600 }}>Deceased</span>}
+                {inactive && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600 }}>Inactive</span>}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -220,6 +260,7 @@ export default function GuestsPage() {
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
   const [matches, setMatches] = useState<Match[]>([])
   const [matchLoading, setMatchLoading] = useState(false)
+  const [matchRequestNote, setMatchRequestNote] = useState<string | null>(null)
   const [dismissedHorses, setDismissedHorses] = useState<string[]>([])
   const [assigningHorse, setAssigningHorse] = useState<string | null>(null)
   const [assignmentConfirmation, setAssignmentConfirmation] = useState<string | null>(null)
@@ -472,9 +513,13 @@ export default function GuestsPage() {
     matchAbortRef.current?.abort()
     const abort = new AbortController()
     matchAbortRef.current = abort
-    setMatchLoading(true); setMatches([])
+    setMatchLoading(true); setMatches([]); setMatchRequestNote(null)
+    // Resolve the canonical horse name for requests (case-insensitive match against active roster)
+    const canonicalRequest = guest.horse_request
+      ? (dbHorses.find(h => h.name.trim().toLowerCase() === guest.horse_request.trim().toLowerCase() && h.is_active && !h.is_deceased)?.name ?? guest.horse_request.trim())
+      : ''
     try {
-      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: `${guest.notes || ''}${guest.horse_request ? ' Horse request: ' + guest.horse_request : ''}`, guestId: guest.id, dismissedHorses: dismissed }), signal: abort.signal })
+      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: guest.notes || '', guestId: guest.id, dismissedHorses: dismissed, horseRequest: canonicalRequest }), signal: abort.signal })
       if (!res.body) { const data = await res.json(); if (data.matches) setMatches(data.matches); return }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
       while (true) {
@@ -483,7 +528,11 @@ export default function GuestsPage() {
         const lines = buffer.split('\n'); buffer = lines.pop() ?? ''
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          try { const parsed = JSON.parse(line.slice(6)); if (parsed.type === 'match') setMatches(prev => [...prev, parsed.match]) } catch {}
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'match') setMatches(prev => [...prev, parsed.match])
+            else if (parsed.type === 'request_note') setMatchRequestNote(parsed.note)
+          } catch {}
         }
       }
     } catch (err) { if ((err as Error).name !== 'AbortError') console.error(err) } finally { if (!abort.signal.aborted) setMatchLoading(false) }
@@ -496,7 +545,7 @@ export default function GuestsPage() {
     swapAbortRef.current = abort
     setSwapMatchLoading(true); setSwapMatches([])
     try {
-      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: `${guest.notes || ''}${guest.horse_request ? ' Horse request: ' + guest.horse_request : ''}`, guestId: guest.id, dismissedHorses: [swappedHorse] }), signal: abort.signal })
+      const res = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ age: guest.age, weight: guest.weight, height: guest.height, level: guest.riding_level, gender: guest.gender, notes: guest.notes || '', guestId: guest.id, dismissedHorses: [swappedHorse] }), signal: abort.signal })
       if (!res.body) { const data = await res.json(); if (data.matches) setSwapMatches(data.matches); return }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
       while (true) {
@@ -775,7 +824,7 @@ export default function GuestsPage() {
     const toSave = rows.filter(r => r.suggestedHorse && !r.flagged)
     await Promise.all(
       toSave.map(async r => {
-        await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false, source: 'assign_all', suggested: r.top_candidates ?? null }) })
+        await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest_id: r.guest.id, horse_name: r.suggestedHorse, assignment_type: 'primary', status: 'active', incompatible: false, requested_by_guest: false, source: r.from_request ? 'assign_all_request' : 'assign_all', suggested: r.top_candidates ?? null }) })
         await logHistory(r.guest.name, r.guest.id, r.suggestedHorse!, 'primary', 'assign_all')
         if (r.suggestion_id) {
           fetch('/api/assign-all/confirm', {
@@ -1029,15 +1078,22 @@ export default function GuestsPage() {
                     <div style={{ marginBottom: 8 }}><EditableField label="Notes" value={selectedGuest.notes || ''} onSave={v => updateGuestField('notes', v)} isViewer={isViewer} /></div>
                     <div style={{ position: 'relative' }}>
                       <EditableField label="Horse Request" value={selectedGuest.horse_request || ''} onSave={v => updateGuestField('horse_request', v)} isViewer={isViewer} />
-                      {!isViewer && selectedGuest.horse_request && (
-                        <button
-                          onClick={() => assignHorse(selectedGuest.horse_request, activeAssignments.length === 0 ? 'primary' : 'secondary')}
-                          disabled={assigningHorse === selectedGuest.horse_request}
-                          style={{ position: 'absolute', right: 8, bottom: 8, padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                        >
-                          {assigningHorse === selectedGuest.horse_request ? '...' : 'Assign'}
-                        </button>
-                      )}
+                      {!isViewer && selectedGuest.horse_request && (() => {
+                        const reqH = dbHorses.find(h => h.name.trim().toLowerCase() === selectedGuest.horse_request.trim().toLowerCase())
+                        const reqInactive = reqH && (!reqH.is_active || reqH.is_deceased)
+                        if (reqInactive) {
+                          return <span style={{ position: 'absolute', right: 8, bottom: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontWeight: 600 }}>{reqH.is_deceased ? 'Deceased' : 'Inactive'}</span>
+                        }
+                        return (
+                          <button
+                            onClick={() => assignHorse(selectedGuest.horse_request, activeAssignments.length === 0 ? 'primary' : 'secondary')}
+                            disabled={assigningHorse === selectedGuest.horse_request}
+                            style={{ position: 'absolute', right: 8, bottom: 8, padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            {assigningHorse === selectedGuest.horse_request ? '...' : 'Assign'}
+                          </button>
+                        )
+                      })()}
                     </div>
                     {(!isViewer || selectedGuest.group_id) && (
                     <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', border: '1px solid var(--color-border)', marginTop: 8 }}>
@@ -1135,16 +1191,18 @@ export default function GuestsPage() {
                       </div>
                       <button onClick={() => runMatch(selectedGuest, dismissedHorses)} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text-2)', cursor: 'pointer' }}>Refresh all</button>
                     </div>
+                    {matchRequestNote && <p style={{ fontSize: 11, color: 'var(--color-text-3)', padding: '4px 0 8px', fontStyle: 'italic' }}>ℹ {matchRequestNote}</p>}
                     {matchLoading && matches.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-3)', padding: '12px 0' }}>Scanning the herd...</p>
                       : matches.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-3)' }}>No matches found</p>
                       : <>{matches.map((m, i) => {
                         const isDouble = m.availability === 'double_assigned'; const isSingle = m.availability === 'single_assigned'
                         return (
-                          <div key={m.name} style={{ border: `1px solid ${isDouble ? 'var(--color-warning-border)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '11px 13px', marginBottom: 9, background: isDouble ? 'var(--color-warning-bg)' : 'var(--color-bg)' }}>
+                          <div key={m.name} style={{ border: `1px solid ${m.from_request ? 'var(--color-accent)' : isDouble ? 'var(--color-warning-border)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '11px 13px', marginBottom: 9, background: m.from_request ? 'var(--color-accent-bg)' : isDouble ? 'var(--color-warning-bg)' : 'var(--color-bg)' }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 7 }}>
                               <span style={{ fontSize: 16 }}>🐴</span>
                               <div style={{ flex: 1 }}><span style={{ fontWeight: 600, fontSize: 13 }}>{m.name}</span></div>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                {m.from_request && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-accent)', color: '#fff', fontWeight: 600 }}>Requested</span>}
                                 <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-info-bg)', color: 'var(--color-info)', fontWeight: 600 }}>#{i + 1}</span>
                                 <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, fontWeight: 600, background: m.fit === 'exact' ? 'var(--color-success-bg)' : 'var(--color-warning-bg)', color: m.fit === 'exact' ? 'var(--color-success)' : 'var(--color-warning)' }}>{m.fit === 'exact' ? 'Exact' : 'Adjacent'}</span>
                                 {isDouble && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>Double</span>}
@@ -1162,7 +1220,7 @@ export default function GuestsPage() {
                             <p style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5, marginBottom: m.warning ? 7 : 0 }}>{m.reason}</p>
                             {m.warning && <p style={{ fontSize: 11, color: 'var(--color-warning)', padding: '4px 7px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--radius-sm)', marginBottom: 7 }}>⚠ {m.warning}</p>}
                             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional', 'matches', matches.map(mm => mm.name))} disabled={assigningHorse !== null} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: assigningHorse !== null ? 'not-allowed' : 'pointer', opacity: assigningHorse !== null && assigningHorse !== m.name ? 0.5 : 1 }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
+                              {!isViewer && <button onClick={() => assignHorse(m.name, activeAssignments.length === 0 ? 'primary' : activeAssignments.length === 1 ? 'secondary' : 'additional', m.from_request ? 'match_request' : 'matches', matches.map(mm => mm.name))} disabled={assigningHorse !== null} style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: assigningHorse !== null ? 'not-allowed' : 'pointer', opacity: assigningHorse !== null && assigningHorse !== m.name ? 0.5 : 1 }}>{assigningHorse === m.name ? 'Assigning...' : 'Assign'}</button>}
                               <button onClick={() => dismissHorse(m.name)} style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 12, color: 'var(--color-text-3)', cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
@@ -1519,7 +1577,7 @@ export default function GuestsPage() {
         ` }} />
       </main>
 
-      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horses={dbHorses.filter(h => h.is_active && !h.is_deceased)} groups={groups} currentGuests={activeGuests} today={today} />}
+      {!isViewer && showAdd && <AddGuestModal onClose={() => setShowAdd(false)} onSaved={fetchGuests} horses={dbHorses.filter(h => h.is_active && !h.is_deceased)} allHorses={dbHorses} groups={groups} currentGuests={activeGuests} today={today} />}
 
       {/* Swap horse modal */}
       {swapTarget && (
@@ -1760,9 +1818,9 @@ export default function GuestsPage() {
 }
 
 
-function AddGuestModal({ onClose, onSaved, horses = [], groups = [], currentGuests = [], today = '' }: {
+function AddGuestModal({ onClose, onSaved, horses = [], allHorses, groups = [], currentGuests = [], today = '' }: {
   onClose: () => void; onSaved: () => void
-  horses?: DbHorse[]; groups?: GuestGroup[]; currentGuests?: Guest[]; today?: string
+  horses?: DbHorse[]; allHorses?: DbHorse[]; groups?: GuestGroup[]; currentGuests?: Guest[]; today?: string
 }) {
   const [form, setForm] = useState({ name: '', room_number: '', check_in_date: '', check_out_date: '', age: '', weight: '', height: '', riding_level: '', gender: '', notes: '', horse_request: '', repeat_guest: 'no' as 'yes' | 'no' })
   const [assignHorseName, setAssignHorseName] = useState('')
@@ -1898,7 +1956,7 @@ function AddGuestModal({ onClose, onSaved, horses = [], groups = [], currentGues
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Horse Request</label>
-            <HorseAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={horseNames} />
+            <HorseRequestAutocomplete value={form.horse_request} onChange={v => setForm(prev => ({ ...prev, horse_request: v }))} placeholder="e.g. Ringo" horses={allHorses ?? horses} />
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             <label>Group (optional)</label>
@@ -2094,7 +2152,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }} className="draft-list" onClick={() => setActiveTooltip(null)}>
         {rows.map(row => {
-          const { guest, suggestedHorse, isDouble, needsReview, flagged, noHorseReason } = row
+          const { guest, suggestedHorse, isDouble, needsReview, flagged, noHorseReason, from_request: fromRequest, requestNote } = row
           const horse = suggestedHorse ? horseMap[suggestedHorse] : null
           const guestLevelIdx = GUEST_LEVELS.indexOf(guest.riding_level)
           const horseLevelIdx = horse
@@ -2131,6 +2189,7 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
               <div>
                 <DraftHorseAutocomplete value={suggestedHorse || ''} onChange={v => updateHorse(guest.id, v)} horses={Object.keys(horseMap)} />
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+                  {fromRequest && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-accent-bg)', color: 'var(--color-accent)', border: '1px solid var(--color-accent-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Requested</span>}
                   {matchQuality === 'exact' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const next = activeTooltip === guest.id ? null : guest.id; setActiveTooltip(next); if (next && suggestedHorse && !aiExplanations[next] && !loadingExplanations.has(next)) fetchExplanation(guest, suggestedHorse, next) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid var(--color-success-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟢 Good match ⓘ</span>}
                   {matchQuality === 'adjacent' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const next = activeTooltip === guest.id ? null : guest.id; setActiveTooltip(next); if (next && suggestedHorse && !aiExplanations[next] && !loadingExplanations.has(next)) fetchExplanation(guest, suggestedHorse, next) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🟡 Adjacent ⓘ</span>}
                   {matchQuality === 'mismatch' && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const next = activeTooltip === guest.id ? null : guest.id; setActiveTooltip(next); if (next && suggestedHorse && !aiExplanations[next] && !loadingExplanations.has(next)) fetchExplanation(guest, suggestedHorse, next) }} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', border: '1px solid var(--color-danger-border)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>🔴 Mismatch ⓘ</span>}
@@ -2145,6 +2204,9 @@ function AssignAllDraft({ initialRows, onConfirm, onCancel, horseMap, pastRideMa
                   )}
                   {flagged && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning-border)', fontWeight: 600, whiteSpace: 'nowrap' }}>🚩 Flagged — skip on save</span>}
                 </div>
+                {requestNote && !fromRequest && (
+                  <div style={{ marginTop: 5, fontSize: 11, color: 'var(--color-text-3)', fontStyle: 'italic' }}>Request: {requestNote}</div>
+                )}
                 {activeTooltip === guest.id && matchQuality !== null && (
                   <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6, padding: '7px 10px', background: '#1e293b', color: '#f1f5f9', borderRadius: 6, fontSize: 11, lineHeight: 1.5 }}>
                     {aiExplanations[guest.id] || buildMatchExplanation({ guest, horse, guestLevelIdx, horseLevelIdx, levelDiff, matchQuality, nearWeight, isDouble, pastRide })}

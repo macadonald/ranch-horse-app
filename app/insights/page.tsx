@@ -1,12 +1,12 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Sidebar from '@/components/Sidebar'
 import { GuestAnalyticsPanel, type AnalyticsGuest } from '@/components/GuestAnalyticsPanel'
 import { HorseAnalyticsPanel } from '@/components/HorseAnalyticsPanel'
 import { ShoeAnalyticsPanel } from '@/components/ShoeAnalyticsPanel'
 import { DbHorse } from '@/lib/horses'
 import { getTucsonToday } from '@/lib/timezone'
-import { WEIGHT_BANDS } from '@/lib/weightBands'
+import { WEIGHT_BANDS, getWeightBand } from '@/lib/weightBands'
 import type { Finding, FindingCategory, DetectorStatus } from '@/lib/patterns/index'
 
 type AnalyticsView = 'correlations' | 'guests' | 'horses' | 'shoes' | 'reports'
@@ -648,10 +648,14 @@ function AskSection() {
 
 // ─── CorrelationsView ─────────────────────────────────────────────────────────
 
-function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses: DbHorse[] }) {
+function CorrelationsView({ guests, horses: allHorses }: { guests: AnalyticsGuest[]; horses: DbHorse[] }) {
   const [matchWeight, setMatchWeight] = useState('')
   const [matchLevel, setMatchLevel]   = useState('')
   const [matchGender, setMatchGender] = useState('')
+  const [reqPreset, setReqPreset]     = useState('last90')
+
+  // Split for existing stats (active-only) vs. request tracking (all horses)
+  const horses = allHorses.filter(h => h.is_active && !h.is_deceased)
 
   // Only guests with assignments
   const gwa = guests.filter(g => (g.horse_assignments || []).length > 0)
@@ -1074,6 +1078,129 @@ function CorrelationsView({ guests, horses }: { guests: AnalyticsGuest[]; horses
           </div>
         )}
       </div>
+
+      {/* ── 6. Most Requested Horses ── */}
+      {(() => {
+        const today = getTucsonToday()
+        const reqStart = reqPreset === 'last30' ? addDaysRG(today, -30) : reqPreset === 'last90' ? addDaysRG(today, -90) : reqPreset === 'season' ? '2026-05-01' : ''
+        const reqGuests = guests.filter(g => {
+          if (!g.horse_request?.trim()) return false
+          if (reqPreset === 'all' || !reqStart) return true
+          return !!g.check_in_date && g.check_in_date >= reqStart && g.check_in_date <= today
+        })
+        if (reqGuests.length === 0) return (
+          <div style={SEC_STYLE}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <SectionHeader title="Most Requested Horses" />
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(['last30','last90','season','all'] as const).map(p => (
+                  <button key={p} onClick={() => setReqPreset(p)} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: '1px solid var(--color-border)', background: reqPreset === p ? 'var(--color-accent)' : 'var(--color-surface)', color: reqPreset === p ? '#fff' : 'var(--color-text-2)', cursor: 'pointer', fontWeight: 500 }}>
+                    {p === 'last30' ? '30d' : p === 'last90' ? '90d' : p === 'season' ? 'Season' : 'All'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--color-text-3)', marginTop: 10 }}>No horse requests in this period.</p>
+          </div>
+        )
+
+        const horseByKey = new Map<string, DbHorse>()
+        allHorses.forEach(h => horseByKey.set(h.name.trim().toLowerCase(), h))
+
+        type ReqStat = { displayName: string; horseObj: DbHorse | null; status: string; count: number; gotCount: number; requesters: AnalyticsGuest[] }
+        const reqMap = new Map<string, ReqStat>()
+        reqGuests.forEach(g => {
+          const raw = g.horse_request!.trim()
+          const key = raw.toLowerCase()
+          const horseObj = horseByKey.get(key) || null
+          const displayName = horseObj ? horseObj.name : raw
+          if (!reqMap.has(key)) {
+            const status = !horseObj ? 'Not in roster' : horseObj.is_deceased ? 'Deceased' : !horseObj.is_active ? 'Inactive' : 'Active'
+            reqMap.set(key, { displayName, horseObj, status, count: 0, gotCount: 0, requesters: [] })
+          }
+          const stat = reqMap.get(key)!
+          stat.count++
+          stat.requesters.push(g)
+          if ((g.horse_assignments || []).some(a => a.horse_name.trim().toLowerCase() === key)) stat.gotCount++
+        })
+
+        const sorted = Array.from(reqMap.values()).sort((a, b) => b.count - a.count)
+        const AGE_GROUPS: [string, number, number][] = [['Under 18', 0, 17], ['18–30', 18, 30], ['31–45', 31, 45], ['46–60', 46, 60], ['60+', 61, 999]]
+
+        return (
+          <div style={SEC_STYLE}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <SectionHeader title="Most Requested Horses" />
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(['last30','last90','season','all'] as const).map(p => (
+                  <button key={p} onClick={() => setReqPreset(p)} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: '1px solid var(--color-border)', background: reqPreset === p ? 'var(--color-accent)' : 'var(--color-surface)', color: reqPreset === p ? '#fff' : 'var(--color-text-2)', cursor: 'pointer', fontWeight: 500 }}>
+                    {p === 'last30' ? '30d' : p === 'last90' ? '90d' : p === 'season' ? 'Season' : 'All'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {['Horse', 'Status', 'Requests', 'Got it'].map(h => (
+                    <th key={h} style={{ padding: '5px 8px', textAlign: 'left', fontWeight: 700, fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((stat, i) => {
+                  const statusColor = stat.status === 'Active' ? 'var(--color-success)' : stat.status === 'Not in roster' ? '#c2410c' : 'var(--color-text-3)'
+                  const breakdown = stat.count >= 3
+                  return (
+                    <React.Fragment key={stat.displayName}>
+                      <tr style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)', borderTop: i > 0 ? '1px solid var(--color-border)' : 'none' }}>
+                        <td style={{ padding: '7px 8px', fontWeight: 600, color: 'var(--color-text)' }}>{stat.displayName}</td>
+                        <td style={{ padding: '7px 8px', color: statusColor, fontWeight: stat.status !== 'Active' ? 600 : 400, fontSize: 11 }}>{stat.status}</td>
+                        <td style={{ padding: '7px 8px', color: 'var(--color-text)', fontWeight: 600 }}>{stat.count}</td>
+                        <td style={{ padding: '7px 8px', color: 'var(--color-text-2)' }}>{stat.status === 'Active' ? `${stat.gotCount} (${Math.round((stat.gotCount / stat.count) * 100)}%)` : '—'}</td>
+                      </tr>
+                      {breakdown && (() => {
+                        const lvlCounts: Record<string, number> = {}
+                        stat.requesters.forEach(g => { if (g.riding_level) lvlCounts[g.riding_level] = (lvlCounts[g.riding_level] || 0) + 1 })
+                        const lvlEntries = Object.entries(lvlCounts).sort(([a], [b]) => LEVELS.indexOf(a) - LEVELS.indexOf(b))
+
+                        const wtCounts: Record<string, number> = {}
+                        stat.requesters.forEach(g => { const b = getWeightBand(g.weight as unknown as number | null); if (b) wtCounts[b.label] = (wtCounts[b.label] || 0) + 1 })
+                        const wtEntries = Object.entries(wtCounts)
+
+                        const ageCounts: Record<string, number> = {}
+                        stat.requesters.forEach(g => { if (!g.age) return; const grp = AGE_GROUPS.find(([, lo, hi]) => g.age >= lo && g.age <= hi); if (grp) ageCounts[grp[0]] = (ageCounts[grp[0]] || 0) + 1 })
+                        const ageEntries = Object.entries(ageCounts)
+
+                        const repeatCt = stat.requesters.filter(g => g.repeat_guest).length
+                        const newCt = stat.requesters.length - repeatCt
+
+                        const groupCounts: Record<string, number> = {}
+                        stat.requesters.forEach(g => { const gr = g.group_name?.trim(); if (gr) groupCounts[gr] = (groupCounts[gr] || 0) + 1 })
+                        const groupEntries = Object.entries(groupCounts).sort(([,a],[,b]) => b - a)
+
+                        return (
+                          <tr style={{ background: i % 2 === 0 ? 'rgba(0,0,0,0.015)' : 'rgba(0,0,0,0.03)' }}>
+                            <td colSpan={4} style={{ padding: '3px 8px 9px 20px' }}>
+                              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, color: 'var(--color-text-2)', lineHeight: 1.6 }}>
+                                {lvlEntries.length > 0 && <span><b>Level:</b> {lvlEntries.map(([k,v]) => `${k} (n=${v})`).join(', ')}</span>}
+                                {wtEntries.length > 0 && <span><b>Weight:</b> {wtEntries.map(([k,v]) => `${k} (n=${v})`).join(', ')}</span>}
+                                {ageEntries.length > 0 && <span><b>Age:</b> {ageEntries.map(([k,v]) => `${k} (n=${v})`).join(', ')}</span>}
+                                <span><b>Repeat:</b> {repeatCt} · <b>New:</b> {newCt}</span>
+                                {groupEntries.length > 0 && <span><b>Groups:</b> {groupEntries.map(([k,v]) => `${k} (n=${v})`).join(', ')}</span>}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })()}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -1478,7 +1605,9 @@ function MiniLineChart({ weeks }: { weeks: WeekBucket[] }) {
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  assign_all: 'Assign All', matches: 'Horse Matches', swap: 'Swap', manual: 'Manual',
+  assign_all: 'Assign All', assign_all_request: 'Assign All (Requested)',
+  matches: 'Horse Matches', match_request: 'Match (Requested)',
+  swap: 'Swap', manual: 'Manual',
 }
 
 function pctStr(n: number, d: number): string {
@@ -1640,7 +1769,7 @@ export default function InsightsPage() {
       fetch('/api/horses').then(r => r.json()),
     ]).then(([gd, hd]) => {
       setGuests(gd.guests || gd || [])
-      setHorses((hd.horses || []).filter((h: DbHorse) => h.is_active && !h.is_deceased))
+      setHorses(hd.horses || [])
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -1691,7 +1820,7 @@ export default function InsightsPage() {
         ) : view === 'guests' ? (
           <GuestAnalyticsPanel guests={gwa} allGuests={guests} today={today} />
         ) : view === 'horses' ? (
-          <HorseAnalyticsPanel horses={horses} guests={guests} />
+          <HorseAnalyticsPanel horses={horses.filter((h: DbHorse) => h.is_active && !h.is_deceased)} guests={guests} />
         ) : view === 'shoes' ? (
           <ShoeAnalyticsPanel />
         ) : view === 'reports' && isAdmin ? (

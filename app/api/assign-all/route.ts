@@ -27,6 +27,8 @@ type DraftRow = {
   suggestion_id?: string | null
   top_candidates?: string[]
   horseCheckoutToday?: boolean
+  from_request?: boolean
+  requestNote?: string
 }
 
 type TopCandidate = {
@@ -260,6 +262,105 @@ export async function POST(req: NextRequest) {
     })
     const sorted = [...heavyGuests, ...kidsOnlyGuests, ...remainingGuests]
 
+    // ── Request pre-pass: resolve horse_request winners before normal scoring ──
+    // For each unassigned guest with a horse_request that passes all hard rules,
+    // try to claim the requested horse (before Pass 1 can assign it to someone else).
+    // Priority: same most-constrained-first order as the main sort.
+    const reqHorseKey = (name: string) => name.trim().toLowerCase()
+    const requestWinners = new Map<string, { horseName: string; isDouble: boolean }>() // guestId → winner
+    const requestClaimedPre = new Set<string>() // horse keys claimed in this pre-pass
+    const requestFailReasons = new Map<string, string>() // guestId → why it couldn't be honored
+
+    // First pass: determine which guests have a request that COULD be fulfilled
+    type ReqCandidate = { guest: GuestInput; horse: DbHorse; isDouble: boolean; constraintCount: number }
+    const reqCandidates: ReqCandidate[] = []
+    for (const guest of sorted) {
+      const req = guest.horse_request?.trim()
+      if (!req) continue
+      const reqKey = reqHorseKey(req)
+      const h = eligibleHorses.find(h => reqHorseKey(h.name) === reqKey)
+      if (!h) continue // not eligible (inactive, flagged, etc.)
+
+      const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
+      if (gIdx === -1) continue
+      const shift = fragilityShift(guest.age)
+      const hIdx = LEVEL_ORDER.indexOf(h.level)
+      if (hIdx === -1) continue
+      const range = horseLevelRangeFn(h.name, hIdx)
+      if (effectiveGIdxFor(gIdx, h.name, shift) < range.min || effectiveGIdxFor(gIdx, h.name, shift) > range.max) continue
+      if ((guest.weight ?? 0) > horseWeightCeiling(h.weight, h.name)) continue
+      if (!h.is_draft || !eligibleHorses.some(e => !e.is_draft && horseWeightCeiling(e.weight, e.name) >= (guest.weight ?? 0))) {
+        // draft check: skip if guest can fit standard but horse is draft
+        if (h.is_draft && eligibleHorses.some(e => !e.is_draft && horseWeightCeiling(e.weight, e.name) >= (guest.weight ?? 0))) continue
+      }
+      const isKid = !!(guest.age != null && guest.age < 13)
+      if (isKid && !h.takes_kids && !(horseStats[h.name]?.hasKidHistory ?? false)) continue
+      const guestPastRides = pastRideMap[guest.name.toLowerCase()] || {}
+      if (guestPastRides[h.name]?.doesntWork) continue
+
+      const dbRiders = dbAssignedMap[h.name]?.length ?? 0
+      const isDouble = dbRiders >= 1
+
+      reqCandidates.push({ guest, horse: h, isDouble, constraintCount: eligibleCountFor(guest) })
+    }
+    // Sort: single-available requests first, then most-constrained-first within each tier
+    reqCandidates.sort((a, b) => Number(a.isDouble) - Number(b.isDouble) || a.constraintCount - b.constraintCount)
+
+    for (const { guest, horse, isDouble } of reqCandidates) {
+      const hKey = reqHorseKey(horse.name)
+      if (requestClaimedPre.has(hKey)) {
+        // Another guest's request already claimed this horse in this pre-pass
+        requestFailReasons.set(guest.id, `Requested ${horse.name} — another guest's request got it first`)
+        continue
+      }
+      if (isDouble) {
+        // Horse already has 1 rider in DB — only claim if doubling is allowed
+        const dbRiders = dbAssignedMap[horse.name]?.length ?? 0
+        if (dbRiders >= 2) {
+          requestFailReasons.set(guest.id, `Requested ${horse.name} — already at 2-rider limit`)
+          continue
+        }
+      }
+      requestClaimedPre.add(hKey)
+      requestWinners.set(guest.id, { horseName: horse.name, isDouble })
+    }
+
+    // For guests with a request that didn't make it into requestWinners, compute the reason
+    for (const guest of sorted) {
+      const req = guest.horse_request?.trim()
+      if (!req || requestWinners.has(guest.id) || requestFailReasons.has(guest.id)) continue
+      const reqKey = reqHorseKey(req)
+      const hInEligible = eligibleHorses.find(h => reqHorseKey(h.name) === reqKey)
+      const hInAll = horses.find(h => reqHorseKey(h.name) === reqKey)
+      if (!hInAll) {
+        requestFailReasons.set(guest.id, `Requested "${req}" — not in roster`)
+      } else if (!hInAll.is_active || hInAll.is_deceased) {
+        requestFailReasons.set(guest.id, `Requested ${hInAll.name} — ${hInAll.is_deceased ? 'deceased' : 'inactive'}`)
+      } else if (!hInEligible) {
+        // in roster but not eligible (lame/flagged/excluded)
+        requestFailReasons.set(guest.id, `Requested ${hInAll.name} — unavailable (lame or blocked)`)
+      } else {
+        // in eligible but failed hard rules
+        const gIdx = LEVEL_ORDER.indexOf(guest.riding_level)
+        const shift = fragilityShift(guest.age)
+        const hIdx = LEVEL_ORDER.indexOf(hInEligible.level)
+        const range = horseLevelRangeFn(hInEligible.name, hIdx)
+        const eff = effectiveGIdxFor(gIdx, hInEligible.name, shift)
+        if ((guest.weight ?? 0) > horseWeightCeiling(hInEligible.weight, hInEligible.name)) {
+          requestFailReasons.set(guest.id, `Requested ${hInEligible.name} — over weight limit`)
+        } else if (eff < range.min || eff > range.max) {
+          requestFailReasons.set(guest.id, `Requested ${hInEligible.name} — level mismatch`)
+        } else {
+          const guestPastRides = pastRideMap[guest.name.toLowerCase()] || {}
+          if (guestPastRides[hInEligible.name]?.doesntWork) {
+            requestFailReasons.set(guest.id, `Requested ${hInEligible.name} — previous not a fit`)
+          } else {
+            requestFailReasons.set(guest.id, `Requested ${hInEligible.name} — horse not available`)
+          }
+        }
+      }
+    }
+
     // ── Candidate tracking for logging ──
     const guestCandidates = new Map<string, { pass: 1 | 2 | 3; topCandidates: TopCandidate[] }>()
 
@@ -328,7 +429,17 @@ export async function POST(req: NextRequest) {
       const smallCandidates = isSmallGuest ? candidates.filter(c => c.horse.weight != null && c.horse.weight <= 150) : []
       const effectiveCandidates = smallCandidates.length > 0 ? smallCandidates : candidates
 
-      if (effectiveCandidates.length > 0) {
+      // Honor request winner if the horse hasn't been used yet in Pass 1
+      const reqWin = requestWinners.get(guest.id)
+      if (reqWin && !reqWin.isDouble && !usedInPass1.has(reqWin.horseName) && !(dbAssignedMap[reqWin.horseName]?.length ?? 0)) {
+        guestCandidates.set(guest.id, { pass: 1, topCandidates: [{ rank: 1, horse_name: reqWin.horseName, score: 0, components: { dir: 0, weight: 0, age: 0, draft: 0 } }] })
+        usedInPass1.add(reqWin.horseName)
+        draft.push({ guest, suggestedHorse: reqWin.horseName, isDouble: false, needsReview: false, flagged: false, from_request: true, horseCheckoutToday: checkingOutTodayHorses.has(reqWin.horseName) })
+      } else if (reqWin && !reqWin.isDouble && usedInPass1.has(reqWin.horseName)) {
+        // Horse was taken by a prior Pass 1 assignment — fall through to normal scoring
+        requestFailReasons.set(guest.id, `Requested ${reqWin.horseName} — horse taken in this run`)
+        pass2Queue.push(guest)
+      } else if (effectiveCandidates.length > 0) {
         guestCandidates.set(guest.id, { pass: 1, topCandidates: pickTop5(effectiveCandidates) })
         usedInPass1.add(effectiveCandidates[0].horse.name)
         draft.push({ guest, suggestedHorse: effectiveCandidates[0].horse.name, isDouble: false, needsReview: false, flagged: false, horseCheckoutToday: checkingOutTodayHorses.has(effectiveCandidates[0].horse.name) })
@@ -400,7 +511,15 @@ export async function POST(req: NextRequest) {
       const smallCandidates2 = isSmallGuest2 ? candidates2.filter(c => c.horse.weight != null && c.horse.weight <= 150) : []
       const effectiveCandidates2 = smallCandidates2.length > 0 ? smallCandidates2 : candidates2
 
-      if (effectiveCandidates2.length > 0) {
+      // Honor double request winner if still available as a double
+      const reqWin2 = requestWinners.get(guest.id)
+      if (reqWin2?.isDouble && !pass2Assigned.has(reqWin2.horseName) && (dbAssignedMap[reqWin2.horseName]?.length ?? 0) < 2 && !usedInPass1.has(reqWin2.horseName)) {
+        guestCandidates.set(guest.id, { pass: 2, topCandidates: [{ rank: 1, horse_name: reqWin2.horseName, score: 0, components: { dir: 0, weight: 0, age: 0, draft: 0 } }] })
+        pass2Assigned.add(reqWin2.horseName)
+        if (!runtimeDoubleMap[reqWin2.horseName]) runtimeDoubleMap[reqWin2.horseName] = []
+        runtimeDoubleMap[reqWin2.horseName].push({ checkOut: guest.check_out_date || '' })
+        draft.push({ guest, suggestedHorse: reqWin2.horseName, isDouble: true, needsReview: false, flagged: false, from_request: true })
+      } else if (effectiveCandidates2.length > 0) {
         guestCandidates.set(guest.id, { pass: 2, topCandidates: pickTop5(effectiveCandidates2) })
         const best = effectiveCandidates2[0]
         pass2Assigned.add(best.horse.name)
@@ -427,6 +546,13 @@ export async function POST(req: NextRequest) {
     // ── Pass 3: flag remaining guests for manual review ──
     for (const guest of pass3Queue) {
       draft.push({ guest, suggestedHorse: null, isDouble: false, needsReview: true, flagged: false, noHorseReason: pass3Reasons.get(guest.id) ?? 'no_match' })
+    }
+
+    // ── Attach requestNote to rows that had a request but didn't get it ──
+    for (const row of draft) {
+      if (row.from_request) continue
+      const note = requestFailReasons.get(row.guest.id)
+      if (note) row.requestNote = note
     }
 
     console.log(`[assign-all] done in ${Date.now() - t0}ms — ${draft.length} assignments, ${pass3Queue.length} flagged`)

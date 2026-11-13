@@ -27,6 +27,8 @@ export type AnalyticsGuest = {
   checked_out?: boolean; checked_out_at?: string | null
   repeat_guest?: boolean
   room_number?: string | null
+  group_name?: string | null
+  horse_request?: string | null
   horse_assignments?: AnalyticsAssignment[]
 }
 

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const { supabase } = auth
   try {
     const body = await req.json()
-    const { age, weight, height, level, gender, notes, guestId, dismissedHorses = [] } = body
+    const { age, weight, height, level, gender, notes, guestId, dismissedHorses = [], horseRequest = '' } = body
     if (!age || !weight || !height || !level) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
@@ -193,6 +193,67 @@ export async function POST(req: NextRequest) {
       else if (assigned.length === 1) availabilityMap[h.name] = 'single_assigned'
       else availabilityMap[h.name] = 'double_assigned'
     })
+
+    // ── Requested horse pre-check ──
+    // Find the requested horse (case-insensitive, trimmed). Check all hard rules
+    // WITHOUT the dismissedHorses filter (guest explicitly asked for this horse).
+    const reqKey = horseRequest.trim().toLowerCase()
+    let requestedMatch: { name: string; fit: string; reason: string; warning: string; availability: string; from_request: boolean; shoeWarning: null | 'red' | 'amber'; rodeThisBefore: boolean; pastMatchQuality: number | null; lovesThisHorse: boolean; checkingOutToday: boolean } | null = null
+    let requestNote: string | null = null
+    if (reqKey) {
+      const allHorsesData: any[] = horsesResult.data || []
+      const reqHorseAll = allHorsesData.find((h: any) => h.name.trim().toLowerCase() === reqKey)
+      if (!reqHorseAll) {
+        requestNote = `Requested "${horseRequest.trim()}" — not in roster`
+      } else if (!reqHorseAll.is_active || reqHorseAll.is_deceased) {
+        requestNote = `Requested ${reqHorseAll.name} — ${reqHorseAll.is_deceased ? 'deceased' : 'inactive'}`
+      } else if (reqHorseAll.exclude_from_ai) {
+        requestNote = `Requested ${reqHorseAll.name} — excluded from matching`
+      } else if (flagBlocked.has(reqHorseAll.name)) {
+        requestNote = `Requested ${reqHorseAll.name} — unavailable (lame or blocked)`
+      } else if (incompatibleHorses.includes(reqHorseAll.name)) {
+        requestNote = `Requested ${reqHorseAll.name} — previous not a fit`
+      } else if (reqHorseAll.weight !== null && weightNum > horseWeightCeiling(reqHorseAll.weight, reqHorseAll.name)) {
+        requestNote = `Requested ${reqHorseAll.name} — over weight limit`
+      } else if ((assignmentMap[reqHorseAll.name] || []).length >= 2) {
+        requestNote = `Requested ${reqHorseAll.name} — already at 2-rider limit`
+      } else if (ageNum < 13 && !reqHorseAll.takes_kids && !(horseHistStats[reqHorseAll.name]?.kidCount > 0)) {
+        requestNote = `Requested ${reqHorseAll.name} — not a kids horse`
+      } else {
+        // Check level compatibility
+        const reqHIdx = LEVEL_ORDER_LOCAL.indexOf(reqHorseAll.level)
+        const reqGIdx = LEVEL_ORDER_LOCAL.indexOf(fragilityAdjustedLevel || effectiveLevel)
+        const reqRange = reqHIdx !== -1 ? horseLevelRangeFn(reqHorseAll.name, reqHIdx) : null
+        if (reqRange && reqGIdx !== -1 && (reqGIdx < reqRange.min || reqGIdx > reqRange.max)) {
+          requestNote = `Requested ${reqHorseAll.name} — level mismatch`
+        } else {
+          // Horse fits — build a match object to inject first
+          const assigned = assignmentMap[reqHorseAll.name] || []
+          let reqWarning = ''
+          const dbAvail = availabilityMap[reqHorseAll.name] || (assigned.length === 0 ? 'available' : assigned.length === 1 ? 'single_assigned' : 'double_assigned')
+          if (dbAvail === 'double_assigned') {
+            reqWarning = `Double assigned: ${assigned.map(a => a.name + ' (Room ' + a.room + ')').join(' & ')}`
+          } else if (dbAvail === 'single_assigned') {
+            reqWarning = `Already assigned to ${assigned[0]?.name} (Room ${assigned[0]?.room})`
+          }
+          const reqShoeNeed = shoeNeedsMap[reqHorseAll.name]
+          const reqPast = pastHorseMap[reqHorseAll.name]
+          requestedMatch = {
+            name: reqHorseAll.name,
+            fit: 'exact',
+            reason: 'Requested by guest.',
+            warning: reqWarning,
+            availability: dbAvail,
+            from_request: true,
+            shoeWarning: reqShoeNeed === 'fronts' ? 'red' : reqShoeNeed ? 'amber' : null,
+            rodeThisBefore: !!reqPast && !reqPast.doesnt_work,
+            pastMatchQuality: reqPast?.match_quality ?? null,
+            lovesThisHorse: reqPast?.loves_horse ?? false,
+            checkingOutToday: assigned.length > 0 && assigned.every(a => a.checkOut === today),
+          }
+        }
+      }
+    }
 
     // rank_last threshold: only surface rank_last horses when < 3 standard eligible horses exist for this guest's level
     const guestLevelIdx = LEVEL_ORDER_LOCAL.indexOf(fragilityAdjustedLevel || effectiveLevel)
@@ -365,9 +426,19 @@ Respond ONLY with valid JSON array, no markdown:
 
     const encoder = new TextEncoder()
 
+    const emittedRequestedName = requestedMatch ? requestedMatch.name.trim().toLowerCase() : null
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          // Emit requested horse first (before AI stream)
+          if (requestedMatch) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'match', match: requestedMatch })}\n\n`))
+          }
+          if (requestNote) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'request_note', note: requestNote })}\n\n`))
+          }
+
           const reader = anthropicRes.body!.getReader()
           const decoder = new TextDecoder()
           let sseBuffer = ''   // buffers partial SSE lines from Anthropic
@@ -400,6 +471,8 @@ Respond ONLY with valid JSON array, no markdown:
               if (!result) break
               try {
                 const raw = JSON.parse(result.obj) as { name: string; fit: string; reason: string; warning: string }
+                // Skip if this horse was already emitted as the requested match
+                if (emittedRequestedName && raw.name.trim().toLowerCase() === emittedRequestedName) { searchPos = result.end; continue }
                 const dbAvailability = availabilityMap[raw.name] || 'available'
                 const assigned = assignmentMap[raw.name] || []
                 let warning = raw.warning || ''
