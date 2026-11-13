@@ -684,6 +684,14 @@ export default function BoardPage() {
           />
         )}
 
+        {!isViewer && (
+          <div style={{ padding: '24px 20px 12px', textAlign: 'right' }}>
+            <a href="/russell" style={{ fontSize: 11, color: 'var(--color-text-3)', textDecoration: 'none', opacity: 0.6 }}>
+              Russell mode →
+            </a>
+          </div>
+        )}
+
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
             .board-content { padding: 12px !important; }

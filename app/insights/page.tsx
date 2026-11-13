@@ -1607,7 +1607,7 @@ function MiniLineChart({ weeks }: { weeks: WeekBucket[] }) {
 const SOURCE_LABELS: Record<string, string> = {
   assign_all: 'Assign All', assign_all_request: 'Assign All (Requested)',
   matches: 'Horse Matches', match_request: 'Match (Requested)',
-  swap: 'Swap', manual: 'Manual',
+  swap: 'Swap', manual: 'Manual', russell: 'Russell Mode',
 }
 
 function pctStr(n: number, d: number): string {
