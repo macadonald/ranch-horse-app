@@ -65,6 +65,27 @@ function into4Cols<T>(arr: T[]): [T[], T[], T[], T[]] {
   return [arr.slice(0, c), arr.slice(c, c * 2), arr.slice(c * 2, c * 3), arr.slice(c * 3)] as [T[], T[], T[], T[]]
 }
 
+function into3Cols<T>(arr: T[]): [T[], T[], T[]] {
+  const c = Math.ceil(arr.length / 3)
+  return [arr.slice(0, c), arr.slice(c, c * 2), arr.slice(c * 2)] as [T[], T[], T[]]
+}
+
+function into2Cols<T>(arr: T[]): [T[], T[]] {
+  const c = Math.ceil(arr.length / 2)
+  return [arr.slice(0, c), arr.slice(c)] as [T[], T[]]
+}
+
+function useWindowWidth(): number | null {
+  const [width, setWidth] = useState<number | null>(null)
+  useEffect(() => {
+    setWidth(window.innerWidth)
+    const handler = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return width
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RussellPage() {
@@ -87,8 +108,15 @@ export default function RussellPage() {
   const [practiceMode, setPracticeMode] = useState(true)
   const [practiceResult, setPracticeResult] = useState<{ count: number; placements: { guestName: string; roomNumber: string; horseName: string }[] } | null>(null)
 
+  const width = useWindowWidth()
+  const isPhone = width !== null && width < 700
+  const isPortrait = width !== null && width >= 700 && width < 1024
+
   const hasDraft = Object.keys(draft).length > 0
   const didAutoSelect = useRef(false)
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [showKeyLegend, setShowKeyLegend] = useState(false)
+  const [stickyExpanded, setStickyExpanded] = useState(false)
 
   // Warn on navigation if unsaved draft
   useEffect(() => {
@@ -208,6 +236,13 @@ export default function RussellPage() {
   // draft intentionally omitted — we only want to run once after initial load
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, stayingGuests, selectedGuestId])
+
+  // Auto-scroll chip into view on selection change (portrait + phone)
+  useEffect(() => {
+    if (!selectedGuestId || width === null || width >= 1024) return
+    const el = chipRefs.current[selectedGuestId]
+    if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
+  }, [selectedGuestId, width])
 
   const selectedGuest = useMemo(() =>
     stayingGuests.find(g => g.id === selectedGuestId) ?? null,
@@ -455,11 +490,19 @@ export default function RussellPage() {
       return
     }
     placeDraft(selectedGuestId, horse.name)
+    // Auto-advance to next unplaced guest on portrait + phone
+    if (width !== null && width < 1024) {
+      const currentIdx = stayingGuests.findIndex(g => g.id === selectedGuestId)
+      const next =
+        stayingGuests.find((g, i) => i > currentIdx && !draft[g.id] && g.id !== selectedGuestId) ??
+        stayingGuests.find(g => !draft[g.id] && g.id !== selectedGuestId)
+      if (next) setSelectedGuestId(next.id)
+    }
   }
 
   // ── Auth gates ───────────────────────────────────────────────────────────────
 
-  if (loading) {
+  if (loading || width === null) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a2e', color: '#fff', flexDirection: 'column', gap: 10 }}>
         <div style={{ fontSize: 32 }}>🐴</div>
@@ -481,89 +524,201 @@ export default function RussellPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  const horseColumns = into4Cols(sortedHorses)
+  const horseColumns4 = into4Cols(sortedHorses)
+  const horseColumns3 = into3Cols(sortedHorses)
+  const horseColumns2 = into2Cols(sortedHorses)
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden', background: '#f1f5f9' }}>
-
-      {/* ── Top bar ── */}
-      <div style={{ background: '#1a1a2e', color: '#fff', display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', height: 60, flexShrink: 0 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginRight: 6, whiteSpace: 'nowrap' }}>Russell Mode</span>
-
-        <span style={{
-          fontSize: 12, padding: '4px 12px', borderRadius: 999, fontWeight: 700, whiteSpace: 'nowrap',
-          background: placedCount === totalCount && totalCount > 0 ? '#065f46' : '#374151', color: '#fff',
-        }}>
-          {placedCount} / {totalCount} placed
-        </span>
-
-        <div style={{ flex: 1 }} />
-
-        <button
-          onClick={fillInSuggestions}
-          disabled={suggLoading || Object.keys(suggestions).length === 0}
-          style={{ minHeight: 44, padding: '0 16px', borderRadius: 10, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', opacity: (suggLoading || Object.keys(suggestions).length === 0) ? 0.4 : 1 }}
-        >
-          {suggLoading ? 'Loading…' : '✦ Fill in suggestions'}
-        </button>
-
-        <button
-          onClick={undo}
-          disabled={undoStack.length === 0}
-          style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: '1px solid #374151', background: 'transparent', color: undoStack.length === 0 ? '#4b5563' : '#d1d5db', fontSize: 13, cursor: undoStack.length === 0 ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-        >
-          ↩ Undo
-        </button>
-
-        <button
-          onClick={togglePractice}
-          style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: `1px solid ${practiceMode ? '#fbbf24' : '#374151'}`, background: practiceMode ? 'rgba(251,191,36,0.12)' : 'transparent', color: practiceMode ? '#fbbf24' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', letterSpacing: '0.02em' }}
-        >
-          {practiceMode ? '⚠ Practice ON' : 'Practice OFF'}
-        </button>
-
-        <button
-          onClick={keepAll}
-          disabled={savingAll || Object.keys(draft).length === 0}
-          style={{ minHeight: 44, padding: '0 18px', borderRadius: 10, border: 'none', background: practiceMode ? '#d97706' : '#059669', color: '#fff', fontSize: 13, fontWeight: 700, cursor: (savingAll || Object.keys(draft).length === 0) ? 'default' : 'pointer', whiteSpace: 'nowrap', opacity: (savingAll || Object.keys(draft).length === 0) ? 0.4 : 1 }}
-        >
-          {savingAll ? 'Saving…' : `Keep All (${Object.keys(draft).length})`}
-        </button>
-
-        <Link
-          href="/board"
-          onClick={(e) => { if (hasDraft && !practiceMode && !confirm('You have unsaved horses — leave anyway?')) e.preventDefault() }}
-          style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}
-        >
-          ← Board
-        </Link>
+  function renderHorseGrid(cols: DbHorse[][], rowHeight: number) {
+    return (
+      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.length}, minmax(0,1fr))` }}>
+          {cols.map((col, ci) => (
+            <div key={ci} style={{ borderRight: ci < cols.length - 1 ? '1px solid #e9ecef' : 'none' }}>
+              {col.map(horse => {
+                const blockReason = getBlockReason(horse, today)
+                const isBlocked = !!blockReason
+                const existingRiders = existingMap[horse.name] ?? []
+                const draftRiders = draftByHorse[horse.name] ?? []
+                const suggRiders = suggByHorse[horse.name] ?? []
+                const shoe = shoeMap[horse.name]
+                const totalRiders = existingRiders.length + draftRiders.length
+                const isDouble = totalRiders >= 2
+                const candidateRank = topCandidatesForSelected.indexOf(horse.name)
+                const isTopCandidate = candidateRank !== -1
+                let rowBg = 'transparent'
+                if (isBlocked) rowBg = '#f9fafb'
+                else if (isTopCandidate) rowBg = '#f0fdf4'
+                else if (isDouble) rowBg = '#fffbeb'
+                const allRoomNums = [...existingRiders, ...draftRiders].map(r => roomLabel(r.roomNumber))
+                const uniqueRooms = Array.from(new Set(allRoomNums))
+                return (
+                  <div key={horse.name} onClick={() => handleHorseTap(horse)}
+                    title={`${horse.name} — ${horse.level}${horse.weight ? ` · ${horse.weight} lb` : ''}`}
+                    style={{ display: 'flex', alignItems: 'center', height: rowHeight, borderBottom: '1px solid #f1f5f9', borderLeft: `4px solid ${isTopCandidate ? '#22c55e' : 'transparent'}`, background: rowBg, cursor: isBlocked ? 'not-allowed' : 'pointer', overflow: 'hidden' }}
+                  >
+                    <div style={{ width: 28, flexShrink: 0, fontSize: 9, color: '#9ca3af', fontWeight: 700, textAlign: 'right', paddingRight: 3, overflow: 'hidden', textOverflow: 'clip', whiteSpace: 'nowrap' }}>{uniqueRooms.join(',')}</div>
+                    <div style={{ width: 10, flexShrink: 0, fontSize: 10, color: '#16a34a', fontWeight: 700, textAlign: 'center' }}>{isTopCandidate && candidateRank === 0 ? '★' : ''}</div>
+                    <div style={{ flex: '0 0 82px', overflow: 'hidden', paddingRight: 2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', color: isBlocked ? '#9ca3af' : '#111827', textDecoration: isBlocked ? 'line-through' : 'none' }}>{horse.name}</span>
+                      {isBlocked && <span style={{ fontSize: 8, background: '#fef3c7', color: '#92400e', borderRadius: 2, padding: '0 2px', marginLeft: 2, whiteSpace: 'nowrap' }}>{blockReason}</span>}
+                      {shoe && !isBlocked && <span style={{ fontSize: 8, background: '#fff7ed', color: '#d97706', borderRadius: 2, padding: '0 2px', marginLeft: 2, whiteSpace: 'nowrap' }}>Shoes</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', display: 'flex', gap: 3, alignItems: 'center', paddingRight: 4 }}>
+                      {existingRiders.map((r, i) => <span key={`e${i}`} className={caveat.className} style={{ fontSize: 13, color: '#111827' }}>{firstName(r.guestName)}</span>)}
+                      {draftRiders.map((r, i) => <span key={`d${i}`} className={caveat.className} style={{ fontSize: 13, color: '#2563eb', fontWeight: 700 }}>{firstName(r.guestName)}</span>)}
+                      {suggRiders.map((r, i) => <span key={`s${i}`} className={caveat.className} style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>?{firstName(r.guestName)}</span>)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
       </div>
+    )
+  }
 
-      {/* Practice banner */}
-      {practiceMode && (
-        <div style={{ background: '#fef3c7', borderBottom: '1px solid #fcd34d', padding: '5px 16px', fontSize: 12, fontWeight: 700, color: '#92400e', textAlign: 'center', flexShrink: 0, letterSpacing: '0.04em' }}>
-          PRACTICE MODE — nothing will be saved
+  const legendRow = (
+    <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', padding: '0 2px 6px' }}>
+      <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Legend:</span>
+      <span style={{ fontSize: 11, color: '#374151' }}>■ Existing rider</span>
+      <span style={{ fontSize: 11, color: '#2563eb', fontWeight: 600 }}>■ Placed tonight</span>
+      <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>■ ? AI suggestion</span>
+      <span style={{ fontSize: 11, color: '#16a34a' }}>■ Top pick for selected guest (★ = #1)</span>
+      <span style={{ fontSize: 11, color: '#d97706' }}>⚠ Shoes due</span>
+    </div>
+  )
+
+  const practiceBanner = practiceMode && (
+    <div style={{ background: '#fef3c7', borderBottom: '1px solid #fcd34d', padding: '5px 16px', fontSize: 12, fontWeight: 700, color: '#92400e', textAlign: 'center', flexShrink: 0, letterSpacing: '0.04em' }}>
+      PRACTICE MODE — nothing will be saved
+    </div>
+  )
+
+  const errorBanner = saveErrors.length > 0 && (
+    <div style={{ background: '#fef2f2', borderBottom: '1px solid #fca5a5', padding: '6px 16px', fontSize: 12, color: '#991b1b', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <strong>Some saves failed:</strong> {saveErrors.join(' · ')}
+      <button onClick={() => setSaveErrors([])} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#991b1b', lineHeight: 1 }}>✕</button>
+    </div>
+  )
+
+  // Compact guest card for portrait + phone
+  const compactCard = selectedGuest ? (
+    <div style={{ background: '#f0fdf4', borderBottom: '2px solid #16a34a', padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{selectedGuest.name}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, background: '#fff', border: '1.5px solid #16a34a', borderRadius: 5, padding: '1px 6px', color: '#166534' }}>Rm {roomLabel(selectedGuest.room_number)}</span>
+          <button onClick={() => setSelectedGuestId(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 15, cursor: 'pointer', color: '#6b7280', lineHeight: 1, padding: 0 }}>✕</button>
         </div>
-      )}
-
-      {/* Save error banner */}
-      {saveErrors.length > 0 && (
-        <div style={{ background: '#fef2f2', borderBottom: '1px solid #fca5a5', padding: '6px 16px', fontSize: 12, color: '#991b1b', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <strong>Some saves failed:</strong> {saveErrors.join(' · ')}
-          <button onClick={() => setSaveErrors([])} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#991b1b', lineHeight: 1 }}>✕</button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px 4px', marginBottom: 6 }}>
+          {[{ label: 'HT', value: selectedGuest.height || '—' }, { label: 'WT', value: selectedGuest.weight ? `${selectedGuest.weight}` : '—' }, { label: 'AGE', value: selectedGuest.age != null ? String(selectedGuest.age) : '—' }, { label: 'LEVEL', value: selectedGuest.riding_level || '—' }, { label: 'LEAVES', value: selectedGuest.check_out_date?.slice(5) || '—' }].map(s => (
+            <div key={s.label} style={{ background: 'rgba(255,255,255,0.75)', borderRadius: 5, padding: '2px 4px', border: '1px solid #bbf7d0' }}>
+              <div style={{ fontSize: 8, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#111827' }}>{s.value}</div>
+            </div>
+          ))}
         </div>
-      )}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {selectedGuest.repeat_guest && <span style={{ fontSize: 10, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 999, padding: '1px 6px', fontWeight: 600 }}>⭐ Repeat</span>}
+          {selectedGuest.group_name && <span style={{ fontSize: 10, background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 999, padding: '1px 6px' }}>{selectedGuest.group_name}</span>}
+          {(incompatibleDisplayMap[selectedGuest.id]?.length ?? 0) > 0 && <span style={{ fontSize: 10, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 999, padding: '1px 6px', fontWeight: 600 }}>🚫 {incompatibleDisplayMap[selectedGuest.id].join(', ')}</span>}
+        </div>
+      </div>
+      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+        {!draft[selectedGuest.id] ? (
+          validTopPick ? (
+            <button onClick={() => placeDraft(selectedGuest.id, validTopPick)} style={{ minHeight: 52, padding: '8px 12px', borderRadius: 10, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', textAlign: 'center' }}>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>★ {validTopPick}</div>
+              <div style={{ fontSize: 10, opacity: 0.65 }}>suggested</div>
+            </button>
+          ) : (
+            <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic', maxWidth: 90 }}>{suggLoading ? 'Loading…' : 'No suggestion'}</div>
+          )
+        ) : (
+          <>
+            <div style={{ fontSize: 11, color: '#059669', fontWeight: 700, whiteSpace: 'nowrap' }}>🐴 {draft[selectedGuest.id].horseName}</div>
+            <button onClick={() => removeDraft(selectedGuest.id)} style={{ minHeight: 40, padding: '5px 10px', borderRadius: 8, border: '1.5px solid #dc2626', background: '#fff', color: '#dc2626', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Take off</button>
+          </>
+        )}
+      </div>
+    </div>
+  ) : (
+    <div style={{ background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', padding: '10px 14px', fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>
+      Tap a guest chip to select · <span style={{ color: sheetStatus.color, fontStyle: 'normal', fontWeight: sheetStatus.color !== '#9ca3af' ? 600 : 400 }}>{sheetStatus.text}</span>
+    </div>
+  )
 
-      {/* ── Body ── */}
+  // Guest chips row (portrait + phone)
+  const chipRow = (
+    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+      {stayingGuests.map(g => {
+        const placement = draft[g.id]
+        const sugg = suggestions[g.id]
+        const isSelected = g.id === selectedGuestId
+        return (
+          <button key={g.id}
+            ref={(el: HTMLButtonElement | null) => { chipRefs.current[g.id] = el }}
+            onClick={() => { setSelectedGuestId(isSelected ? null : g.id); setStickyExpanded(false) }}
+            style={{ padding: '5px 10px', borderRadius: 999, border: `1.5px solid ${isSelected ? '#2563eb' : placement ? '#16a34a' : '#e2e8f0'}`, background: isSelected ? '#eff6ff' : placement ? '#f0fdf4' : '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap', cursor: 'pointer', minHeight: 36 }}
+          >
+            {roomLabel(g.room_number)}·{firstName(g.name)}{placement ? `·${placement.horseName}` : (sugg?.suggestedHorse ? ` ?${sugg.suggestedHorse}` : '')}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  // Shared top bar (landscape + portrait)
+  const topBarShared = (
+    <div style={{ background: '#1a1a2e', color: '#fff', display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', flexWrap: 'wrap', minHeight: 60, flexShrink: 0 }}>
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginRight: 6, whiteSpace: 'nowrap' }}>Russell Mode</span>
+      <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 999, fontWeight: 700, whiteSpace: 'nowrap', background: placedCount === totalCount && totalCount > 0 ? '#065f46' : '#374151', color: '#fff' }}>{placedCount} / {totalCount} placed</span>
+      <div style={{ flex: 1 }} />
+      <button onClick={fillInSuggestions} disabled={suggLoading || Object.keys(suggestions).length === 0} style={{ minHeight: 44, padding: '0 16px', borderRadius: 10, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', opacity: (suggLoading || Object.keys(suggestions).length === 0) ? 0.4 : 1 }}>{suggLoading ? 'Loading…' : '✦ Fill in suggestions'}</button>
+      <button onClick={undo} disabled={undoStack.length === 0} style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: '1px solid #374151', background: 'transparent', color: undoStack.length === 0 ? '#4b5563' : '#d1d5db', fontSize: 13, cursor: undoStack.length === 0 ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>↩ Undo</button>
+      <button onClick={togglePractice} style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: `1px solid ${practiceMode ? '#fbbf24' : '#374151'}`, background: practiceMode ? 'rgba(251,191,36,0.12)' : 'transparent', color: practiceMode ? '#fbbf24' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', letterSpacing: '0.02em' }}>{practiceMode ? '⚠ Practice ON' : 'Practice OFF'}</button>
+      <button onClick={keepAll} disabled={savingAll || Object.keys(draft).length === 0} style={{ minHeight: 44, padding: '0 18px', borderRadius: 10, border: 'none', background: practiceMode ? '#d97706' : '#059669', color: '#fff', fontSize: 13, fontWeight: 700, cursor: (savingAll || Object.keys(draft).length === 0) ? 'default' : 'pointer', whiteSpace: 'nowrap', opacity: (savingAll || Object.keys(draft).length === 0) ? 0.4 : 1 }}>{savingAll ? 'Saving…' : `Keep All (${Object.keys(draft).length})`}</button>
+      <Link href="/board" onClick={e => { if (hasDraft && !practiceMode && !confirm('You have unsaved horses — leave anyway?')) e.preventDefault() }} style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>← Board</Link>
+    </div>
+  )
+
+  const practiceResultModal = practiceResult && (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 24, maxWidth: 460, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.25)' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>Practice — nothing was saved</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>These {practiceResult.count} placement{practiceResult.count !== 1 ? 's' : ''} would have been saved:</div>
+        <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+          {practiceResult.placements.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 3, padding: '1px 5px', color: '#6b7280', flexShrink: 0 }}>{roomLabel(p.roomNumber)}</span>
+              <span style={{ color: '#374151', flex: 1 }}>{p.guestName}</span>
+              <span style={{ color: '#6b7280' }}>→</span>
+              <span style={{ fontWeight: 600 }}>🐴 {p.horseName}</span>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setPracticeResult(null)} style={{ padding: '12px', borderRadius: 8, border: 'none', background: '#1a1a2e', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Done</button>
+      </div>
+    </div>
+  )
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // LANDSCAPE (≥1024px) — fixed height, overflow hidden, two-column layout
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (!isPhone && !isPortrait) return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden', background: '#f1f5f9' }}>
+      {topBarShared}
+      {practiceBanner}
+      {errorBanner}
+
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: 0 }}>
 
-        {/* ── Left column ── */}
+        {/* Left column */}
         <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
 
-          {/* Selected guest card — always at top */}
           {selectedGuest ? (
-            <div style={{ background: '#f0fdf4', border: '0 0 1px 0', borderBottom: '2px solid #16a34a', padding: '12px 12px 10px', flexShrink: 0 }}>
-              {/* Name row */}
+            <div style={{ background: '#f0fdf4', borderBottom: '2px solid #16a34a', padding: '12px 12px 10px', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -576,7 +731,6 @@ export default function RussellPage() {
                 <button onClick={() => setSelectedGuestId(null)} style={{ background: 'none', border: 'none', fontSize: 15, cursor: 'pointer', color: '#6b7280', lineHeight: 1, padding: '2px 0 0 6px', flexShrink: 0 }}>✕</button>
               </div>
 
-              {/* Stats grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px 6px', marginBottom: 8 }}>
                 {[
                   { label: 'HEIGHT', value: selectedGuest.height || '—' },
@@ -592,7 +746,6 @@ export default function RussellPage() {
                 ))}
               </div>
 
-              {/* Badges */}
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
                 {selectedGuest.repeat_guest && (
                   <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 999, padding: '2px 8px', fontWeight: 600 }}>⭐ Repeat</span>
@@ -607,7 +760,6 @@ export default function RussellPage() {
                 )}
               </div>
 
-              {/* CTA button */}
               {!draft[selectedGuest.id] ? (
                 validTopPick ? (
                   <button
@@ -640,7 +792,6 @@ export default function RussellPage() {
             </div>
           )}
 
-          {/* Guest list */}
           <div style={{ padding: '7px 10px 3px', fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>
             Tonight&apos;s arrivals ({stayingGuests.length})
           </div>
@@ -687,149 +838,106 @@ export default function RussellPage() {
           </div>
         </div>
 
-        {/* ── Right: master sheet ── */}
+        {/* Right: master sheet */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-
-          {/* Sheet panel header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Master sheet</span>
-            <span style={{ fontSize: 12, color: sheetStatus.color, fontWeight: sheetStatus.color !== '#9ca3af' ? 600 : 400 }}>
-              {sheetStatus.text}
-            </span>
+            <span style={{ fontSize: 12, color: sheetStatus.color, fontWeight: sheetStatus.color !== '#9ca3af' ? 600 : 400 }}>{sheetStatus.text}</span>
           </div>
-
-          {/* 4-column horse grid + legend */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 6px' }}>
-
-            {/* White rounded panel */}
-            <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: 8 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-                {horseColumns.map((col, ci) => (
-                  <div key={ci} style={{ borderRight: ci < 3 ? '1px solid #e9ecef' : 'none' }}>
-                    {col.map(horse => {
-                      const blockReason = getBlockReason(horse, today)
-                      const isBlocked = !!blockReason
-                      const existingRiders = existingMap[horse.name] ?? []
-                      const draftRiders = draftByHorse[horse.name] ?? []
-                      const suggRiders = suggByHorse[horse.name] ?? []
-                      const shoe = shoeMap[horse.name]
-                      const totalRiders = existingRiders.length + draftRiders.length
-                      const isDouble = totalRiders >= 2
-
-                      const candidateRank = topCandidatesForSelected.indexOf(horse.name)
-                      const isTopCandidate = candidateRank !== -1
-
-                      let rowBg = 'transparent'
-                      if (isBlocked) rowBg = '#f9fafb'
-                      else if (isTopCandidate) rowBg = '#f0fdf4'
-                      else if (isDouble) rowBg = '#fffbeb'
-
-                      const allRoomNums = [...existingRiders, ...draftRiders].map(r => roomLabel(r.roomNumber))
-                      const uniqueRooms = Array.from(new Set(allRoomNums))
-
-                      return (
-                        <div
-                          key={horse.name}
-                          onClick={() => handleHorseTap(horse)}
-                          title={`${horse.name} — ${horse.level}${horse.weight ? ` · ${horse.weight} lb` : ''}`}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            height: 28,
-                            borderBottom: '1px solid #f1f5f9',
-                            borderLeft: `4px solid ${isTopCandidate ? '#22c55e' : 'transparent'}`,
-                            background: rowBg,
-                            cursor: isBlocked ? 'not-allowed' : 'pointer',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {/* Room number */}
-                          <div style={{ width: 28, flexShrink: 0, fontSize: 9, color: '#9ca3af', fontWeight: 700, textAlign: 'right', paddingRight: 3, overflow: 'hidden', textOverflow: 'clip', whiteSpace: 'nowrap' }}>
-                            {uniqueRooms.join(',')}
-                          </div>
-
-                          {/* Star slot */}
-                          <div style={{ width: 10, flexShrink: 0, fontSize: 10, color: '#16a34a', fontWeight: 700, textAlign: 'center' }}>
-                            {isTopCandidate && candidateRank === 0 ? '★' : ''}
-                          </div>
-
-                          {/* Horse name + tags */}
-                          <div style={{ flex: '0 0 82px', overflow: 'hidden', paddingRight: 2 }}>
-                            <span style={{
-                              fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
-                              color: isBlocked ? '#9ca3af' : '#111827',
-                              textDecoration: isBlocked ? 'line-through' : 'none',
-                            }}>
-                              {horse.name}
-                            </span>
-                            {isBlocked && (
-                              <span style={{ fontSize: 8, background: '#fef3c7', color: '#92400e', borderRadius: 2, padding: '0 2px', marginLeft: 2, whiteSpace: 'nowrap' }}>{blockReason}</span>
-                            )}
-                            {shoe && !isBlocked && (
-                              <span style={{ fontSize: 8, background: '#fff7ed', color: '#d97706', borderRadius: 2, padding: '0 2px', marginLeft: 2, whiteSpace: 'nowrap' }}>Shoes</span>
-                            )}
-                          </div>
-
-                          {/* Rider names (Caveat only) */}
-                          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', display: 'flex', gap: 3, alignItems: 'center', paddingRight: 4 }}>
-                            {existingRiders.map((r, i) => (
-                              <span key={`e${i}`} className={caveat.className} style={{ fontSize: 13, color: '#111827' }}>{firstName(r.guestName)}</span>
-                            ))}
-                            {draftRiders.map((r, i) => (
-                              <span key={`d${i}`} className={caveat.className} style={{ fontSize: 13, color: '#2563eb', fontWeight: 700 }}>{firstName(r.guestName)}</span>
-                            ))}
-                            {suggRiders.map((r, i) => (
-                              <span key={`s${i}`} className={caveat.className} style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>?{firstName(r.guestName)}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Legend — below the sheet */}
-            <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', padding: '0 2px' }}>
-              <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Legend:</span>
-              <span style={{ fontSize: 11, color: '#374151' }}>■ Existing rider</span>
-              <span style={{ fontSize: 11, color: '#2563eb', fontWeight: 600 }}>■ Placed tonight</span>
-              <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>■ ? AI suggestion</span>
-              <span style={{ fontSize: 11, color: '#16a34a' }}>■ Top pick for selected guest (★ = #1)</span>
-              <span style={{ fontSize: 11, color: '#d97706' }}>⚠ Shoes due</span>
-            </div>
+            {renderHorseGrid(horseColumns4, 28)}
+            {legendRow}
           </div>
         </div>
       </div>
 
-      {/* Practice result modal */}
-      {practiceResult && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 24, maxWidth: 460, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>Practice — nothing was saved</div>
-            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
-              These {practiceResult.count} placement{practiceResult.count !== 1 ? 's' : ''} would have been saved:
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
-              {practiceResult.placements.map((p, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 3, padding: '1px 5px', color: '#6b7280', flexShrink: 0 }}>{roomLabel(p.roomNumber)}</span>
-                  <span style={{ color: '#374151', flex: 1 }}>{p.guestName}</span>
-                  <span style={{ color: '#6b7280' }}>→</span>
-                  <span style={{ fontWeight: 600 }}>🐴 {p.horseName}</span>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setPracticeResult(null)}
-              style={{ padding: '12px', borderRadius: 8, border: 'none', background: '#1a1a2e', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              Done
-            </button>
-          </div>
+      {practiceResultModal}
+    </div>
+  )
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PORTRAIT (700–1023px) — minHeight 100dvh, sticky card+chips, scrollable sheet
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (isPortrait) return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh', background: '#f1f5f9' }}>
+      {topBarShared}
+      {practiceBanner}
+      {errorBanner}
+
+      {/* Sticky: compact card + chips together */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#f1f5f9' }}>
+        {compactCard}
+        {chipRow}
+      </div>
+
+      {/* Scrollable sheet */}
+      <div style={{ flex: 1, padding: '10px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Master sheet</span>
+          <span style={{ fontSize: 12, color: sheetStatus.color, fontWeight: sheetStatus.color !== '#9ca3af' ? 600 : 400 }}>{sheetStatus.text}</span>
         </div>
-      )}
+        {renderHorseGrid(horseColumns3, 28)}
+        {legendRow}
+      </div>
+
+      {practiceResultModal}
+    </div>
+  )
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PHONE (<700px) — minHeight 100dvh, 2-row non-sticky top bar, sticky placing bar
+  // ─────────────────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh', background: '#f1f5f9' }}>
+
+      {/* 2-row top bar — NOT sticky */}
+      <div style={{ background: '#1a1a2e', color: '#fff', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 6px' }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>Russell Mode</span>
+          <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, fontWeight: 700, whiteSpace: 'nowrap', background: placedCount === totalCount && totalCount > 0 ? '#065f46' : '#374151', color: '#fff' }}>{placedCount} / {totalCount}</span>
+          <div style={{ flex: 1 }} />
+          <Link href="/board" onClick={e => { if (hasDraft && !practiceMode && !confirm('You have unsaved horses — leave anyway?')) e.preventDefault() }} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>← Board</Link>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px 10px', flexWrap: 'wrap' }}>
+          <button onClick={fillInSuggestions} disabled={suggLoading || Object.keys(suggestions).length === 0} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', opacity: (suggLoading || Object.keys(suggestions).length === 0) ? 0.4 : 1 }}>{suggLoading ? 'Loading…' : '✦ Fill suggestions'}</button>
+          <button onClick={togglePractice} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: `1px solid ${practiceMode ? '#fbbf24' : '#374151'}`, background: practiceMode ? 'rgba(251,191,36,0.12)' : 'transparent', color: practiceMode ? '#fbbf24' : '#6b7280', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{practiceMode ? '⚠ Practice' : 'Practice'}</button>
+          <button onClick={keepAll} disabled={savingAll || Object.keys(draft).length === 0} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: 'none', background: practiceMode ? '#d97706' : '#059669', color: '#fff', fontSize: 12, fontWeight: 700, cursor: (savingAll || Object.keys(draft).length === 0) ? 'default' : 'pointer', whiteSpace: 'nowrap', opacity: (savingAll || Object.keys(draft).length === 0) ? 0.4 : 1 }}>{savingAll ? 'Saving…' : `Keep All (${Object.keys(draft).length})`}</button>
+        </div>
+      </div>
+
+      {practiceBanner}
+      {errorBanner}
+
+      {/* Sticky placing bar at top:0 — has inline Undo + expand toggle */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#1e293b', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+            {selectedGuest ? (
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                Placing: {selectedGuest.name}
+                {draft[selectedGuest.id] && <span style={{ fontSize: 11, color: '#4ade80', marginLeft: 6 }}>→ {draft[selectedGuest.id].horseName}</span>}
+              </span>
+            ) : (
+              <span style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Tap a chip to select a guest</span>
+            )}
+          </div>
+          <button onClick={undo} disabled={undoStack.length === 0} style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: undoStack.length === 0 ? '#4b5563' : '#d1d5db', fontSize: 12, cursor: undoStack.length === 0 ? 'default' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>↩</button>
+          <button onClick={() => setStickyExpanded(v => !v)} style={{ minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>{stickyExpanded ? '▴' : '▾'}</button>
+        </div>
+        {stickyExpanded && compactCard}
+      </div>
+
+      {chipRow}
+
+      <div style={{ padding: '8px 10px' }}>
+        {renderHorseGrid(horseColumns2, 36)}
+        <div style={{ padding: '4px 2px 8px' }}>
+          <button onClick={() => setShowKeyLegend(v => !v)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#6b7280', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>{showKeyLegend ? 'Hide legend' : 'Show legend'}</button>
+          {showKeyLegend && legendRow}
+        </div>
+      </div>
+
+      {practiceResultModal}
     </div>
   )
 }

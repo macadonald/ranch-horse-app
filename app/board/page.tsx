@@ -393,11 +393,18 @@ export default function BoardPage() {
 
         <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '14px 20px 10px', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <div>
-              <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Assignment Board</h1>
-              <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
-                {loading ? 'Loading...' : `${poolHorses.length} in pool · ${Object.keys(assignmentMap).length} assigned`}
-              </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>Assignment Board</h1>
+                <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+                  {loading ? 'Loading...' : `${poolHorses.length} in pool · ${Object.keys(assignmentMap).length} assigned`}
+                </p>
+              </div>
+              {!isViewer && (
+                <a href="/russell" style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: '#1a1a2e', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 44, whiteSpace: 'nowrap' }}>
+                  🐴 Russell mode
+                </a>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
               <input placeholder="Search horses or guests..." value={search} onChange={e => setSearch(e.target.value)} style={{ fontSize: 13, width: 200 }} />
@@ -684,13 +691,6 @@ export default function BoardPage() {
           />
         )}
 
-        {!isViewer && (
-          <div style={{ padding: '24px 20px 12px', textAlign: 'right' }}>
-            <a href="/russell" style={{ fontSize: 11, color: 'var(--color-text-3)', textDecoration: 'none', opacity: 0.6 }}>
-              Russell mode →
-            </a>
-          </div>
-        )}
 
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 768px) {
